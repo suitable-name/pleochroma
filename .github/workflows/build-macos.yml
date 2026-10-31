@@ -29,11 +29,11 @@ jobs:
           - runner: macos-15
             target: aarch64-apple-darwin
             arch: arm64
-            cpu: generic
+            rustflags: ''
           - runner: macos-15-intel
             target: x86_64-apple-darwin
             arch: x86_64
-            cpu: x86-64
+            rustflags: '-C target-cpu=x86-64'
     defaults:
       run:
         shell: bash
@@ -50,8 +50,9 @@ jobs:
       CARGO_PROFILE_RELEASE_DEBUG: '0'
       RUSTC_WRAPPER: ''
       RUSTC_WORKSPACE_WRAPPER: ''
-      # Replaces .cargo/config.toml's x86-64-v3 baseline on Intel Macs.
-      RUSTFLAGS: -C target-cpu=${{ matrix.cpu }}
+      # Keep Rust's Apple ARM64 baseline: generic omits features required by ring.
+      # Intel overrides .cargo/config.toml's x86-64-v3 baseline for older Macs.
+      RUSTFLAGS: ${{ matrix.rustflags }}
       MACOSX_DEPLOYMENT_TARGET: '13.0'
       # Use the bundled winit renderer, without a runner-local Qt dependency.
       SLINT_NO_QT: '1'
