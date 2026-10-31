@@ -18,6 +18,7 @@
 mod export;
 mod model;
 mod runtime;
+mod samples;
 
 use pleochroma_mobile_core::{
     app_state::AppState,
@@ -34,6 +35,7 @@ pub use runtime::{on_touch_released, on_viewport_changed};
 
 /// Connects `RenderModel`'s callbacks and gives the timers their handle on the state.
 pub fn wire(window: &AppWindow, state: &Shared) {
+    samples::apply(&mut state.borrow_mut());
     runtime::install(window, state);
     export::wire(window, state);
 
@@ -48,6 +50,7 @@ pub fn wire(window: &AppWindow, state: &Shared) {
         {
             let mut app = shared.borrow_mut();
             app.update_settings(|settings| settings.render.engine = engine.index());
+            samples::apply(&mut app);
             app.render.stop();
         }
         crate::design::refresh(&window, &shared);
@@ -66,6 +69,7 @@ pub fn wire(window: &AppWindow, state: &Shared) {
                 return;
             }
             app.update_settings(|settings| settings.render.backend = backend);
+            samples::apply(&mut app);
             app.render.set_user_paused(false);
             app.render.stop();
         }
@@ -114,13 +118,19 @@ fn wire_settings(window: &AppWindow, state: &Shared) {
 
     let (weak, shared) = (window.as_weak(), state.clone());
     model.on_quality_selected(move |index| {
+        let Some(window) = weak.upgrade() else { return };
+        if !shared.borrow().settings.render.engine_spec().is_ray() {
+            if samples::select(&mut shared.borrow_mut(), index) {
+                crate::design::refresh(&window, &shared);
+            }
+            return;
+        }
         let next = match index {
             0 => RenderQuality::Draft,
             1 => RenderQuality::Normal,
             2 => RenderQuality::Fine,
             _ => return,
         };
-        let Some(window) = weak.upgrade() else { return };
         {
             let mut app = shared.borrow_mut();
             if app.settings.render.quality == next {

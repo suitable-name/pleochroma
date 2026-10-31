@@ -139,7 +139,16 @@ pub(super) fn maintain(window: &AppWindow, shared: &Shared) {
             schedule_kick(RETRY);
             return;
         };
-        render_view::maintain(&mut app, now())
+        if app.settings.render.backend == pleochroma_mobile_core::settings::RenderBackend::Remote
+            && matches!(
+                app.render.status(),
+                pleochroma_mobile_core::render::RenderStatus::Failed(_)
+            )
+        {
+            crate::remote::record_render_connection(&app, false);
+        }
+        super::samples::apply(&mut app);
+        super::samples::maintain(&mut app, now())
     };
     match outcome {
         Maintain::Wait(delay) => schedule_kick(delay),
@@ -148,6 +157,7 @@ pub(super) fn maintain(window: &AppWindow, shared: &Shared) {
         Maintain::Held | Maintain::Stopped | Maintain::Idle | Maintain::Blocked(_) => {}
     }
     if let Ok(app) = shared.try_borrow() {
+        super::export::refresh_document(window, &app);
         model::push(window, &app);
     }
 }
@@ -194,6 +204,12 @@ fn tick() {
         } else {
             None
         };
+        if frame.is_some()
+            && app.settings.render.backend
+                == pleochroma_mobile_core::settings::RenderBackend::Remote
+        {
+            crate::remote::record_render_connection(&app, true);
+        }
         (frame, on_show, app.viewport.mode.is_render())
     };
     if let Some(frame) = frame {

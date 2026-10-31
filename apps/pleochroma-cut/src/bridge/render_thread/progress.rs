@@ -3,12 +3,26 @@
 use crate::{MainWindow, ViewportModel};
 use slint::ComponentHandle;
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     time::{Duration, Instant},
 };
 
 thread_local! {
     static PROGRESS: RefCell<ProgressRate> = RefCell::new(ProgressRate::default());
+    /// An orbit or light drag holds the mouse button: every move is a new scene, so the
+    /// bar would be cleared and shown again per move. It stays hidden until the release.
+    static DRAG_HELD: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The viewport's orbit or light drag started (`held`) or ended. The bar is hidden only once
+/// the drag actually restarts a render (a plain click leaves it alone); on release it shows
+/// again whatever the latest render reported, and the next update takes over.
+pub fn set_camera_drag(ui: &MainWindow, held: bool) {
+    let was_held = DRAG_HELD.replace(held);
+    if was_held && !held {
+        let model = ui.global::<ViewportModel>();
+        model.set_render_progress_visible(model.get_render_samples_target() > 0);
+    }
 }
 
 #[derive(Default)]
@@ -104,6 +118,11 @@ pub fn update_progress(
     if PROGRESS.with_borrow(|rate| rate.suspended) {
         return;
     }
+    if DRAG_HELD.get() {
+        ui.global::<ViewportModel>()
+            .set_render_progress_visible(false);
+        return;
+    }
     let preview = stage.contains("preview");
     let completed = if preview { 0 } else { completed };
     let eta = PROGRESS.with_borrow_mut(|rate| {
@@ -149,7 +168,7 @@ pub fn sync_availability(
         model.set_render_eta_text("".into());
     }
     model.set_render_progress_visible(
-        visible && has_geometry && model.get_render_samples_target() > 0,
+        visible && has_geometry && !DRAG_HELD.get() && model.get_render_samples_target() > 0,
     );
     if let Some(stage) = suspension {
         model.set_render_progress_stage(stage.into());

@@ -41,7 +41,7 @@ pleochroma-solid = { workspace = true }
 # feature on, and a member cannot switch it off. Without it the vault is pure Rust (no C
 # SQLite) and builds for wasm32. Nothing else in the wasm graph may depend on the vault with
 # default features, or Cargo feature unification turns `sqlite` back on.
-pleochroma-vault = { path = "../pleochroma-vault", default-features = false }
+pleochroma-vault = { path = "../pleochroma-vault", default-features = false, version = "0.10.0" }
 glam = { workspace = true }
 postcard = { workspace = true }
 serde = { workspace = true }

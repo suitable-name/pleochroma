@@ -29,7 +29,7 @@ use pleochroma_mobile_core::{
         export_request, size_options, spp_options,
     },
 };
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
 use super::runtime;
 use crate::{AppWindow, RenderModel, design::Shared, push::toast};
@@ -146,7 +146,12 @@ fn current_request(window: &AppWindow, shared: &Shared) -> ExportRequest {
     let size = usize::try_from(model.get_export_size()).unwrap_or(0);
     let spp = usize::try_from(model.get_export_spp()).unwrap_or(0);
     let color = color_space_from_index(model.get_export_color());
-    export_request(&shared.borrow().settings.render, size, spp, color)
+    export_request(
+        &super::samples::export_settings(&shared.borrow()),
+        size,
+        spp,
+        color,
+    )
 }
 
 /// Shows the time the chosen options will take, scaled from the probe job.
@@ -166,15 +171,17 @@ fn show_estimate(window: &AppWindow, shared: &Shared) {
     model.set_export_estimate(estimate_text(seconds).into());
 }
 
-/// Opens the sheet with the options the settings' caps allow (the largest size, 128
-/// samples, sRGB). A probe job is built once to learn whether the scene can be exported
+/// Opens the sheet with backend-appropriate sample choices and sRGB output.
+///
+/// A probe job is built once to learn whether the scene can be exported
 /// and how long it takes; the sheet shows the reason when it cannot.
 pub(super) fn open(window: &AppWindow, shared: &Shared) {
+    super::samples::apply(&mut shared.borrow_mut());
     invalidate();
     let model = window.global::<RenderModel>();
     let (sizes, spps, size_index, spp_index, probe) = {
         let app = shared.borrow();
-        let settings = &app.settings.render;
+        let settings = &super::samples::export_settings(&app);
         let sizes = size_options(settings.export_cap_px);
         let spps = spp_options(settings.export_cap_spp);
         let size_index = sizes.len().saturating_sub(1);
@@ -265,6 +272,22 @@ pub(super) fn refresh_document(
     });
     if changed {
         close(window);
+    }
+    let model = window.global::<RenderModel>();
+    if model.get_export_open() && !model.get_export_running() {
+        let settings = super::samples::export_settings(app);
+        let sizes = size_options(settings.export_cap_px);
+        if model.get_export_sizes().row_count() != sizes.len() {
+            model.set_export_sizes(labels(&sizes, " px"));
+        }
+        let last_size = i32::try_from(sizes.len().saturating_sub(1)).unwrap_or(0);
+        model.set_export_size(model.get_export_size().clamp(0, last_size));
+        let spps = spp_options(settings.export_cap_spp);
+        if model.get_export_samples().row_count() != spps.len() {
+            model.set_export_samples(labels(&spps, ""));
+        }
+        let last = i32::try_from(spps.len().saturating_sub(1)).unwrap_or(0);
+        model.set_export_spp(model.get_export_spp().clamp(0, last));
     }
 }
 

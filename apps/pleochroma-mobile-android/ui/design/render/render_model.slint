@@ -21,7 +21,8 @@ export global RenderModel {
     in property <bool> paused: false;
     // A trace exists that Pause can act on.
     in property <bool> can-pause: false;
-    // 0 Draft, 1 Normal, 2 Fine (`RenderQuality`).
+    // Path sample choices depend on the connected backend; Ray uses quality tiers.
+    in property <[string]> quality-choices: ["32 samples", "64 samples"];
     in property <int> quality: 1;
     in property <bool> denoise: true;
     // One finger moves the light instead of the camera.

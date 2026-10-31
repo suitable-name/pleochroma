@@ -626,3 +626,22 @@ fn round_trip_keeps_evaluated_spectrum_for_kept_bands() {
         );
     }
 }
+
+#[test]
+fn a_watermelon_core_stays_inside_the_girdle_so_the_rim_shows_all_round() {
+    for id in [TemplateId::Watermelon, TemplateId::ReverseWatermelon] {
+        let pattern = template(id, PatternAxis::FollowsCrystalAxis);
+        let ZoneShape::CoaxialPrism {
+            n_sides: 3, r_out, ..
+        } = pattern.zones[0].shape
+        else {
+            panic!("{id:?}: a triangular core");
+        };
+        // A triangle's corners lie at twice its apothem; the girdle is half a width out.
+        assert!(2.0 * r_out < 0.5, "{id:?}: corners at {}", 2.0 * r_out);
+        assert!(
+            r_out >= 0.15,
+            "{id:?}: the core is still a clear part of the stone"
+        );
+    }
+}

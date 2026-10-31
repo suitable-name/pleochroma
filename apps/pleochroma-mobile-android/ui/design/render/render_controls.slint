@@ -71,8 +71,8 @@ component RenderChoices inherits Rectangle {
         x: root.wide-controls ? 2 * (root.field-width + Theme.space-sm)
             : root.field-width + Theme.space-sm;
         width: root.field-width;
-        field-label: "Quality";
-        choices: ["Draft", "Normal", "Fine"];
+        field-label: RenderModel.engine == 0 ? "Samples" : "Quality";
+        choices: RenderModel.quality-choices;
         model-index: RenderModel.quality;
         value-selected(index) => { RenderModel.quality-selected(index); }
     }

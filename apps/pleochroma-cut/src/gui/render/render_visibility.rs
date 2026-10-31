@@ -96,6 +96,9 @@ pub(in crate::gui) fn recompute_tab_visible(
     // A view switch mid-drag must never leave the preview gate closed (the release
     // may go to a different, now-hidden viewport); the next press re-arms it.
     ctx.camera_drag_held = false;
+    drop(ctx);
+    // The same for the progress bar, which stays hidden while a drag is held.
+    crate::bridge::render_thread::progress::set_camera_drag(ui, false);
 }
 
 /// Wires the outer `active_tab_changed` and the "Live Render"/"Edit" sub-tab change --

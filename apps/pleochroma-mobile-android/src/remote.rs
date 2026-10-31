@@ -46,6 +46,24 @@ struct Runtime {
     forgetting: bool,
 }
 thread_local! { static RUNTIME: RefCell<Option<Runtime>> = const { RefCell::new(None) }; }
+thread_local! {
+    // A saved address alone does not establish an authenticated render connection.
+    static RENDER_CONNECTION: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// Whether this endpoint passed a render-capable handshake or delivered a render frame.
+pub fn render_connected(app: &AppState) -> bool {
+    app.settings.remote.enrolled
+        && RENDER_CONNECTION
+            .with(|value| value.borrow().as_deref() == Some(app.settings.remote.address.trim()))
+}
+
+/// Records connection evidence for the current endpoint, never across app restarts.
+pub fn record_render_connection(app: &AppState, connected: bool) {
+    RENDER_CONNECTION.with(|value| {
+        *value.borrow_mut() = connected.then(|| app.settings.remote.address.trim().to_owned());
+    });
+}
 
 pub fn wire(window: &AppWindow, state: &Rc<RefCell<AppState>>) {
     RUNTIME.with(|value| {
@@ -205,6 +223,7 @@ fn finish_forget(window: &AppWindow, result: Result<(), String>) {
     }
     let left_remote = {
         let mut app = state.borrow_mut();
+        record_render_connection(&app, false);
         let mut switched = false;
         app.update_settings(|settings| {
             switched = remote::clear_server_settings(settings);
@@ -243,6 +262,9 @@ fn save(window: &AppWindow) {
         let Some(runtime) = guard.as_ref() else {
             return;
         };
+        if runtime.state.borrow().settings.remote.address.trim() != model.get_address().trim() {
+            record_render_connection(&runtime.state.borrow(), false);
+        }
         runtime.state.borrow_mut().update_settings(|settings| {
             model
                 .get_name()
@@ -389,6 +411,7 @@ fn finish(
         match outcome {
             Ok(Outcome::Claimed(_)) => unreachable!("claim handled above"),
             Ok(Outcome::Enrolled) => {
+                record_render_connection(&runtime.state.borrow(), false);
                 runtime
                     .state
                     .borrow_mut()
@@ -398,10 +421,14 @@ fn finish(
                 );
             }
             Ok(Outcome::Tested(report)) => {
+                record_render_connection(&runtime.state.borrow(), report.render.is_some());
                 model.set_status(report.summary().into());
                 model.set_identity(report.certificate_identity.into());
             }
-            Err(error) => model.set_status(format!("Connection unavailable: {error}").into()),
+            Err(error) => {
+                record_render_connection(&runtime.state.borrow(), false);
+                model.set_status(format!("Connection unavailable: {error}").into());
+            }
         }
     });
 }
@@ -427,6 +454,7 @@ pub fn interrupt() {
     }
 }
 pub fn shutdown() {
+    RENDER_CONNECTION.with(|value| *value.borrow_mut() = None);
     interrupt();
     crate::remote_jobs::shutdown();
     RUNTIME.with(|value| drop(value.borrow_mut().take()));

@@ -600,13 +600,21 @@ pub(in crate::gui) fn setup_camera_drag_callbacks(
     render_ctx: &Arc<Mutex<RenderContext>>,
 ) {
     let render_ctx_begin = render_ctx.clone();
+    let ui_weak_begin = ui.as_weak();
     ui.global::<ViewportModel>().on_camera_drag_begin(move || {
         RenderContext::lock(&render_ctx_begin).camera_drag_held = true;
+        if let Some(ui) = ui_weak_begin.upgrade() {
+            crate::bridge::render_thread::progress::set_camera_drag(&ui, true);
+        }
     });
 
     let render_ctx_end = render_ctx.clone();
+    let ui_weak_end = ui.as_weak();
     ui.global::<ViewportModel>().on_camera_drag_end(move || {
         RenderContext::lock(&render_ctx_end).camera_drag_held = false;
+        if let Some(ui) = ui_weak_end.upgrade() {
+            crate::bridge::render_thread::progress::set_camera_drag(&ui, false);
+        }
     });
 }
 

@@ -8,7 +8,9 @@ use pleochroma_mobile_core::{
         render_view::{light_picture_stale, progress_fraction, quality_index, status_line},
     },
 };
-use slint::{ComponentHandle, Image, Rgba8Pixel, SharedPixelBuffer};
+use slint::{
+    ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
+};
 
 use crate::{AppWindow, RenderModel};
 
@@ -32,7 +34,39 @@ pub(super) fn push(window: &AppWindow, state: &AppState) {
     model.set_paused(status == RenderStatus::Paused(PauseReason::User));
     model.set_can_pause(solved && !matches!(status, RenderStatus::Idle | RenderStatus::Failed(_)));
     model.set_can_render(solved);
-    model.set_quality(quality_index(state.settings.render.quality));
+    let ray = state.settings.render.engine_spec().is_ray();
+    let choices = super::samples::choices(super::samples::remote_ready(state));
+    let labels: Vec<SharedString> = if ray {
+        ["Draft", "Normal", "Fine"]
+            .into_iter()
+            .map(SharedString::from)
+            .collect()
+    } else {
+        choices
+            .iter()
+            .map(|spp| SharedString::from(format!("{spp} samples")))
+            .collect()
+    };
+    let current = model.get_quality_choices();
+    if current.row_count() != labels.len()
+        || labels
+            .iter()
+            .enumerate()
+            .any(|(i, label)| current.row_data(i).as_ref() != Some(label))
+    {
+        model.set_quality_choices(ModelRc::new(VecModel::from(labels)));
+    }
+    model.set_quality(if ray {
+        quality_index(state.settings.render.quality)
+    } else {
+        i32::try_from(
+            choices
+                .iter()
+                .position(|&spp| spp == state.settings.render.live_spp_compact)
+                .unwrap_or(1),
+        )
+        .unwrap_or(1)
+    });
     model.set_denoise(state.settings.render.denoise);
     model.set_light_drag(state.viewport.light_drag.on);
     let dial = light_dial(state);
