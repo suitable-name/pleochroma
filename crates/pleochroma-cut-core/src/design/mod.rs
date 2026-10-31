@@ -1,0 +1,441 @@
+//! A design: a preform plus editable cutting instructions of *authored
+//! constraints*, and the derivation from that state down to a renderable solid.
+//!
+//! # Constraints, not masts
+//!
+//! A faceter does not think "cut this facet to depth 0.6499" -- they think "this
+//! facet meets the junction of those three." The mast number a `.asc` file records
+//! is the *output* of that intent, not the intent itself. [`ConstraintTier`] runs
+//! that forwards instead: the constraint
+//! ([`pleochroma::geometry::meet_solver::MeetConstraint`], the exact three-case enum
+//! the solver classifies real schedules into) is the field a tier's own mutation
+//! methods touch; the mast is never stored on a tier at all, only produced by
+//! [`Design::solve`] on demand. This is what makes the editor CAD instead of a text
+//! form over `.asc` fields.
+//!
+//! # Scale anchoring
+//!
+//! Meet-vertex incidence has a real, corpus-measured blind spot: it cannot recover a
+//! block's (crown/pavilion/girdle) own translation along its normal, because a
+//! coherent shift of every plane in a block preserves every vertex the block's own
+//! facets pass through (see `pleochroma::geometry::meet_solver`'s module docs, "What
+//! meets alone cannot determine"). A block therefore needs exactly one
+//! [`MeetConstraint::ScaleReference`] tier -- a real authored dimension, matching a
+//! real schedule's own "Set stone size"/"Level girdle" instructions -- or
+//! [`Design::solve`] cannot produce a mast for anything in that block at all.
+//!
+//! This crate deliberately does not use
+//! [`pleochroma::geometry::meet_solver::apply_ratio_anchors`] (the corpus tool's
+//! estimate-from-printed-ratios fallback, 10-40% error): an in-progress editor design
+//! has no printed ratios to estimate from either, so the only input it could be fed
+//! here would itself be another guess. [`Design::from_asc_schedule`] instead
+//! synthesizes a missing block anchor from its own first tier's real recorded mast
+//! (not a fitted ratio) while that mast is still available on import -- see that
+//! function's doc comment. A block with no tiers at all gets no anchor manufactured
+//! either: [`Design::solve`] reports exactly which block(s) are missing one via
+//! [`MissingAnchor`], and the editor must ask the user for a real
+//! `MeetConstraint::ScaleReference` tier rather than silently picking a number.
+
+pub mod concave;
+mod construct;
+pub mod cutting_order;
+pub mod effects_spec;
+mod export;
+mod frosting;
+pub mod girdle_band;
+pub mod hinge;
+pub mod labelling;
+mod missing_anchor;
+mod relation;
+pub mod render_effects;
+mod solve;
+mod solve_error;
+pub mod surface;
+mod targets;
+#[cfg(test)]
+mod tests;
+mod tier;
+mod tier_id;
+
+pub use concave::{
+    ConcaveTableRow, ConcaveTier, ConcaveTierError, ConcaveTool, TierRef, ToolMotion,
+    UnknownToolCode,
+};
+pub use construct::FreshDesignSpec;
+pub use effects_spec::{EdgeAbrasionEffects, InclusionEffects, StructureEffects};
+pub(crate) use export::meet_name_is_asc_safe;
+pub use export::{
+    CONCAVE_FOOTNOTE_MARKER, ConcaveResolveError, FlatAndTools, ToolPlacements,
+    concave_facet_footnote, concave_frame, concave_tool_footnote, resolve_tiers_on_planes,
+};
+pub use frosting::{TierFrosting, TierFrostingMap};
+pub use girdle_band::{GirdleBand, KNIFE_EDGE_GAP, girdle_band_in};
+pub use hinge::{
+    FacetSide, SolidFacets, TierFacets, TierHinge, mast_through, solid_facets_in,
+    tier_hinge_points, tier_hinges, tier_hinges_in, tier_plane_ranges,
+};
+pub use labelling::{
+    DesignTierCodes, TierLabelInfo, compute_tier_labels, convert_legacy_facet_name,
+    is_legacy_123_abc, name_indicates_pavilion,
+};
+pub use missing_anchor::MissingAnchor;
+pub use relation::{
+    Expr, ExprError, MAX_RELATION_CHARS, RawName, RelationError, RelationExpr, TierRelation,
+    TierRelationMap, snap_noise,
+};
+pub use render_effects::StoneRenderEffects;
+pub use solve_error::{DesignSolveError, SolveMismatch};
+pub use surface::{SurfaceFinish, SurfaceGrade, TierSurface, TierSurfaceMap};
+pub use targets::{TargetResolveError, TierTarget};
+pub use tier::{ConstraintTier, ScheduleMeta};
+pub use tier_id::TierId;
+
+use crate::{material::MaterialSelection, native::UnknownFileKeys, preform::PreformSpec};
+use std::{collections::BTreeMap, sync::Arc};
+use targets::TierTargetMap;
+
+/// A preform plus the cutting instructions being edited against it.
+///
+/// `tiers` is authored constraint state (see the module docs); `meta` is every
+/// other `.asc` schedule field. There is no single `AscSchedule` field --
+/// [`Design::to_asc_schedule`] builds one on demand (solving every tier's mast
+/// first), for [`Design::planes`] and for a caller that wants to write a real
+/// `.asc` file via `pleochroma_formats::asc::to_asc_string`. [`Design::from_asc_schedule`] is
+/// the reverse direction, for loading one.
+#[derive(Debug, Clone)]
+pub struct Design {
+    /// Rough (preform) the design is cut from: a block, a cylinder, or the Rough
+    /// Planner's planned piece of rough as a plane set
+    /// ([`crate::preform::PreformShape::Planes`]).
+    pub preform: PreformSpec,
+    /// Schedule metadata carried through `.asc` import and export.
+    pub meta: ScheduleMeta,
+    /// Authored constraint tiers, in cutting order.
+    pub tiers: Vec<ConstraintTier>,
+    /// The design's real-world girdle diameter, in millimetres -- the one dimension
+    /// a lapidary actually measures with calipers on a finished stone, and this
+    /// crate's sole anchor from the otherwise-dimensionless "mast unit" scale every
+    /// plane offset uses (see `crate::preform`'s own module doc comment) to a real
+    /// physical size. `None` means "not anchored yet": every figure
+    /// `crate::yield_metrics` derives from it (mm-scale volume, carat weight) is
+    /// then unavailable, while [`crate::yield_metrics::volumetric_yield`] stays
+    /// available regardless -- it needs no mm scale at all.
+    ///
+    /// `crate::yield_metrics::mm_per_unit` is `girdle_diameter_mm` divided by the
+    /// SOLVED design's own measured `width_axis`
+    /// (`pleochroma::geometry::stone_metrics::SolidMetrics::width_axis`) -- the
+    /// finished solid's own widest extent, which is NOT always the girdle band's
+    /// width specifically: when the authored facets leave the preform's own side
+    /// walls standing (a stone not yet cut out to its rough), those surviving
+    /// walls are part of the finished solid too, so `width_axis` reads as the
+    /// PREFORM's width, not the actual (narrower) girdle -- see
+    /// [`crate::yield_metrics::YieldReport::mm_per_unit`]'s own doc comment for
+    /// the resulting understated carat weight this is a real, unfixed binding
+    /// for, not a bug in this field.
+    ///
+    /// # This does NOT round-trip through `.asc`
+    ///
+    /// `pleochroma_formats::asc::AscSchedule` has no field for a real-world dimension anywhere
+    /// -- every number in a `.asc` file is a dimensionless mast. Exporting a design
+    /// to `.asc` drops `girdle_diameter_mm` silently, and importing never populates
+    /// it either. It lives only in this in-memory `Design` for now; the native
+    /// format (`crate::native`) is what carries it to disk.
+    pub girdle_diameter_mm: Option<f64>,
+    /// How far the preform's own vertical span is shifted from centred, in the
+    /// same mast-unit convention as every other plane offset -- see
+    /// [`crate::preform::PreformSpec::planes_offset`], which this feeds on every
+    /// [`Self::planes`]/[`Self::planes_from_solved`] call. `0.0` (the default)
+    /// reproduces [`PreformSpec::planes`]'s own always-centred span exactly.
+    ///
+    /// A real piece of rough is rarely centred on the girdle a cutter plans to
+    /// cut into it; this is the design-level anchor
+    /// `PreformSpec` deliberately does not carry itself (see that type's own
+    /// doc comment for why widening it would be a breaking change to several
+    /// struct-literal call sites this crate does not solely own).
+    ///
+    /// # Round-tripping through the native format
+    ///
+    /// Carried as `pleochroma_formats::native::PreformTable::y_offset` (a
+    /// `#[serde(default)]` field, so an older file with no such column loads as
+    /// `0.0` -- the same always-centred span it actually had); `crate::native`'s
+    /// `design_to_file`/`design_from_file` mirror it alongside `girdle_diameter_mm`. Like
+    /// `girdle_diameter_mm`, it still has no `.asc` counterpart at all -- every
+    /// number in a `.asc` file is a dimensionless mast, so exporting to `.asc`
+    /// drops this silently and re-importing never populates it.
+    pub preform_y_offset: f64,
+    /// A per-tier "cheater"/azimuth-offset annotation (degrees), keyed by the
+    /// tier's CURRENT position in [`Self::tiers`] -- the same positional
+    /// addressing [`crate::edit::Edit::ModifyTier`]/`SetConstraint`/`SetIndices`
+    /// already use. Needed when cutting an off-tooth index or compensating a
+    /// specific machine's error; `GemCutStudio` calls the
+    /// same concept a "cheater" angle.
+    ///
+    /// # Why this is a `Design`-level map, not a [`ConstraintTier`] field
+    ///
+    /// The natural home is a field on [`ConstraintTier`] itself (every other
+    /// per-facet annotation lives there, and [`Edit::MoveTier`]'s own doc
+    /// comment leans on "nothing outside `tiers` stores a tier's positional
+    /// index" as an invariant). That field would be the right design, but
+    /// widening [`ConstraintTier`] would be a breaking change to roughly a
+    /// dozen struct-literal construction sites across `apps/pleochroma-cut` --
+    /// exactly the blast radius
+    /// [`crate::preform::PreformSpec::planes_offset`]'s own doc comment
+    /// already declined for the same reason. A `Design`-level map keeps this
+    /// entirely inside this crate; [`Design::apply_edit`]'s
+    /// `AddTier`/`RemoveTier`/`MoveTier` arms renumber this map's keys
+    /// alongside the tier list itself, so the "nothing else stores a
+    /// positional index" invariant still holds functionally (the map always
+    /// tracks the SAME tier a plain field on it would), just not
+    /// structurally. A future pass that widens `ConstraintTier` directly can
+    /// fold this map into it and drop the renumbering logic.
+    ///
+    /// **Rotates the facet's plane azimuth**: [`Design::planes`]/
+    /// [`Design::planes_from_solved`] apply this offset (via
+    /// `design::export::planes::apply_cheater_offsets`) when building the plane
+    /// arrangement every production consumer -- the solid preview, the facet map,
+    /// the manufacturability checks -- reads from, so changing this changes the
+    /// measured solid, not just display/export text. It is NOT folded into the
+    /// exported `.asc` schedule as a real rotation, since `.asc` has no field for
+    /// one; instead [`Design::to_asc_schedule_from_solved_with_cheater_offsets`]
+    /// (the one [`crate::native::catalogue_asc`] actually writes to disk) bakes an
+    /// authored offset into that tier's own exported index-wheel positions
+    /// instead (`offset_deg / 360 * gear_teeth`, added to every index and rounded
+    /// to 3 decimals), so a real `GemCAD` file that has never heard of this field
+    /// still shows the same rotated facet.
+    ///
+    /// # Round-tripping through the native format
+    ///
+    /// Carried as `pleochroma_formats::native::TierTable::cheater_offset_deg`, per
+    /// tier, inside the tier's own record -- see `crate::native::design_to_file` and
+    /// [`crate::native::design_from_file`]. Unlike [`Self::tier_notes`], an offset DOES
+    /// change geometry (see above). The file always carries the tier's own true,
+    /// UNSHIFTED `indices` (not just this offset), so the shift baked into a
+    /// previously exported `.asc` is never re-applied on top of itself.
+    pub cheater_offsets_deg: BTreeMap<usize, f64>,
+    /// A per-tier cutter-authored free-text note (e.g. "check meet here", "grind
+    /// slowly"), keyed by the tier's CURRENT position in [`Self::tiers`] -- the
+    /// same positional addressing [`Self::cheater_offsets_deg`] already uses (the
+    /// history-trail counterpart lives separately as
+    /// [`crate::native::SaveExtras::history_entries`]).
+    ///
+    /// # Why this is a `Design`-level map, not a [`ConstraintTier`] field
+    ///
+    /// Exactly [`Self::cheater_offsets_deg`]'s own reasoning, reapplied: the natural
+    /// home is a field on [`ConstraintTier`] itself, but widening that struct would
+    /// be a breaking change to roughly 83 struct-literal construction sites across
+    /// 24 files. A `Design`-level map keeps this entirely
+    /// inside this crate; [`Design::apply_edit`]'s `AddTier`/`RemoveTier`/`MoveTier`
+    /// arms renumber this map's keys alongside [`Self::cheater_offsets_deg`]'s own,
+    /// so the "nothing else stores a positional index" invariant still holds
+    /// functionally. A future pass that widens `ConstraintTier` directly can fold
+    /// this map into it and drop the renumbering logic.
+    ///
+    /// # Round-tripping through the native format
+    ///
+    /// Carried as `pleochroma_formats::native::TierTable::note`, per tier, by
+    /// inside the tier's own record -- see `crate::native::design_to_file` and
+    /// [`crate::native::design_from_file`]. Unlike `cheater_offsets_deg`, a note
+    /// changes no geometry at all.
+    pub tier_notes: BTreeMap<usize, String>,
+    /// Which material's specific gravity to estimate this design's carat weight
+    /// from, plus any per-design override -- see
+    /// [`crate::material::MaterialSelection`]'s own doc comment. A design input,
+    /// exactly like `preform` above: mutated only through `crate::edit::History`,
+    /// and (like `girdle_diameter_mm`) not preserved across an `.asc` round trip for
+    /// the same reason.
+    pub material: MaterialSelection,
+    /// A stable identifier for the tier CURRENTLY at each position, parallel to
+    /// [`Self::tiers`] (same length, same order) -- see [`TierId`]'s own doc
+    /// comment for why this is a parallel `Vec` rather than a field on
+    /// [`ConstraintTier`] itself, and for the "never reused" guarantee every
+    /// [`crate::edit::Edit`] arm that touches `tiers` upholds by moving this `Vec`
+    /// in lockstep. `#[must_use]` accessors [`Self::tier_id_at`]/
+    /// [`Self::index_of_tier_id`] are the intended read path; this field stays
+    /// `pub` only so `crate::edit`/`crate::native` (a sibling module, not a
+    /// different crate) can maintain it directly on `AddTier`/`RemoveTier`/
+    /// `MoveTier`.
+    pub tier_ids: Vec<TierId>,
+    /// The next value [`Self::allocate_tier_id`] will hand out -- monotonic,
+    /// never rewound even when a tier (and its id) is removed, so an id is never
+    /// reused within one `Design`'s lifetime (including across undo/redo, since
+    /// undo never decrements this counter either -- see [`TierId`]'s own doc
+    /// comment for why that matters).
+    pub next_tier_id: u64,
+    /// Per-tier authoring-level targets ("cut to 3.20 mm", "girdle 2% of width",
+    /// "table 4.10 mm wide"), keyed by [`TierId`] rather than position -- see
+    /// [`TierTarget`]'s own module doc comment for why this lives here rather
+    /// than on [`ConstraintTier`], and [`Self::resolved_meet_tier_inputs`] for
+    /// where a target actually becomes a mast.
+    pub tier_targets: TierTargetMap,
+    /// Concave (fantasy-cut) tiers, kept apart from [`Self::tiers`] because they
+    /// have no mast, meet constraint or target -- see [`concave`]. Empty for
+    /// every design that has none, which keeps such a design's behavior (and
+    /// output bytes) unchanged. Real authored content, so it participates in
+    /// `PartialEq`.
+    pub concave_tiers: Vec<ConcaveTier>,
+    /// A stable [`TierId`] per concave tier, parallel to [`Self::concave_tiers`]
+    /// and drawn from the same [`Self::next_tier_id`] counter as [`Self::tier_ids`]
+    /// so notes, selection and diffs can address either kind. Bookkeeping, so
+    /// excluded from `PartialEq` like `tier_ids`.
+    pub concave_tier_ids: Vec<TierId>,
+    /// Parametric relations, keyed by the DRIVEN tier's [`TierId`]: tier `P2`'s angle
+    /// "is" `P1 - 2`, recomputed whenever `P1` changes -- see [`TierRelation`] and
+    /// [`Self::evaluate_relations`]. Keyed by id (like [`Self::tier_targets`]) so a
+    /// relation survives add, remove, move and undo, and a rename never breaks one.
+    /// Empty for every design that has none, which keeps such a design's behavior (and
+    /// its file's bytes) unchanged. Real authored content, so it participates in
+    /// `PartialEq`, by tier position.
+    ///
+    /// Only [`crate::edit::Edit::SetTierRelation`] changes it (plus `RemoveTier`,
+    /// which drops the removed tier's own relation). The angles themselves stay
+    /// stored on the tiers; a session keeps them equal to what the relations give
+    /// (see `pleochroma_editor::session`).
+    pub tier_relations: TierRelationMap,
+    /// The frosted tiers and facets, keyed by the tier's [`TierId`] (like
+    /// [`Self::tier_targets`]): a tier absent from the map is polished -- see
+    /// [`TierFrosting`]. Empty for every design that has none, which keeps such a design's
+    /// behavior (and its file's and its scenes' bytes) unchanged. Real authored content, so
+    /// it participates in `PartialEq`, by tier position.
+    ///
+    /// Only [`crate::edit::Edit::SetTierFrosting`] changes it (plus `RemoveTier`, which drops
+    /// the removed tier's own entry, and a gear remap, which moves the facet positions). It
+    /// changes no geometry. Carried by the native design file's tier records (`frosted`,
+    /// `frosted_facets`); `.asc` has no field for it.
+    pub tier_frosting: TierFrostingMap,
+    /// The surface finish of the tiers and facets (a polish grade, a ground grade or Custom),
+    /// keyed by the tier's [`TierId`] like [`Self::tier_frosting`]: a tier absent from the map
+    /// is ideal (a perfect polish) -- see [`TierSurface`]. Empty for every design that has none,
+    /// which keeps such a design's behavior (and its file's and its scenes' bytes) unchanged.
+    /// Real authored content, so it participates in `PartialEq`, by tier position.
+    ///
+    /// Only [`crate::edit::Edit::SetTierSurface`] changes it (plus `RemoveTier`, which drops
+    /// the removed tier's own entry, and a gear remap, which moves the facet positions). It
+    /// changes no geometry. Carried by the native design file's tier records (`surface`,
+    /// `surface_facets` and their keys); `.asc` has no field for it. The faceting machine is a
+    /// per-user preference and is not part of a design.
+    pub tier_surfaces: TierSurfaceMap,
+    /// The per-design stone render effects (inclusion haze, crystal-axis orientation,
+    /// frosted girdle, edge rounding) -- see [`StoneRenderEffects`]. Authored content,
+    /// so it participates in `PartialEq`; changed only through
+    /// [`crate::edit::Edit::SetRenderEffects`]. Carried by the native design file's
+    /// optional `[render_effects]` table; `.asc` has no field for it.
+    pub render_effects: StoneRenderEffects,
+    /// The orientation rule the stone was planned under and the Reason of an override, kept by
+    /// the Rough Planner's hand-off for the cutting sheet -- see
+    /// [`crate::crystal_axis::CrystalAxisPlan`]. `None` for every design that was not handed
+    /// over, which keeps such a design's file bytes unchanged. Authored content, so it
+    /// participates in `PartialEq`; changed only through
+    /// [`crate::edit::Edit::SetCrystalAxisPlan`]. Carried by the native design file's optional
+    /// `[crystal_axis_plan]` table; `.asc` has no field for it.
+    pub crystal_axis_plan: Option<crate::crystal_axis::CrystalAxisPlan>,
+    /// Keys of a design file this build does not claim (written by a newer build),
+    /// kept so an Open followed by a Save does not drop them. `None` for a design
+    /// that did not come from a file or whose file had none. Opaque bookkeeping:
+    /// excluded from `PartialEq`, and cheap to clone.
+    pub file_extras: Option<Arc<UnknownFileKeys>>,
+}
+
+impl Design {
+    /// The cheater/azimuth offset (degrees) authored for the tier CURRENTLY at
+    /// `index`, if any -- see [`Self::cheater_offsets_deg`]'s own doc comment.
+    #[must_use]
+    pub fn cheater_offset_deg(&self, index: usize) -> Option<f64> {
+        self.cheater_offsets_deg.get(&index).copied()
+    }
+
+    /// The cutter-authored note attached to the tier CURRENTLY at `index`, if
+    /// any -- see [`Self::tier_notes`]'s own doc comment.
+    #[must_use]
+    pub fn tier_note(&self, index: usize) -> Option<&str> {
+        self.tier_notes.get(&index).map(String::as_str)
+    }
+
+    /// The stable [`TierId`] of the tier CURRENTLY at `index`, if `index` is in
+    /// range -- see [`Self::tier_ids`]'s own doc comment.
+    #[must_use]
+    pub fn tier_id_at(&self, index: usize) -> Option<TierId> {
+        self.tier_ids.get(index).copied()
+    }
+
+    /// Whether `self` and `other` give every tier slot the same [`TierId`].
+    ///
+    /// `PartialEq` deliberately leaves the ids out (they are bookkeeping, not
+    /// authored content), so a round trip that reproduced every tier but
+    /// replaced their identities still compares equal; this is the check that
+    /// catches it. True when both designs have the same tier count and
+    /// [`Self::tier_id_at`] agrees at every index.
+    #[must_use]
+    pub fn tier_ids_eq(&self, other: &Self) -> bool {
+        self.tiers.len() == other.tiers.len()
+            && (0..self.tiers.len()).all(|index| self.tier_id_at(index) == other.tier_id_at(index))
+    }
+
+    /// [`Self::tier_id_at`], falling back to a synthetic `TierId(index as u64)`
+    /// when `self.tier_ids` is out of sync with `self.tiers` (a caller that
+    /// mutated `self.tiers` directly, bypassing `Edit`, without yet applying an
+    /// `Edit` that would self-heal it -- see [`crate::edit::Design::apply_edit`]'s
+    /// own doc comment). Used by [`crate::manufacturability`]'s checks, which
+    /// take `&Design` (no way to self-heal by mutating) and must never panic
+    /// over a tier id the same way indexing [`Self::tier_ids`] directly would.
+    #[must_use]
+    pub(crate) fn tier_id_at_or_synthetic(&self, index: usize) -> TierId {
+        self.tier_id_at(index).unwrap_or(TierId(index as u64))
+    }
+
+    /// The CURRENT position of the tier known by `id`, if it still exists --
+    /// the reverse of [`Self::tier_id_at`]. Linear in tier count; fine for an
+    /// editor-scale design (hundreds of tiers, not millions).
+    #[must_use]
+    pub fn index_of_tier_id(&self, id: TierId) -> Option<usize> {
+        self.tier_ids.iter().position(|&existing| existing == id)
+    }
+
+    /// Hands out a fresh, never-before-used [`TierId`] and advances
+    /// [`Self::next_tier_id`] -- the only way a [`TierId`] is ever created.
+    pub(crate) const fn allocate_tier_id(&mut self) -> TierId {
+        let id = TierId(self.next_tier_id);
+        self.next_tier_id += 1;
+        id
+    }
+
+    /// [`Self::tier_targets`], reindexed by CURRENT position rather than
+    /// [`TierId`] -- [`Self::eq`]'s own building block, and generally useful
+    /// for a caller comparing two designs' authored targets without caring
+    /// about the arbitrary underlying id numbers.
+    fn tier_targets_by_position(&self) -> Vec<Option<TierTarget>> {
+        (0..self.tiers.len()).map(|i| self.tier_target(i)).collect()
+    }
+}
+
+/// Manual, not derived: [`Self::tier_ids`]/[`Self::next_tier_id`] are pure
+/// bookkeeping (a stable IDENTITY for a tier slot, never authored content),
+/// deliberately excluded here so two designs that carry the exact same
+/// authored/geometric content still compare equal regardless of what the
+/// underlying id numbers happen to be -- in particular so `History::undo`
+/// still restores a byte-for-byte-equal `Design` even from a starting design
+/// whose `tier_ids` was never healed (e.g. built by pushing directly onto
+/// `tiers`, bypassing `Edit` entirely, the pattern this crate's OWN test
+/// fixtures use throughout) and gets healed by [`Self::apply_edit`]'s
+/// self-sync on its first real edit -- see that method's own doc comment.
+/// [`Self::tier_targets`] IS real authored content, so it still participates,
+/// but through [`Self::tier_targets_by_position`] rather than raw map
+/// equality, for the same id-numbering-should-not-matter reason.
+impl PartialEq for Design {
+    fn eq(&self, other: &Self) -> bool {
+        self.preform == other.preform
+            && self.meta == other.meta
+            && self.tiers == other.tiers
+            && self.concave_tiers == other.concave_tiers
+            && self.girdle_diameter_mm == other.girdle_diameter_mm
+            && self.render_effects == other.render_effects
+            && self.crystal_axis_plan == other.crystal_axis_plan
+            && self.preform_y_offset == other.preform_y_offset
+            && self.cheater_offsets_deg == other.cheater_offsets_deg
+            && self.tier_notes == other.tier_notes
+            && self.material == other.material
+            && self.tier_targets_by_position() == other.tier_targets_by_position()
+            && self.tier_relations_eq(other)
+            && self.tier_frosting_eq(other)
+            && self.tier_surface_eq(other)
+    }
+}

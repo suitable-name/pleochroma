@@ -1,0 +1,145 @@
+import { Theme } from "../../theme.slint";
+import { ComboBox } from "std-widgets.slint";
+import { RoughPlanModel } from "../../models/rough_plan.slint";
+import { RoughField, RoughPill, FieldLabel } from "fields.slint";
+import { TipBox } from "../tip_box.slint";
+
+// The rule stones are oriented to the crystal axis by: Material Default (or Follow the Plan for a
+// design), Ignore the Axis, or a rule of your own (a kind, how far a stone may be off, and
+// whether the rule is Preferred, with a weight, or Required). The plan's rule and the rule of one
+// design use this editor with different fields of `RoughPlanModel`; every edit goes to Rust with
+// `rule_edit(entry, field, text)` and is one undo step. Rust pushes the values back, so the
+// fields always show the rule that applies.
+export component RuleEditor inherits VerticalLayout {
+    // -1 for the plan's rule, else the entry id of the design.
+    in property <int> entry: -1;
+    // The label of the first choice: "Material Default" for the plan, "Follow the Plan" for a design.
+    in property <string> follow_text: "Material Default";
+    in property <string> follow_hint: "Use the rule the material starts with.";
+    in property <int> choice: 0;
+    in-out property <int> kind: 0;
+    in property <int> hold: 0;
+    in-out property <string> tolerance;
+    in-out property <string> weight;
+    in-out property <string> tilt;
+    in-out property <string> azimuth;
+    in-out property <string> reason;
+    in property <[string]> kind_names;
+    in property <bool> editable: true;
+
+    spacing: 4px;
+
+    HorizontalLayout {
+        spacing: 4px;
+        alignment: start;
+
+        RoughPill {
+            text: root.follow_text;
+            hint: root.follow_hint;
+            active: root.choice == 0;
+            enabled: root.editable;
+            clicked => { RoughPlanModel.rule_edit(root.entry, 0, "0"); }
+        }
+        RoughPill {
+            text: "Ignore the Axis";
+            hint: "Do not orient stones to the crystal axis here. The planner cuts for the most weight.";
+            active: root.choice == 1;
+            enabled: root.editable;
+            clicked => { RoughPlanModel.rule_edit(root.entry, 0, "1"); }
+        }
+        RoughPill {
+            text: "Set";
+            hint: "Choose the rule yourself: how the stone sits to the axis, how far it may be off, and how hard the rule holds.";
+            active: root.choice == 2;
+            enabled: root.editable;
+            clicked => { RoughPlanModel.rule_edit(root.entry, 0, "2"); }
+        }
+    }
+
+    if root.choice == 2: VerticalLayout {
+        spacing: 4px;
+
+        FieldLabel {
+            text: "Rule";
+            hint: "How the stone sits to the crystal axis: the axis across the table, in the table plane, at a custom angle, or the way that shows one of the material's colors face-up.";
+            font_size: 10px;
+        }
+        TipBox {
+            hint: "How the stone sits to the crystal axis.";
+            ComboBox {
+                min-width: 0px;
+                model: root.kind_names;
+                current-index <=> root.kind;
+                enabled: root.editable;
+                accessible-label: "Kind of Orientation Rule";
+                selected(value) => { RoughPlanModel.rule_edit(root.entry, 1, "" + root.kind); }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 4px;
+            alignment: start;
+
+            RoughPill {
+                text: "Preferred";
+                hint: "A stone off the rule still counts, but its value drops for every degree beyond the tolerance. The planner trades weight for orientation.";
+                active: root.hold == 0;
+                enabled: root.editable;
+                clicked => { RoughPlanModel.rule_edit(root.entry, 2, "0"); }
+            }
+            RoughPill {
+                text: "Required";
+                hint: "No stone may be off the rule by more than the tolerance.";
+                active: root.hold == 1;
+                enabled: root.editable;
+                clicked => { RoughPlanModel.rule_edit(root.entry, 2, "1"); }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 6px;
+            RoughField {
+                label: "Tolerance (deg)";
+                hint: "How many degrees a stone may be off the rule before it counts as off.";
+                editable: root.editable;
+                value <=> root.tolerance;
+                committed => { RoughPlanModel.rule_edit(root.entry, 3, root.tolerance); }
+            }
+            if root.hold == 0: RoughField {
+                label: "Weight (% per deg)";
+                hint: "How much of a stone's value is lost for each degree beyond the tolerance, in percent.";
+                editable: root.editable;
+                value <=> root.weight;
+                committed => { RoughPlanModel.rule_edit(root.entry, 4, root.weight); }
+            }
+        }
+
+        if root.kind == 2: HorizontalLayout {
+            spacing: 6px;
+            RoughField {
+                label: "Tilt (deg)";
+                hint: "The angle between the crystal axis and the table normal that the rule asks for, 0 to 90 degrees.";
+                editable: root.editable;
+                value <=> root.tilt;
+                committed => { RoughPlanModel.rule_edit(root.entry, 5, root.tilt); }
+            }
+            RoughField {
+                label: "Azimuth (deg)";
+                hint: "The direction of the axis around the table normal, 0 to 360 degrees. Leave it empty when the direction does not matter.";
+                placeholder: "any";
+                editable: root.editable;
+                value <=> root.azimuth;
+                committed => { RoughPlanModel.rule_edit(root.entry, 6, root.azimuth); }
+            }
+        }
+    }
+
+    RoughField {
+        label: "Reason";
+        hint: "Why this differs from the default. It is saved with the plan and printed on the cutting sheet.";
+        placeholder: "e.g. cut for color";
+        editable: root.editable;
+        value <=> root.reason;
+        committed => { RoughPlanModel.rule_edit(root.entry, 7, root.reason); }
+    }
+}

@@ -1,0 +1,218 @@
+import { ComboBox, LineEdit } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { ViewportModel } from "../../models/viewport.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { ColorVariantsModel } from "../../models/color_variants.slint";
+import { TipButton } from "../compact_controls.slint";
+import { TipBox, FieldCaption } from "../tip_box.slint";
+
+// The Color Variants area of the Gem Material Editor: the named colors of one material. The ones
+// that ship with the program are read-only and say where their numbers come from ("Estimated"
+// when they are an estimate, not a fit to measured spectra); the cutter's saved colors can be
+// renamed and deleted. Duplicate makes an editable saved copy of any row. A design that picked a
+// variant keeps its own copy of the color, so deleting a saved variant never changes a design.
+// All state is `ColorVariantsModel` (`gui::optics::color_variants_section`).
+export component MaterialColorVariantsSection inherits VerticalLayout {
+    // The saved row being renamed (-1: none) and the name typed for it.
+    property <int> renaming: -1;
+    property <string> rename_text: "";
+    // The saved row whose deletion waits for a second click (-1: none).
+    property <int> confirming: -1;
+
+    spacing: 6px;
+
+    // The section opens on the material the live render shows (the one the dialog was opened for:
+    // its name field is filled from the same selection). The combo below picks any other.
+    init => {
+        ColorVariantsModel.opened(ViewportModel.material_options[ViewportModel.selected_material_index]);
+    }
+
+    Text {
+        text: "Color Variants";
+        font-size: 11px;
+        font-weight: 600;
+        color: Theme.text-secondary;
+        accessible-role: AccessibleRole.text;
+    }
+    Text {
+        text: "The named colors of a material. Pick one for a design from the Stone tab. Built-in variants are read-only; duplicate one to get a copy you can rename and delete.";
+        font-size: 10px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+        accessible-role: AccessibleRole.text;
+    }
+
+    HorizontalLayout {
+        spacing: 8px;
+        FieldCaption {
+            width: 64px;
+            text: "Material";
+            hint: "The material whose color variants are listed. It starts on the material the live render shows.";
+        }
+        TipBox {
+            horizontal-stretch: 1;
+            hint: "Choose the material whose color variants to list.";
+            ComboBox {
+                model: ColorVariantsModel.materials;
+                current-index <=> ColorVariantsModel.material_index;
+                accessible-label: "Material of the Color Variants";
+                selected => {
+                    root.renaming = -1;
+                    root.confirming = -1;
+                    ColorVariantsModel.material_selected(self.current-index);
+                }
+            }
+        }
+    }
+
+    if ColorVariantsModel.note != "": Text {
+        text: ColorVariantsModel.note;
+        font-size: 10px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+        accessible-role: AccessibleRole.text;
+    }
+
+    for variant[index] in ColorVariantsModel.rows: Rectangle {
+        background: Theme.surface-sunken;
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: Theme.border-dialog;
+        height: row_layout.preferred-height + 8px;
+
+        row_layout := HorizontalLayout {
+            padding: 4px;
+            spacing: 8px;
+
+            // The face-up color; its tooltip names the color of each direction.
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    border-radius: 3px;
+                    border-width: 1px;
+                    border-color: Theme.border-dialog;
+                    background: variant.swatch;
+                    accessible-role: AccessibleRole.image;
+                    accessible-label: "Color of " + variant.label;
+                    Tooltip { text: @markdown("\{variant.tip}"); }
+                }
+            }
+
+            if root.renaming != index: VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                Text {
+                    text: variant.label;
+                    font-size: 11px;
+                    color: Theme.text-primary;
+                    overflow: elide;
+                    accessible-role: AccessibleRole.text;
+                }
+                Text {
+                    text: variant.detail;
+                    font-size: 9px;
+                    color: Theme.text-muted;
+                    overflow: elide;
+                    accessible-role: AccessibleRole.text;
+                }
+            }
+            if root.renaming == index: TipBox {
+                horizontal-stretch: 1;
+                hint: "The new name of this variant. Enter saves it.";
+                LineEdit {
+                    min-width: 0px;
+                    text <=> root.rename_text;
+                    placeholder-text: "Variant Name";
+                    accessible-label: "New Variant Name";
+                    init => { self.focus(); self.select-all(); }
+                    changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                    accepted => {
+                        if root.rename_text != "" && ColorVariantsModel.rename_requested(index, root.rename_text) {
+                            root.renaming = -1;
+                        }
+                    }
+                }
+            }
+
+            // Built in and an estimate: said in the row, with the source in the tooltip.
+            if variant.estimated: VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    background: Theme.surface-info;
+                    border-radius: Theme.radius-sm;
+                    width: estimated_text.preferred-width + 12px;
+                    height: 18px;
+                    accessible-role: AccessibleRole.text;
+                    accessible-label: "Estimated color. " + variant.tip;
+                    Tooltip { text: @markdown("\{variant.tip}"); }
+                    estimated_text := Text {
+                        text: "Estimated";
+                        font-size: 9px;
+                        color: Theme.text-primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            if variant.saved && root.renaming != index && root.confirming != index: TipButton {
+                text: "Rename";
+                hint: "Give this saved variant another name. Designs that use it keep their color.";
+                clicked => {
+                    root.confirming = -1;
+                    root.rename_text = variant.label;
+                    root.renaming = index;
+                }
+            }
+            if root.renaming == index: TipButton {
+                enabled: root.rename_text != "";
+                text: "Save";
+                hint: "Keep the new name.";
+                primary: true;
+                clicked => {
+                    if ColorVariantsModel.rename_requested(index, root.rename_text) {
+                        root.renaming = -1;
+                    }
+                }
+            }
+            if root.renaming == index: TipButton {
+                text: "Cancel";
+                hint: "Keep the old name.";
+                clicked => { root.renaming = -1; }
+            }
+            if root.renaming != index && root.confirming != index: TipButton {
+                text: "Duplicate";
+                hint: "Save an editable copy of this variant under a new name. A copy of a built-in variant is a saved variant of yours.";
+                clicked => { ColorVariantsModel.duplicate_requested(index); }
+            }
+            if variant.saved && root.renaming != index && root.confirming != index: TipButton {
+                text: "Delete";
+                hint: "Remove this saved variant. Designs that use it keep their own copy of its color.";
+                clicked => { root.confirming = index; }
+            }
+            if root.confirming == index: Text {
+                text: "Delete this variant?";
+                font-size: 10px;
+                color: Theme.danger;
+                vertical-alignment: center;
+                accessible-role: AccessibleRole.text;
+            }
+            if root.confirming == index: TipButton {
+                text: "Delete";
+                hint: "Remove this saved variant for good. Designs that use it keep their own copy of its color.";
+                primary: true;
+                clicked => {
+                    root.confirming = -1;
+                    ColorVariantsModel.delete_requested(index);
+                }
+            }
+            if root.confirming == index: TipButton {
+                text: "Keep";
+                hint: "Do not delete the variant.";
+                clicked => { root.confirming = -1; }
+            }
+        }
+    }
+}

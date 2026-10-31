@@ -1,0 +1,157 @@
+import { Theme } from "../../theme.slint";
+import { ColorPatternModel } from "../../models/color_pattern.slint";
+import { RoughPill, ElidedText } from "../rough_planner/fields.slint";
+import { PatternSwatch, PatternTitle, PatternNote } from "parts.slint";
+
+// One row of the zone list. A click, or Space / Enter / Up / Down while the row has focus, picks it.
+component ZoneListItem inherits Rectangle {
+    in property <string> title;
+    in property <string> name;
+    in property <string> shape;
+    in property <string> summary;
+    in property <color> swatch;
+    in property <color> swatch_across;
+    in property <bool> dichroic;
+    in property <bool> selected;
+    callback picked();
+
+    height: 30px;
+    border-radius: Theme.radius-sm;
+    background: root.selected ? Theme.surface-selected : (row_touch.has-hover ? Theme.surface-control-hover : Theme.bg-card);
+    border-width: row_focus.has-focus ? 2px : 1px;
+    border-color: row_focus.has-focus ? Theme.accent-cyan-hover : (root.selected ? Theme.accent-cyan : Theme.border-subtle);
+
+    accessible-role: AccessibleRole.radio-button;
+    accessible-label: root.title + ": " + root.name;
+    accessible-description: root.shape + ". " + root.summary;
+    accessible-checkable: true;
+    accessible-checked: root.selected;
+    accessible-action-default => { root.picked(); }
+
+    row_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.picked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 8px;
+        VerticalLayout {
+            alignment: center;
+            PatternSwatch {
+                color_a: root.swatch;
+                color_b: root.swatch_across;
+                split: root.dichroic;
+            }
+        }
+        Text {
+            width: 46px;
+            text: root.title;
+            font-size: 11px;
+            font-weight: 700;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+        }
+        // Both text columns take an equal share whatever their text: a preferred width of
+        // 0 keeps the kind column at the same x on every row.
+        ElidedText {
+            preferred-width: 0px;
+            text: "\u{201c}" + root.name + "\u{201d}";
+            font_size: 11px;
+            text_color: Theme.text-primary;
+        }
+        ElidedText {
+            preferred-width: 0px;
+            text: root.shape;
+            font_size: 10px;
+            text_color: Theme.text-secondary;
+        }
+    }
+    row_touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.picked(); }
+    }
+}
+
+// The zone list with its buttons: Add Zone (a menu of shapes), Duplicate, Delete and the two
+// move buttons. Later zones cover earlier ones, which the note under the buttons says.
+export component PatternZoneList inherits VerticalLayout {
+    // The shape list under the buttons is open.
+    property <bool> add_open: false;
+    spacing: 6px;
+
+    PatternTitle { text: "ZONES"; }
+
+    for row[i] in ColorPatternModel.zone_rows: ZoneListItem {
+        title: row.title;
+        name: row.name;
+        shape: row.shape;
+        summary: row.summary;
+        swatch: row.swatch;
+        swatch_across: row.swatch_across;
+        dichroic: row.dichroic;
+        selected: row.selected;
+        picked => { ColorPatternModel.select_zone(i); }
+    }
+
+    HorizontalLayout {
+        spacing: 6px;
+        alignment: start;
+        RoughPill {
+            text: "Add Zone";
+            hint: ColorPatternModel.can_add_zone ? "Add a zone of the shape you choose. It starts in the middle of the stone." : ColorPatternModel.add_zone_hint;
+            enabled: ColorPatternModel.can_add_zone;
+            active: root.add_open;
+            clicked => { root.add_open = !root.add_open; }
+        }
+        RoughPill {
+            text: "Duplicate";
+            hint: "Copy the selected zone, shifted a little so both stay visible.";
+            enabled: ColorPatternModel.can_edit_zone && ColorPatternModel.can_add_zone;
+            clicked => { ColorPatternModel.duplicate_zone(); }
+        }
+        RoughPill {
+            text: "Delete";
+            hint: "Remove the selected zone. The base zone cannot be removed.";
+            enabled: ColorPatternModel.can_edit_zone;
+            clicked => { ColorPatternModel.delete_zone(); }
+        }
+        RoughPill {
+            width: 30px;
+            text: "Up";
+            hint: "Move the selected zone up the list. A zone lower in the list covers the zones above it.";
+            enabled: ColorPatternModel.can_edit_zone && ColorPatternModel.selected_zone > 1;
+            clicked => { ColorPatternModel.move_zone(-1); }
+        }
+        RoughPill {
+            width: 40px;
+            text: "Down";
+            hint: "Move the selected zone down the list. A zone lower in the list covers the zones above it.";
+            enabled: ColorPatternModel.can_edit_zone && ColorPatternModel.selected_zone < ColorPatternModel.zone_rows.length - 1;
+            clicked => { ColorPatternModel.move_zone(1); }
+        }
+    }
+    PatternNote { text: "Later zones cover earlier ones."; }
+
+    // The shape menu of "Add Zone", open inline under the buttons (a popup cannot be placed
+    // reliably from inside a layout). Each entry adds the shape with that index in `shape_options`.
+    if root.add_open: VerticalLayout {
+        spacing: 3px;
+        PatternNote { text: "Choose the shape of the new zone:"; }
+        for shape[i] in ColorPatternModel.shape_options: RoughPill {
+            height: 24px;
+            text: shape;
+            hint: "Add a zone with this shape.";
+            clicked => {
+                root.add_open = false;
+                ColorPatternModel.add_zone(i);
+            }
+        }
+    }
+}

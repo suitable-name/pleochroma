@@ -1,0 +1,101 @@
+//! The visual before/after comparison: a separate OS window
+//! (`ui/compare_window.slint`'s `CompareWindow`), or the pane embedded in the
+//! Retarget dialog (`ui/components/compare_view.slint`'s `CompareView`, backed by the
+//! main window's own `CompareModel` instance), showing the design before and after
+//! a Retarget proposal, an Optimize result, or against the held design snapshot --
+//! side by side, under a draggable split divider (window only), or as a difference
+//! overlay on the "after" side (removed material red, added green, outlines). Both
+//! sides are turned by ONE shared orbit camera, in the flat solid view (instant) or
+//! the CPU path tracer (a modest fixed quality, started only after the pose has
+//! settled and the mouse button is released). Only one session is live at a time,
+//! on one of those two surfaces.
+//!
+//! # Keep/Discard never reimplement Apply
+//!
+//! "Keep after" invokes the originating feature's own Apply handler
+//! (`RetargetModel.apply()` -> `callbacks::retarget_actions::apply::
+//! setup_retarget_apply_callback`, `EditorModel.optimize_apply()` ->
+//! `callbacks::solve_actions::optimize_outcome::setup_optimize_apply_callback`), after
+//! [`origins::guard_still_matches`] confirms that handler would commit exactly what
+//! was compared -- so undo, dirty and generation bookkeeping are the Apply button's
+//! own. "Discard" closes the window and switches that feature's viewport ghost
+//! preview off; "Close" just closes. A snapshot comparison offers only Close.
+//!
+//! # The optical figures
+//!
+//! The pop-out window (not the Retarget dialog's pane, which has its own metrics
+//! table) also shows a strip under the images: the table-up brilliance, windowing,
+//! extinction, fire and scintillation of each side in its own material and the
+//! viewport's lighting, the change between them coloured by better or worse, and a few
+//! plain sentences ([`metrics`], with the wording and the noise thresholds in
+//! `pleochroma_editor::metric_deltas`). A "Tilt average" button adds the means over
+//! four axes and 181 tilts on a worker thread of its own, which can be cancelled. The
+//! snapshot dialog shows the same sentence ([`snapshot_summary`]).
+//!
+//! # Module layout
+//!
+//! [`session`] (Slint-free: the two solved sides, the shared pose and its
+//! arithmetic, the status line, the stale-frame book), [`render`] (the solid and
+//! traced workers and their pure render functions), [`metrics`] (the optical figures,
+//! the tilt run's state and the strip's text), [`origins`] (gathering each
+//! origin's sides and the Keep guard), [`host`] (the two surfaces, the live session
+//! and frame delivery), and [`wiring`] (which surface a request opens on, and every
+//! Slint callback). `tests` covers the first two without Slint.
+
+mod host;
+mod metrics;
+mod origins;
+mod overlay;
+mod render;
+mod session;
+#[cfg(test)]
+mod tests;
+mod wiring;
+
+#[cfg(feature = "ui-harness")]
+pub use host::harness_window;
+
+use super::{state::EditorState, view::SolidLastSolved};
+use crate::{
+    MainWindow, bridge::render_thread::RenderContext,
+    gui::solid_preview::preview_state::SolidPreviewState,
+};
+use slint::ComponentHandle;
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
+
+pub(in crate::gui::editor) use metrics::snapshot_summary;
+pub(in crate::gui::editor) use origins::VariantSide;
+pub(in crate::gui) use wiring::close_compare_window;
+pub(in crate::gui::editor) use wiring::{open_variants_compare, release_window_state};
+
+/// Whether the pop-out window, the main-window handle or a live session is still kept (the
+/// UI harness's holder report; see `gui::window_release::live_holders`).
+#[cfg(feature = "ui-harness")]
+pub(in crate::gui::editor) fn window_is_kept() -> bool {
+    host::holds_state()
+}
+
+/// Wires the compare window's entry points (`MainWindow`'s own
+/// `CompareModel.open_optimize`/`open_snapshot`) and the Retarget
+/// dialog's embedded pane (`open_retarget_embedded`/`close_embedded`). The window
+/// itself is created lazily on the first open.
+pub(in crate::gui::editor) fn setup_compare_callbacks(
+    ui: &MainWindow,
+    state: &Rc<RefCell<EditorState>>,
+    render_ctx: &Arc<Mutex<RenderContext>>,
+    preview_state: &Arc<SolidPreviewState>,
+    solid_last_solved: &SolidLastSolved,
+) {
+    let deps = wiring::CompareDeps {
+        ui: ui.as_weak(),
+        state: Rc::clone(state),
+        render_ctx: Arc::clone(render_ctx),
+        preview_state: Arc::clone(preview_state),
+        solid_last_solved: Arc::clone(solid_last_solved),
+    };
+    wiring::setup_entry_callbacks(ui, &deps);
+}

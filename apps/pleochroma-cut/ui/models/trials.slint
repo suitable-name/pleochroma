@@ -1,0 +1,94 @@
+// The History tab's Trials view (`components/editor_inspector/trials_view.slint` is its view, Rust
+// is `gui::editor::trials`): the designs a cutter kept to compare or restore, each with its five
+// main figures against the Baseline. Session only: the list is emptied when another design opens
+// and is never written to the library ("Save as Variant..." keeps one).
+//
+// Rust owns everything the view shows: the cells already carry their text, tone and tooltip, so
+// the view only draws what it is given. Trials are named by their number in every callback, so a
+// row stays the same trial when the list is sorted differently or another trial is deleted.
+
+// One figure of one trial.
+export struct TrialCellItem {
+    // The trial's value, e.g. "20.6", or a dash where the trial has no figure.
+    text: string,
+    // The signed change since the Baseline, e.g. "+1.8"; empty without a Baseline.
+    change_text: string,
+    // 0 about the same (or not comparable), 1 better, 2 worse.
+    tone: int,
+    // The trial has the best value of the list in this figure.
+    best: bool,
+    // The Baseline and trial values, or why the figure is grey.
+    tooltip: string,
+}
+
+// One row of the table; the first line of the view ("B") is the Baseline as a row of its own.
+export struct TrialRow {
+    // The trial's number; 0 for the Baseline row.
+    number: int,
+    // The automatic label, e.g. "P1 40.75 -> 41.25" (the Baseline row: "Baseline: opened 4 min ago").
+    label: string,
+    // The cutter's note; empty when there is none.
+    note: string,
+    // Where the trial came from: "Manual", "Sweep", "Optimize Candidate" and so on.
+    origin: string,
+    starred: bool,
+    // The trial has scored figures at all (it may have to wait for a solve or a re-score).
+    has_metrics: bool,
+    // Always one cell per entry of `TrialsModel.columns`, in that order.
+    cells: [TrialCellItem],
+}
+
+export global TrialsModel {
+    // The trials in the order of `sort_index`.
+    in property <[TrialRow]> rows;
+    // The names of the figure columns: "Bril.", "Wind.", "Ext.", "Fire", "Yield".
+    in property <[string]> columns;
+    // The trial that is selected (and previewed on the stone); -1 for none.
+    in-out property <int> selected: -1;
+    // The selected trial's label and note, for the note field under the table.
+    in property <string> selected_label;
+    in property <string> selected_note;
+    // The order of the table: an entry of `sort_options`.
+    in-out property <int> sort_index: 0;
+    in property <[string]> sort_options;
+    // One trial per committed edit, at most one per second. Off until the cutter turns it on.
+    in-out property <bool> record_every_change: false;
+    // The sentence that replaces the table while there are no trials.
+    in property <string> empty_text;
+    // The Baseline as the first line of the table.
+    in property <TrialRow> baseline_row;
+    // A design is open, so a trial can be kept.
+    in property <bool> design_open: false;
+    // Some trials were scored in another material, or not at all, and "Re-score Trials" would
+    // score them now.
+    in property <bool> rescore_needed: false;
+    // Trials are being scored.
+    in property <bool> rescoring: false;
+
+    // Selects the trial with this number and previews it on the stone; the selected one again
+    // clears the selection and puts the real design back.
+    callback select(int);
+    // Brings the selected trial's design back, as one undo step.
+    callback restore();
+    // Opens the Compare window with the selected trial and the design now.
+    callback compare();
+    // Keeps the selected trial's design as the Baseline.
+    callback set_as_baseline();
+    // Opens the variant save for the selected trial's design.
+    callback save_as_variant();
+    // Removes the selected trial.
+    callback delete();
+    // Flips the star of the trial with this number.
+    callback toggle_star(int);
+    // Sets the note of the trial with this number.
+    callback set_note(int, string);
+    // The cutter picked an entry of `sort_options`.
+    callback sort_changed(int);
+    // The "Record Every Change" box was ticked or cleared.
+    callback record_every_change_toggled(bool);
+    // Keeps the design as it is now as a trial (the button, Ctrl+Shift+K, the palette).
+    callback keep_trial();
+    // Scores the trials that were scored in another material, or not at all, under the design's
+    // material.
+    callback rescore();
+}

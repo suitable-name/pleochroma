@@ -1,10 +1,10 @@
-# Privacy Policy for Indicatrix
+# Privacy Policy for Pleochroma
 
 Effective date: 15 October 2026
 
-This policy covers the Indicatrix desktop application ("the app"), published by
+This policy covers the Pleochroma desktop application ("the app"), published by
 suitable-name. The app is a gemstone faceting design and rendering program. It is open source
-under the MIT License; its source code is at https://github.com/suitable-name/indicatrix.
+under the MIT License; its source code is at https://github.com/suitable-name/pleochroma.
 
 ## Summary
 
@@ -29,10 +29,10 @@ uninstalling the app.
 
 **1. Checking for a new version (optional).** The app asks you whether it may check for updates.
 If you allow it, it sends at most one request a day to GitHub's public API
-(`api.github.com`) to read the version number of the latest Indicatrix release (and one more
+(`api.github.com`) to read the version number of the latest Pleochroma release (and one more
 whenever you press "Check Now" in Preferences). The request
 contains no personal data. It carries the app's name and version (for example
-`indicatrix-cut/0.7.2`), as GitHub requires. Like any internet request, it reveals your IP address
+`pleochroma-cut/0.7.2`), as GitHub requires. Like any internet request, it reveals your IP address
 to GitHub, which processes it under the GitHub Privacy Statement
 (https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement). Nothing is
 downloaded or installed automatically. You can turn the check off in Preferences at any time.
@@ -63,4 +63,4 @@ effective date.
 ## Contact
 
 Questions about this policy: please open an issue at
-https://github.com/suitable-name/indicatrix/issues.
+https://github.com/suitable-name/pleochroma/issues.

@@ -1,0 +1,528 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { ViewportModel } from "../../models/viewport.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { PhysicscolorModel } from "../../models/physics_color.slint";
+import { LchEditor } from "../material_editor/lch_editor.slint";
+import { BodyColorEditorModel } from "../../models/body_color_editor.slint";
+import { Zoning } from "../../models/zoning.slint";
+
+// One text row of the colour popup ("Material Default", a color variant, "Custom Color..."): an
+// optional color dot, a hover highlight and a check mark on the selected row. `tip` is the
+// tooltip (the per-direction colors of a pleochroic variant). Tab reaches it, Space or Enter
+// picks it.
+component ColorChoiceRow inherits Rectangle {
+    in property <string> label;
+    in property <string> tip: "";
+    in property <color> dot: transparent;
+    in property <bool> has_dot: false;
+    in property <bool> selected: false;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 28px;
+    border-radius: Theme.radius-sm;
+    opacity: root.enabled ? 1.0 : 0.45;
+    background: (row_touch.has-hover && root.enabled) ? Theme.surface-control-hover : (root.selected ? Theme.surface-selected : transparent);
+    border-width: row_focus.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+
+    accessible-role: AccessibleRole.radio-button;
+    accessible-label: root.label;
+    accessible-description: root.tip;
+    accessible-checkable: true;
+    accessible-checked: root.selected;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    if root.tip != "": Tooltip { text: @markdown("\{root.tip}"); }
+
+    row_focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    row_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 6px;
+        // The row's face-up color, centred by a layout of its own (see the check mark below).
+        if root.has_dot: VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                background: root.dot;
+                border-width: 1px;
+                border-color: Theme.border-control;
+            }
+        }
+        Text {
+            text: root.label;
+            font-size: 11px;
+            font-weight: root.selected ? 700 : 400;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+        }
+        // Centred by a layout of its own: a fixed-size Image in the row sits at the top of
+        // its cell (`vertical-alignment` only places the picture inside the Image).
+        if root.selected: VerticalLayout {
+            alignment: center;
+            Image {
+                source: @image-url("../../icons/check.svg");
+                colorize: Theme.accent-cyan;
+                width: 11px;
+                height: 11px;
+            }
+        }
+    }
+}
+
+// One round colour swatch of the popup. The name (`label`) is the tooltip and what a screen
+// reader reads; Tab reaches it, Space or Enter picks it.
+component ColorSwatch inherits Rectangle {
+    in property <string> label;
+    in property <string> tip: "";
+    in property <color> fill;
+    in property <bool> selected: false;
+    in property <bool> enabled: true;
+    callback picked();
+
+    // The tooltip: the name, then the tooltip sentence of the entry when it has one.
+    property <string> full_tip: root.tip != "" ? root.label + ". " + root.tip : root.label;
+
+    width: 24px;
+    height: 24px;
+    border-radius: 12px;
+    background: root.fill;
+    opacity: root.enabled ? 1.0 : 0.45;
+    border-width: (root.selected || swatch_focus.has-focus) ? 2px : 1px;
+    border-color: swatch_focus.has-focus ? Theme.accent-cyan-hover : (root.selected ? Theme.accent-cyan : Theme.border-control);
+
+    accessible-role: AccessibleRole.radio-button;
+    accessible-label: root.label;
+    accessible-checkable: true;
+    accessible-checked: root.selected;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.picked();
+        }
+    }
+
+    Tooltip { text: @markdown("\{root.full_tip}"); }
+
+    swatch_focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.picked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.picked(); }
+    }
+}
+
+// One action row of the Color Zoning section ("Edit Zones...", "Remove Zoning"): the look of a
+// `ColorChoiceRow` without a check mark, and a button for a screen reader. `hint` is the tooltip.
+component ColorActionRow inherits Rectangle {
+    in property <string> label;
+    in property <string> hint;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 28px;
+    border-radius: Theme.radius-sm;
+    opacity: root.enabled ? 1.0 : 0.45;
+    background: (action_touch.has-hover && root.enabled) ? Theme.surface-control-hover : transparent;
+    border-width: action_focus.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.label;
+    accessible-description: root.hint;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    Tooltip { text: @markdown("\{root.hint}"); }
+
+    action_focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    action_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
+    Text {
+        x: 8px;
+        width: parent.width - 16px;
+        height: parent.height;
+        text: root.label;
+        font-size: 11px;
+        color: Theme.text-primary;
+        vertical-alignment: center;
+    }
+}
+
+// The Stone tab's "Preview colour" (shown only while a material preview is on; the design's own
+// colour is the Body Color there). A quick colour change: a pill with a colour dot that opens a
+// small popup -- the same list as the Edit tab's color box for the viewed material: "Material
+// Default", its color variants, the nine one-color presets (only for a stone that looks the same
+// in every direction) and "Custom Color..." (the per-direction editor). No custom material
+// is needed. While the view shows the linked open design a pick is that design's own
+// colour (undoable, like the Edit tab's box); otherwise it only changes this view. Rust
+// (`gui::render::render_body_color`) owns every decision and pushes everything shown here
+// through `ViewportModel.render_color_*`; this file holds no colour logic.
+//
+// Below the colors sits the Color Zoning section (`Zoning.typical_pattern_*`, see
+// `gui::editor::stone_pattern`): the typical zoning patterns of the stone's species, "Edit Zones..."
+// (the Color Pattern editor) and "Remove Zoning" while the stone has a pattern. A stone with zones
+// takes no body color, so the colors are off while it has them; "Material Default" keeps its
+// meaning (the material's plain color) and is reached after Remove Zoning.
+//
+// The pill is a button for the keyboard and a screen reader too: Tab reaches it, Space or
+// Enter opens the popup, and the popup's rows and swatches are Tab stops of their own.
+export component RenderColorControl inherits Rectangle {
+    // Set by the toolbar from the viewport width: drops the "Color" label, the dot stays.
+    in property <bool> compact: false;
+
+    // Inside the popup: the colour picker is shown instead of just the list.
+    property <bool> picker_open: false;
+
+    // What the pill shows is recomputed by Rust when the control appears and when it opens;
+    // later changes of the design or the viewport material are tracked once, in `EditorModel`
+    // (one refresh per change, however many controls are mounted).
+    init => { ViewportModel.render_color_refresh(); }
+
+    // Wording that names the physics color only in a build that has the physics color
+    // editor (`physical-color`), as the Design settings color box does.
+    property <string> tip: ViewportModel.render_color_zoned
+        ? "This material's color comes from its zones. Open this menu and choose Edit Zones to change them."
+        : ViewportModel.render_color_physics
+        ? (PhysicscolorModel.ui_enabled
+            ? "Replaces the physical color \u{2014} unavailable for physics materials."
+            : "This material defines its own color.")
+        : (ViewportModel.render_color_targets_design
+            ? "Color -- show this design in another color without making a custom material. This is the same setting as the Body Color in the Stone tab, and it can be undone."
+            : "Color -- try this stone in another color without making a custom material. Only this view changes; the design is not touched.");
+
+    function open_popup() {
+        root.picker_open = false;
+        ViewportModel.render_color_refresh();
+        popup.show();
+    }
+
+    height: 32px;
+    width: pill_layout.preferred-width;
+    background: (pill_touch.has-hover && ViewportModel.render_color_enabled) ? Theme.bg-elevated : Theme.hint-surface;
+    border-radius: Theme.radius-sm;
+    border-width: pill_focus.has-focus ? 2px : 1px;
+    border-color: pill_focus.has-focus ? Theme.accent-cyan-hover : Theme.border-medium;
+    opacity: ViewportModel.render_color_enabled ? 1.0 : 0.55;
+
+    accessible-role: AccessibleRole.button;
+    accessible-label: "Color: " + ViewportModel.render_color_summary;
+    accessible-description: root.tip;
+    accessible-enabled: ViewportModel.render_color_enabled;
+    accessible-action-default => {
+        if ViewportModel.render_color_enabled {
+            root.open_popup();
+        }
+    }
+
+    Tooltip { text: @markdown("\{root.tip}"); }
+
+    pill_focus := FocusScope {
+        enabled: ViewportModel.render_color_enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.open_popup();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    pill_touch := TouchArea {
+        enabled: ViewportModel.render_color_enabled;
+        mouse-cursor: ViewportModel.render_color_enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.open_popup(); }
+    }
+
+    pill_layout := HorizontalLayout {
+        padding-left: 9px;
+        padding-right: 9px;
+        spacing: 6px;
+        alignment: center;
+        // The colour dot: the colour the stone renders in, or a hollow ring for
+        // "Material default".
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                background: ViewportModel.render_color_has_swatch ? ViewportModel.render_color_current : transparent;
+                border-width: ViewportModel.render_color_has_swatch ? 1px : 2px;
+                border-color: ViewportModel.render_color_has_swatch ? Theme.border-control : Theme.text-secondary;
+                opacity: (ViewportModel.render_color_busy || Zoning.typical_pattern_busy) ? 0.5 : 1.0;
+            }
+        }
+        if !root.compact: Text {
+            text: (ViewportModel.render_color_busy || Zoning.typical_pattern_busy) ? "Matching..." : "Color";
+            font-size: 11px;
+            font-weight: 600;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+        }
+    }
+
+    popup := PopupWindow {
+        x: 0px;
+        y: root.height + 4px;
+        width: 276px;
+        // Clicks inside (the picker's square, its hex box) must not close it; a choice
+        // closes it explicitly.
+        close-policy: PopupClosePolicy.close-on-click-outside;
+
+        Rectangle {
+            background: Theme.surface-dialog;
+            border-radius: Theme.radius-md;
+            border-width: 1px;
+            border-color: Theme.border-dialog;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: Theme.modal-shadow;
+            height: card.preferred-height;
+
+            card := VerticalLayout {
+                padding: 10px;
+                spacing: 8px;
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Color";
+                        font-size: 12px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: ViewportModel.render_color_summary;
+                        font-size: 11px;
+                        color: Theme.accent-cyan;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        overflow: elide;
+                    }
+                }
+                Text {
+                    text: ViewportModel.render_color_targets_design
+                        ? "Changes this design. You can undo it."
+                        : "Changes the view only. The design is not changed.";
+                    font-size: 10px;
+                    color: Theme.text-muted;
+                    wrap: word-wrap;
+                }
+
+                // A zoned material's color is its zones: the body colors below are off, and the
+                // Color Zoning section says where to change them.
+                if ViewportModel.render_color_zoned: Text {
+                    text: "The color of this stone comes from its zones. Use Edit Zones below.";
+                    font-size: 10px;
+                    color: Theme.text-muted;
+                    wrap: word-wrap;
+                    accessible-role: AccessibleRole.text;
+                }
+
+                // Material Default and the color variants of the viewed material (built in and
+                // saved), each with its face-up dot and, for a pleochroic stone, a tooltip
+                // naming the color of each direction. A long list scrolls.
+                ScrollView {
+                    height: min(variant_rows.preferred-height, 168px);
+                    variant_rows := VerticalLayout {
+                        for name[r] in ViewportModel.render_color_row_labels: ColorChoiceRow {
+                            label: name;
+                            tip: ViewportModel.render_color_row_tips[r];
+                            has_dot: ViewportModel.render_color_row_has_swatch[r];
+                            dot: ViewportModel.render_color_row_swatches[r];
+                            selected: ViewportModel.render_color_index == ViewportModel.render_color_row_indexes[r];
+                            enabled: ViewportModel.render_color_colors_enabled;
+                            clicked => {
+                                ViewportModel.render_color_chosen(ViewportModel.render_color_row_indexes[r]);
+                                popup.close();
+                            }
+                        }
+                    }
+                }
+
+                // The generic one-color presets: offered only for a material that looks the same
+                // in every direction (a pleochroic stone has its variants and Custom Color).
+                if ViewportModel.render_color_preset_first >= 0: HorizontalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    for tint[i] in ViewportModel.render_color_preset_swatches: ColorSwatch {
+                        fill: tint;
+                        label: ViewportModel.render_color_preset_labels[i];
+                        tip: ViewportModel.render_color_preset_tips[i];
+                        selected: ViewportModel.render_color_index == ViewportModel.render_color_preset_first + i;
+                        enabled: ViewportModel.render_color_colors_enabled;
+                        picked => {
+                            ViewportModel.render_color_chosen(ViewportModel.render_color_preset_first + i);
+                            popup.close();
+                        }
+                    }
+                }
+
+                // An old single color on a pleochroic stone: it keeps rendering as saved, with
+                // no pleochroism, until a variant or a Custom Color replaces it.
+                if ViewportModel.render_color_legacy_index >= 0: ColorChoiceRow {
+                    label: ViewportModel.render_color_legacy_label;
+                    tip: ViewportModel.render_color_legacy_tip;
+                    has_dot: true;
+                    dot: ViewportModel.render_color_legacy_swatch;
+                    selected: ViewportModel.render_color_index == ViewportModel.render_color_legacy_index;
+                    enabled: ViewportModel.render_color_colors_enabled;
+                    clicked => {
+                        ViewportModel.render_color_chosen(ViewportModel.render_color_legacy_index);
+                        popup.close();
+                    }
+                }
+                if ViewportModel.render_color_legacy_note != "": Text {
+                    text: ViewportModel.render_color_legacy_note + ". Pick a variant or a Custom Color to set a color for each direction.";
+                    font-size: 10px;
+                    color: Theme.text-muted;
+                    wrap: word-wrap;
+                    accessible-role: AccessibleRole.text;
+                }
+
+                ColorChoiceRow {
+                    label: "Custom Color (Tone, Saturation, Hue)\u{2026}";
+                    tip: ViewportModel.render_color_custom_tip;
+                    selected: ViewportModel.render_color_index == ViewportModel.render_color_custom_index;
+                    enabled: ViewportModel.render_color_colors_enabled;
+                    clicked => {
+                        root.picker_open = true;
+                        // 0 = this design (one undo step), 2 = this view only.
+                        BodyColorEditorModel.target = ViewportModel.render_color_targets_design ? 0 : 2;
+                        BodyColorEditorModel.open_requested();
+                    }
+                }
+
+                if root.picker_open: LchEditor {
+                    enabled: ViewportModel.render_color_colors_enabled;
+                    apply_hint: ViewportModel.render_color_targets_design
+                        ? "Use this color for the design. It is one step you can undo."
+                        : "Use this color for this view only. The design is not changed.";
+                    applied => {
+                        root.picker_open = false;
+                        popup.close();
+                    }
+                    cancelled => { root.picker_open = false; }
+                }
+
+                // Color Zoning: the typical patterns of the species (one click each), the
+                // Color Pattern editor for this stone, and the way back. Offered when the species
+                // has typical patterns, when the stone already has a pattern, and for a zoned
+                // material (its zones are edited here).
+                if Zoning.typical_pattern_labels.length > 0 || Zoning.stone_pattern_overridden || ViewportModel.render_color_zoned: VerticalLayout {
+                    spacing: 4px;
+                    Rectangle {
+                        height: 1px;
+                        background: Theme.border-subtle;
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: "Color Zoning";
+                            font-size: 12px;
+                            font-weight: 700;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: Zoning.typical_pattern_busy ? "Matching..." : (Zoning.typical_pattern_labels.length > 0 ? "Typical for " + Zoning.typical_pattern_species : "");
+                            font-size: 11px;
+                            color: Theme.accent-cyan;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+                    }
+                    for entry[i] in Zoning.typical_pattern_labels: ColorChoiceRow {
+                        label: entry;
+                        selected: Zoning.typical_pattern_index == i;
+                        enabled: Zoning.stone_pattern_enabled && !Zoning.pattern_editor_open && !Zoning.typical_pattern_busy;
+                        clicked => {
+                            Zoning.apply_typical_pattern(i);
+                            popup.close();
+                        }
+                    }
+                    ColorActionRow {
+                        label: "Edit Zones\u{2026}";
+                        hint: "Open the Color Pattern editor for this stone to change its zones, their colors and their shapes.";
+                        enabled: Zoning.stone_pattern_enabled && !Zoning.pattern_editor_open;
+                        clicked => {
+                            popup.close();
+                            Zoning.edit_stone_pattern();
+                        }
+                    }
+                    if Zoning.stone_pattern_overridden: ColorActionRow {
+                        label: "Remove Zoning";
+                        hint: "Remove this stone's zoning and use its material's own color and zones again.";
+                        enabled: Zoning.stone_pattern_enabled && !Zoning.pattern_editor_open && !Zoning.typical_pattern_busy;
+                        clicked => {
+                            Zoning.reset_stone_pattern();
+                            popup.close();
+                        }
+                    }
+                    if !Zoning.stone_pattern_enabled: Text {
+                        text: Zoning.stone_pattern_hint;
+                        font-size: 10px;
+                        color: Theme.text-muted;
+                        wrap: word-wrap;
+                        accessible-role: AccessibleRole.text;
+                    }
+                }
+            }
+        }
+    }
+}

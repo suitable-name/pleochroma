@@ -1,0 +1,53 @@
+// The crystal axis in the stone, from above (index 0 at the right) and from the side (table up):
+// the first step of Cutting Mode shows it under the sentence that says how to orient the rough.
+//
+// The strokes are SVG path commands in a 380 x 190 box (`pleochroma_editor::cutting_mode::
+// axis_picture`, the geometry of the cutting sheet's diagram); the picture is as wide as it is
+// given, keeps the box's proportions and sits in the middle.
+import { Theme } from "../theme.slint";
+import { ModeColors } from "cutting_mode_parts.slint";
+
+export component AxisPicture inherits Rectangle {
+    // What the picture shows, in words, for a screen reader.
+    in property <string> description;
+    // The stone's outlines in both views and the index 0 mark.
+    in property <string> frame;
+    // The crystal axis in both views.
+    in property <string> axis;
+
+    accessible-role: AccessibleRole.image;
+    accessible-label: "Crystal Axis in the Stone";
+    accessible-description: root.description;
+
+    property <length> picture-width: min(root.width, root.height * 2);
+    property <length> picture-height: root.picture-width / 2;
+    property <length> origin-x: (root.width - root.picture-width) / 2;
+    property <length> origin-y: (root.height - root.picture-height) / 2;
+
+    Path {
+        x: root.origin-x;
+        y: root.origin-y;
+        width: root.picture-width;
+        height: root.picture-height;
+        fit: fill;
+        viewbox-width: 380;
+        viewbox-height: 190;
+        commands: root.frame;
+        stroke: ModeColors.dim;
+        stroke-width: 1.5px;
+        fill: transparent;
+    }
+    Path {
+        x: root.origin-x;
+        y: root.origin-y;
+        width: root.picture-width;
+        height: root.picture-height;
+        fit: fill;
+        viewbox-width: 380;
+        viewbox-height: 190;
+        commands: root.axis;
+        stroke: ModeColors.accent;
+        stroke-width: 3px;
+        fill: ModeColors.accent;
+    }
+}

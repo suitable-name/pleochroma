@@ -1,0 +1,75 @@
+import { Theme } from "../../theme.slint";
+import { TuneModel, TuneMetricRow } from "../../models/tune.slint";
+import { SweepStyle } from "../sweep_dialog/sweep_style.slint";
+
+// State stays in Rust, so a click cannot sever the model's checked binding.
+component MetricToggle inherits Rectangle {
+    in property <TuneMetricRow> item;
+    in property <bool> unlocked;
+    callback toggled();
+    height: 20px;
+    background: touch.has-hover && root.unlocked ? Theme.bg-card-hover : transparent;
+    border-radius: Theme.radius-sm;
+    border-width: focus.has-focus ? 1px : 0px;
+    border-color: Theme.accent-cyan;
+    accessible-role: AccessibleRole.checkbox;
+    accessible-label: root.item.range_text;
+    accessible-description: "Show or hide this curve. The objective and measured sweep stay the same.";
+    accessible-checkable: true;
+    accessible-checked: root.item.shown;
+    accessible-enabled: root.unlocked;
+    accessible-action-default => { if root.unlocked { root.toggled(); } }
+
+    focus := FocusScope {
+        enabled: root.unlocked;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.toggled();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    HorizontalLayout {
+        padding-left: 3px;
+        spacing: 5px;
+        Rectangle {
+            width: 12px;
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: 12px; height: 12px;
+                border-radius: 2px;
+                border-width: 1px;
+                border-color: SweepStyle.series_color(root.item.index);
+                background: root.item.shown ? SweepStyle.series_color(root.item.index) : transparent;
+                if root.item.shown: Text {
+                    text: "✓"; font-size: 10px; color: Theme.text-on-accent;
+                    horizontal-alignment: center; vertical-alignment: center;
+                }
+            }
+        }
+        Text {
+            text: root.item.range_text;
+            font-size: 10px;
+            color: root.item.shown ? Theme.text-primary : Theme.text-muted;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.unlocked;
+        mouse-cursor: pointer;
+        clicked => { focus.focus(); root.toggled(); }
+    }
+    Tooltip { text: @markdown("\{root.item.range_text}. Click, Space or Enter to show or hide this curve.\nEach curve uses its own displayed range; Fire is a unitless index."); }
+}
+
+export component TuneMetricLegend inherits VerticalLayout {
+    in property <bool> unlocked: true;
+    spacing: 0px;
+    for metric in TuneModel.metrics: MetricToggle {
+        item: metric;
+        unlocked: root.unlocked;
+        toggled => { TuneModel.metric_toggled(metric.index); }
+    }
+}

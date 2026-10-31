@@ -1,0 +1,25 @@
+[package]
+name = "pleochroma-render-jobs"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+authors = { workspace = true }
+description = "Render jobs for Pleochroma: the frozen job file (scene, material, lighting, camera and export settings) shared by the desktop render queue and the command-line renderer, the job state machine, queue ordering, and the shell and PowerShell script writer."
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+documentation = "https://docs.rs/pleochroma-render-jobs"
+keywords = ["gemstone", "rendering", "queue", "cli"]
+categories = ["rendering"]
+publish = { workspace = true }
+
+[dependencies]
+# `SceneState`: the fully resolved scene a job freezes (material, planes, lighting, camera).
+pleochroma-net = { workspace = true, features = ["render"] }
+pleochroma = { workspace = true, features = ["serde"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+
+[lints]
+workspace = true

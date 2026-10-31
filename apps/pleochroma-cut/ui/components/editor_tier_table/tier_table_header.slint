@@ -1,0 +1,182 @@
+import { Theme } from "../../theme.slint";
+import { GuideModel } from "../../models/guide.slint";
+
+// One column heading with a tooltip saying what the column shows. `preferred-width` is the
+// label's own width, so a stretching column (NAME, INDICES) shares extra room the way a bare
+// `Text` did before the tooltip wrapper existed.
+component HeaderCell inherits Rectangle {
+    in property <string> text;
+    in property <string> tip;
+    in property <length> font_size: 11px;
+    // The cells below are left-aligned text, except the centred row number and code.
+    in property <TextHorizontalAlignment> halign: TextHorizontalAlignment.left;
+    // Room left of the label, so it clears the cell before it (ANGLE after the centred CODE).
+    in property <length> pad_left: 0px;
+    // The x (in the header's own coordinates) that the pinned ACTIONS group starts at, less a small
+    // gap. A heading that would run under the group is hidden whole -- a half heading ("MA") reads as
+    // broken -- and appears once the table is scrolled sideways far enough to show it. The slot of a
+    // hidden heading stays, so the others keep their place.
+    in property <length> limit: 100000px;
+
+    preferred-width: head.preferred-width + root.pad_left;
+    min-width: 0px;
+    visible: self.x + min(self.width, head.preferred-width + root.pad_left) <= root.limit;
+    if root.tip != "": Tooltip { text: @markdown("\{root.tip}"); }
+    head := Text {
+        x: root.pad_left;
+        width: parent.width - root.pad_left;
+        height: parent.height;
+        text: root.text;
+        horizontal-alignment: root.halign;
+        font-size: root.font_size;
+        font-weight: 700;
+        color: Theme.text-muted;
+        vertical-alignment: center;
+        overflow: elide;
+        accessible-role: AccessibleRole.text;
+    }
+}
+
+// `EditorTierTable`'s column header row. Column widths are passed straight
+// through from `EditorTierTable`'s own `col_*_width` properties (see that
+// component's own top doc comment on why they live there, named, rather than
+// as literals repeated in header and row) so this header and `TierTableRow`
+// can never drift out of sync.
+//
+// The Simple interface leaves out the MAST, SOLVE and ORBIT headings, exactly the columns
+// `TierTableRow` leaves out. The action buttons of a row are a pinned group (`TierRowActions`)
+// that the table labels ACTIONS over the header row; this header only reserves its room.
+export component TierTableHeader inherits Rectangle {
+    in property <bool> select_mode: false;
+
+    in property <length> col_hash_width;
+    in property <length> col_warn_width;
+    in property <length> col_block_width;
+    in property <length> col_angle_width;
+    in property <length> col_name_min_width;
+    in property <length> col_indices_min_width;
+    in property <length> col_meets_width;
+    in property <length> col_mast_width;
+    in property <length> col_solve_width;
+    in property <length> col_margin_width;
+    in property <length> col_orbit_width;
+    // The pinned action group of every row (`TierRowActions`) reserves this much room at the end.
+    in property <length> col_actions_width;
+    // Where the pinned group starts in the header's own coordinates, less a gap (the table passes
+    // it); the headings from MEETS on hide whole when they would run under it.
+    in property <length> data_limit: 100000px;
+
+    property <bool> advanced: GuideModel.shows_advanced();
+
+    height: 26px;
+    HorizontalLayout {
+        padding-left: 4px;
+        padding-right: root.col_actions_width + 8px;
+        // "#" normally; a tick while "Select" mode is on (an icon: the UI font has no
+        // tick symbol).
+        Rectangle {
+            width: root.col_hash_width;
+            height: 100%;
+            Tooltip { text: @markdown("The tier's number, in cutting order. While Select is on, this\ncolumn is where you tick tiers to change several at once."); }
+            if !root.select_mode: Text { width: parent.width; height: parent.height; text: "#"; horizontal-alignment: center; font-size: 11px; font-weight: 700; color: Theme.text-muted; vertical-alignment: center; accessible-role: AccessibleRole.text; }
+            if root.select_mode: Image {
+                source: @image-url("../../icons/check.svg");
+                colorize: Theme.accent-amber;
+                width: 11px;
+                height: 11px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                image-fit: contain;
+            }
+        }
+        Rectangle {
+            width: root.col_warn_width;
+            height: 100%;
+            Tooltip { text: @markdown("A warning triangle in this column means the tier has a problem\nfor the cutter. Hover the triangle in the row for details."); }
+        }
+        // The row's code (`P1`, `G1`, `C1`, `T`, `Culet`), numbered in cutting order.
+        // The same 11 px as every other heading; `col_block_width` is wide enough for it.
+        HeaderCell {
+            width: root.col_block_width;
+            height: 100%;
+            text: "CODE";
+            halign: TextHorizontalAlignment.center;
+            tip: "The tier's label on the cutting sheet: P pavilion, G girdle (exactly\n90\u{b0}), C crown, T the table, numbered in the order the tiers are\ncut. The letter is classified from the angle. See the glossary.";
+        }
+        HeaderCell {
+            width: root.col_angle_width;
+            height: 100%;
+            // The row's ANGLE cell indents its value by the same 4 px (`TierAngleCell`), so the
+            // heading stands clear of CODE and over its values.
+            pad_left: 4px;
+            text: "ANGLE";
+            tip: "The facet's angle from the girdle plane, in degrees. Double-click\nit, or press F2, to edit. Scroll with Ctrl held to nudge it.";
+        }
+        HeaderCell {
+            horizontal-stretch: 1;
+            min-width: root.col_name_min_width;
+            preferred-width: root.col_name_min_width;
+            height: 100%;
+            text: "NAME";
+            tip: "The facet's name, for example P1 or C2. Other\ntiers can refer to it. See the glossary.";
+        }
+        HeaderCell {
+            horizontal-stretch: 1;
+            min-width: root.col_indices_min_width;
+            preferred-width: root.col_indices_min_width;
+            height: 100%;
+            text: "INDICES";
+            tip: "The index-wheel positions this tier is cut at. See the glossary.";
+        }
+        // What this tier's constraint actually is -- a scale reference,
+        // an unspecified meet, or named facets (`EditorTierItem::
+        // constraint_kind`/`constraint_text`).
+        HeaderCell {
+            width: root.col_meets_width;
+            height: 100%;
+            limit: root.data_limit;
+            text: "MEETS";
+            tip: "What decides how deep this facet is cut: where it meets\nother facets, named facets, an exact scale value (the\npin icon) or a size in millimetres. See the glossary.";
+        }
+        // Mast figure is in the design's model units (girdle half-width = 1),
+        // never millimetres. Named here since header carries no unit.
+        if root.advanced: HeaderCell {
+            width: root.col_mast_width;
+            height: 100%;
+            limit: root.data_limit;
+            text: "MAST";
+            tip: "Solved mast depth, in the design's own model units (girdle\nhalf-width = 1), not millimetres. See the glossary.";
+        }
+        // Header Tooltips reuse the row-cell wording from below.
+        if root.advanced: HeaderCell {
+            width: root.col_solve_width;
+            height: 100%;
+            limit: root.data_limit;
+            text: "SOLVE";
+            tip: "How this tier's MAST was derived: a real vertex-derived\nsolve, or a least-squares/uncertain fallback (amber).";
+        }
+        // Margin over the design's effective critical angle
+        // (pavilion tiers only) and the risk band it falls into
+        // (`EditorTierItem::margin_text`/`risk_level`).
+        HeaderCell {
+            width: root.col_margin_width;
+            height: 100%;
+            limit: root.data_limit;
+            text: "MARGIN";
+            tip: "Margin over the design's effective critical angle (pavilion\ntiers only), and the risk band it falls into. See the glossary.";
+        }
+        // Whether this row is one orbit, several folded together,
+        // or partial/inconsistent (`EditorTierItem::orbit_status`)
+        // -- makes "editing this row moves more than one facet"
+        // visible before the user clicks Save. Also doubles as the
+        // "Complete orbit" action's hit target (see the row's own
+        // button).
+        if root.advanced: HeaderCell {
+            width: root.col_orbit_width;
+            height: 100%;
+            limit: root.data_limit;
+            text: "ORBIT";
+            tip: "Whether this row is one orbit, several folded together,\nor partial/inconsistent. Click an amber badge in the\nrow below to complete it. See the glossary.";
+        }
+    }
+}

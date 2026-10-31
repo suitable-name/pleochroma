@@ -1,0 +1,256 @@
+import { Slider } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { FacetingMachineModel } from "../models/faceting_machine.slint";
+import { SegmentPill } from "pill_button.slint";
+import { SettingLabel } from "settings_dialog/setting_label.slint";
+import { TipButton } from "compact_controls.slint";
+
+// One labelled slider row: the name with its tooltip, the value at the right, the slider below.
+component MachineSlider inherits VerticalLayout {
+    in property <string> label;
+    in property <string> hint;
+    in property <string> value_text;
+    in property <string> accessible;
+    in property <float> minimum;
+    in property <float> maximum;
+    in-out property <float> value;
+    callback moved();
+
+    spacing: 2px;
+    HorizontalLayout {
+        alignment: space-between;
+        SettingLabel { text: root.label; hint: root.hint; }
+        Text { text: root.value_text; font-size: 10px; font-weight: 700; color: Theme.accent-cyan; }
+    }
+    Slider {
+        minimum: root.minimum;
+        maximum: root.maximum;
+        accessible-label: root.accessible;
+        value <=> root.value;
+        changed(val) => { root.moved(); }
+    }
+}
+
+// The Faceting Machine section of the Preferences dialog: where the polishing scratches on a facet
+// point. The scratches follow the lap: at every contact point the lap moves along the tangent of the
+// circle through that point, and while polishing the stone travels between an inner and an outer
+// radius of the lap, so the scratches fan out over a range of angles. The preference is the user's
+// (it is never saved in a design); it changes how polished and ground facets render once a tier has
+// a surface finish.
+//
+// The little figure is the lap seen from above: the circle is the lap, the band between the two
+// dashed circles is where the stone travels, the line is the dop arm and the ticks are the scratches
+// at three radii of the band. `FacetingMachineModel` carries the numbers and the figure's paths
+// (`gui::render::faceting_machine_ui`).
+export component FacetingMachineSection inherits VerticalLayout {
+    spacing: 6px;
+
+    property <bool> centred: FacetingMachineModel.mast_distance_mm == 0;
+
+    Text {
+        text: "Where the polishing scratches point. The scratches run along the lap's turning direction at the spot where the stone touches it, and the stone travels across the lap, so they fan out. The last polishing pass decides them. This is your machine's setting; it is not saved in a design.";
+        font-size: 10px;
+        color: Theme.text-secondary;
+        wrap: word-wrap;
+        accessible-role: AccessibleRole.text;
+    }
+
+    HorizontalLayout {
+        spacing: 12px;
+        // The top view of the lap.
+        Rectangle {
+            width: 150px;
+            height: 150px;
+            background: Theme.surface-sunken;
+            border-radius: Theme.radius-sm;
+            border-width: 1px;
+            border-color: Theme.border-subtle;
+            accessible-role: AccessibleRole.image;
+            accessible-label: "Top view of the lap with the swept band, the dop arm and the scratch directions";
+            Path {
+                x: 5px;
+                y: 5px;
+                width: 140px;
+                height: 140px;
+                viewbox-x: 0;
+                viewbox-y: 0;
+                viewbox-width: 200;
+                viewbox-height: 200;
+                commands: FacetingMachineModel.band_commands;
+                fill-rule: FillRule.evenodd;
+                fill: Theme.accent-cyan.transparentize(0.82);
+                stroke: Theme.accent-cyan.transparentize(0.4);
+                stroke-width: 1px;
+            }
+            Path {
+                x: 5px;
+                y: 5px;
+                width: 140px;
+                height: 140px;
+                viewbox-x: 0;
+                viewbox-y: 0;
+                viewbox-width: 200;
+                viewbox-height: 200;
+                commands: FacetingMachineModel.lap_commands;
+                stroke: Theme.text-secondary;
+                stroke-width: 1.5px;
+            }
+            Path {
+                x: 5px;
+                y: 5px;
+                width: 140px;
+                height: 140px;
+                viewbox-x: 0;
+                viewbox-y: 0;
+                viewbox-width: 200;
+                viewbox-height: 200;
+                commands: FacetingMachineModel.arm_commands;
+                stroke: Theme.accent-amber;
+                stroke-width: 2.5px;
+            }
+            Path {
+                x: 5px;
+                y: 5px;
+                width: 140px;
+                height: 140px;
+                viewbox-x: 0;
+                viewbox-y: 0;
+                viewbox-width: 200;
+                viewbox-height: 200;
+                commands: FacetingMachineModel.scratch_commands;
+                stroke: Theme.text-primary;
+                stroke-width: 2px;
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 4px;
+            Text { text: "Lap, seen from above"; font-size: 10px; font-weight: 700; color: Theme.text-primary; }
+            Text { text: "Gray: the lap. Blue band: where the stone travels. Amber: the dop arm. White ticks: the scratches."; font-size: 10px; color: Theme.text-secondary; wrap: word-wrap; }
+            Text { text: FacetingMachineModel.angles_text; font-size: 10px; color: Theme.accent-cyan; wrap: word-wrap; accessible-role: AccessibleRole.text; }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: 4px;
+        SegmentPill {
+            text: "Arm Points at the Lap Centre";
+            hint: "The dop arm lines up with the lap centre, so the scratches run parallel to the girdle (plus the Arm Offset). The usual choice for a plain machine.";
+            selected: root.centred;
+            picked => {
+                FacetingMachineModel.mast_distance_mm = 0.0;
+                FacetingMachineModel.value_changed();
+            }
+        }
+        SegmentPill {
+            text: "Mast to the Side";
+            hint: "The mast stands off to one side of the lap centre, as on a mast machine on a side slide. The scratch angle then changes along the sweep, so they fan out.";
+            selected: !root.centred;
+            picked => {
+                if root.centred {
+                    FacetingMachineModel.mast_distance_mm = FacetingMachineModel.lap_radius_mm * 0.3;
+                    FacetingMachineModel.value_changed();
+                }
+            }
+        }
+    }
+
+    MachineSlider {
+        label: "Arm Offset";
+        hint: "The angle between the dop arm and the radial line through the contact point, in degrees. 0 puts the scratches parallel to the girdle. Measure it on your machine; the manual shows how.";
+        value_text: Math.round(FacetingMachineModel.arm_offset_deg * 10) / 10 + "°";
+        accessible: "Arm Offset in Degrees";
+        minimum: -45.0;
+        maximum: 45.0;
+        value <=> FacetingMachineModel.arm_offset_deg;
+        moved => { FacetingMachineModel.value_changed(); }
+    }
+    MachineSlider {
+        label: "Lap Radius";
+        hint: "The radius of your lap in millimetres.";
+        value_text: Math.round(FacetingMachineModel.lap_radius_mm) + " mm";
+        accessible: "Lap Radius in Millimetres";
+        minimum: 50.0;
+        maximum: 200.0;
+        value <=> FacetingMachineModel.lap_radius_mm;
+        moved => { FacetingMachineModel.value_changed(); }
+    }
+    if !root.centred: MachineSlider {
+        label: "Mast Position";
+        hint: "How far the line of the dop arm runs from the lap centre, in millimetres. Negative puts the mast on the other side of the centre.";
+        value_text: Math.round(FacetingMachineModel.mast_distance_mm) + " mm";
+        accessible: "Mast Position in Millimetres";
+        minimum: -150.0;
+        maximum: 150.0;
+        value <=> FacetingMachineModel.mast_distance_mm;
+        moved => { FacetingMachineModel.value_changed(); }
+    }
+
+    VerticalLayout {
+        spacing: 4px;
+        SettingLabel {
+            text: "Sweep Range";
+            hint: "How far across the lap the stone travels in the last polishing pass, as the inner and the outer radius where it touches the lap. A narrow sweep makes a tight fan of scratches, a wide one a wide fan.";
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            SegmentPill {
+                text: "Narrow";
+                hint: "A short stroke around the middle of the lap: 55 to 65 percent of the radius.";
+                selected: FacetingMachineModel.sweep_preset == 0;
+                picked => { FacetingMachineModel.sweep_preset_chosen(0); }
+            }
+            SegmentPill {
+                text: "Typical";
+                hint: "The usual stroke: 40 to 80 percent of the radius.";
+                selected: FacetingMachineModel.sweep_preset == 1;
+                picked => { FacetingMachineModel.sweep_preset_chosen(1); }
+            }
+            SegmentPill {
+                text: "Wide";
+                hint: "Nearly the whole lap: 20 to 95 percent of the radius.";
+                selected: FacetingMachineModel.sweep_preset == 2;
+                picked => { FacetingMachineModel.sweep_preset_chosen(2); }
+            }
+            SegmentPill {
+                text: "Custom";
+                hint: "Set the inner and the outer radius yourself.";
+                selected: FacetingMachineModel.sweep_preset == 3;
+                picked => { FacetingMachineModel.sweep_preset_chosen(3); }
+            }
+        }
+    }
+    if FacetingMachineModel.sweep_preset == 3: VerticalLayout {
+        spacing: 6px;
+        MachineSlider {
+            label: "Inner Radius";
+            hint: "The smallest radius of the lap the stone reaches, in millimetres.";
+            value_text: Math.round(FacetingMachineModel.sweep_inner_mm) + " mm";
+            accessible: "Sweep Inner Radius in Millimetres";
+            minimum: 0.0;
+            maximum: FacetingMachineModel.lap_radius_mm;
+            value <=> FacetingMachineModel.sweep_inner_mm;
+            moved => { FacetingMachineModel.value_changed(); }
+        }
+        MachineSlider {
+            label: "Outer Radius";
+            hint: "The largest radius of the lap the stone reaches, in millimetres.";
+            value_text: Math.round(FacetingMachineModel.sweep_outer_mm) + " mm";
+            accessible: "Sweep Outer Radius in Millimetres";
+            minimum: 0.0;
+            maximum: FacetingMachineModel.lap_radius_mm;
+            value <=> FacetingMachineModel.sweep_outer_mm;
+            moved => { FacetingMachineModel.value_changed(); }
+        }
+    }
+
+    HorizontalLayout {
+        alignment: start;
+        TipButton {
+            text: "Reset to the Plain Machine";
+            hint: "Put the arm back at the lap centre with no offset, a 100 mm lap and the typical sweep.";
+            clicked => { FacetingMachineModel.reset_requested(); }
+        }
+    }
+}

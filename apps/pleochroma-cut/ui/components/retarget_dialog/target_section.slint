@@ -1,0 +1,107 @@
+import { ComboBox, LineEdit } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { RetargetModel } from "../../models/retarget.slint";
+import { TipBox, FieldCaption } from "../tip_box.slint";
+
+// The target material: the picker, its resolved readout and the error line for a custom n_D
+// that did not parse. Sits in the dialog body's column, which spaces its sections 12 px apart.
+export component TargetMaterialSection inherits VerticalLayout {
+    spacing: 12px;
+
+    // 2. Target material picker -- owned by this dialog (see
+    // `RetargetModel.target_material_index`'s own doc comment), not the
+    // design settings panel's combo.
+    VerticalLayout {
+        spacing: 4px;
+        FieldCaption {
+            text: "Target Material";
+            hint: "The material this proposal retargets TO. Starts at the design's own current material when the dialog opens; pick another to preview retargeting onto it.";
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            // The combo may shrink (min-width) so the row never grows past the column: its own
+            // minimum plus the n_D field used to push the field under the scroll bar.
+            TipBox {
+                horizontal-stretch: 1;
+                min-width: 90px;
+                hint: "Pick the material the stone is to be cut in.";
+                ComboBox {
+                    model: RetargetModel.material_options;
+                    current-index <=> RetargetModel.target_material_index;
+                    enabled: !RetargetModel.is_busy;
+                    accessible-label: "Target Material";
+                    // Picking a material drops a custom n_D: the field is an
+                    // override, and a number left from the design's own
+                    // override would otherwise beat the material picked.
+                    selected(val) => {
+                        RetargetModel.target_ri_override_text = "";
+                        RetargetModel.proposal_changed();
+                    }
+                }
+            }
+            // No min-width override here: a TipBox takes its minimum from the LineEdit inside it
+            // (about 109 px), and a smaller minimum let the field overflow the box by 13 px, past
+            // the column's right edge and under the scroll viewport.
+            TipBox {
+                preferred-width: 112px;
+                horizontal-stretch: 0;
+                hint: "Or type a refractive index of your own, for example 1.54. It is the number n_D measured for yellow light. Leave empty to use the material.";
+                LineEdit {
+                    text <=> RetargetModel.target_ri_override_text;
+                    placeholder-text: "Custom n_D";
+                    enabled: !RetargetModel.is_busy;
+                    accessible-label: "Custom Refractive Index n_D";
+                    edited => { RetargetModel.proposal_changed(); }
+                }
+            }
+        }
+    }
+
+    // 3. Target material readout -- the RESOLVED result of the picker above.
+    // The name shown is derived from the picker's own `MaterialSelection`
+    // (Rust side, `retarget_actions::target_display_name`), not the resolved
+    // `GemMaterial`, so "(none)"/a typed custom RI never show as "Diamond".
+    // An RI override that fails to parse is surfaced below as its own error
+    // line rather than silently falling back to the design's OLD material
+    // with no sign anything was typed wrong.
+    Rectangle {
+        height: target_row.preferred-height + 12px;
+        border-radius: Theme.radius-sm;
+        background: Theme.surface-sunken;
+        border-width: 1px;
+        border-color: Theme.border-dialog;
+
+        accessible-role: AccessibleRole.groupbox;
+        accessible-label: "Target: " + RetargetModel.target_material_name + ", n_D " + RetargetModel.target_material_ri + ", critical angle " + RetargetModel.target_critical_angle;
+
+        Tooltip { text: @markdown("The material the picker above resolves to: what this proposal actually retargets TO. The critical angle is the steepest angle at which light still stays inside the stone."); }
+
+        target_row := HorizontalLayout {
+            padding: 8px;
+            spacing: 14px;
+            Text { text: "Target:"; font-size: 11px; color: Theme.text-muted; vertical-alignment: center; }
+            Text { text: RetargetModel.target_material_name; font-size: 12px; font-weight: 700; color: Theme.text-primary; vertical-alignment: center; horizontal-stretch: 1; }
+            Text { text: "n_D " + RetargetModel.target_material_ri; font-size: 11px; color: Theme.text-secondary; vertical-alignment: center; }
+            Text { text: "critical " + RetargetModel.target_critical_angle; font-size: 11px; color: Theme.text-secondary; vertical-alignment: center; }
+        }
+    }
+
+    if RetargetModel.target_material_error != "": HorizontalLayout {
+        spacing: 6px;
+        Image {
+            source: @image-url("../../icons/warning.svg");
+            colorize: Theme.accent-ruby;
+            width: 12px;
+            height: 12px;
+            y: 1px;
+        }
+        Text {
+            text: RetargetModel.target_material_error + " Showing the last valid target; nothing below reflects this text.";
+            font-size: 10px;
+            font-weight: 600;
+            color: Theme.accent-ruby;
+            wrap: word-wrap;
+            horizontal-stretch: 1;
+        }
+    }
+}

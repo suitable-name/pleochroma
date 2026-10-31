@@ -1,0 +1,152 @@
+import { Theme } from "../../theme.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { HelpTopics } from "../../models/help.slint";
+import { GuideLockTip } from "../guide_lock.slint";
+import { HelpButton } from "../help_button.slint";
+
+// One tab of the Inspector. It takes Tab and answers Space and Enter, shows a ring while it has
+// focus, and is a tab (picked or not) to a screen reader. `hint` says what the tab holds.
+component InspectorTabPill inherits Rectangle {
+    in property <string> label;
+    // One plain sentence: what the tab is for. Shown as the tooltip while the tab is usable.
+    in property <string> hint;
+    in property <bool> active;
+    // `false` while the worked-example guide locks this tab (see `GuideAllow`).
+    in property <bool> allowed: true;
+    // The guide's accent outline, for a step that points at this tab.
+    in property <bool> highlighted: false;
+    callback clicked();
+
+    height: 26px;
+    background: root.active ? Theme.primary : (touch.has-hover ? Theme.bg-elevated : Theme.bg-input);
+    border-radius: Theme.radius-sm;
+    border-width: (root.highlighted || pill_focus.has-focus) ? 2px : 1px;
+    border-color: pill_focus.has-focus ? Theme.accent-cyan-hover : ((root.active || root.highlighted) ? Theme.accent-cyan : Theme.border-subtle);
+    opacity: root.allowed ? 1.0 : 0.4;
+
+    accessible-role: AccessibleRole.tab;
+    accessible-label: root.label;
+    accessible-description: root.hint;
+    accessible-enabled: root.allowed;
+    accessible-checkable: true;
+    accessible-checked: root.active;
+    accessible-action-default => {
+        if root.allowed {
+            root.clicked();
+        }
+    }
+
+    if root.allowed && root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    pill_focus := FocusScope {
+        enabled: root.allowed;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.allowed;
+        clicked => { root.clicked(); }
+    }
+    GuideLockTip { locked: !root.allowed; }
+
+    HorizontalLayout {
+        // Tight sides: the pill's width is fixed per label by its user (so the row never
+        // reflows between tabs), and 11 px bold "Preform" must fit inside 66 px.
+        padding-left: 6px;
+        padding-right: 6px;
+        alignment: center;
+        Text {
+            text: root.label;
+            font-size: 11px;
+            font-weight: 600;
+            color: root.active ? Theme.text-on-primary : Theme.text-secondary;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// The row of tab pills in the Inspector's header (`SectionHeader`'s right-side slot), with the
+// manual button of the open tab. `EditorModel.inspector_tab` (0 = Tier, 1 = Preform, 2 = Optimize,
+// 3 = Schedule, 4 = History) is the tab showing. Each pill also re-expands the section --
+// switching tabs while collapsed must be visibly useful, not just recorded for whenever the
+// section next opens.
+export component InspectorTabPills inherits HorizontalLayout {
+    // Whether the Advanced interface shows: the Simple interface leaves out the Schedule tab.
+    in property <bool> advanced;
+    // Whether the Tier tab holds the concave form (its own manual page).
+    in property <bool> concave_loaded;
+    // The manual page for the open tab's "?" button. History keeps the topic of its own tab.
+    property <string> tab_help_topic: EditorModel.inspector_tab == 0
+        ? (root.concave_loaded ? HelpTopics.concave-tier : HelpTopics.tier-form)
+        : EditorModel.inspector_tab == 1 ? HelpTopics.preform-tab
+        : EditorModel.inspector_tab == 2 ? HelpTopics.optimize-tab
+        : EditorModel.inspector_tab == 3 ? HelpTopics.schedule-tab
+        : HelpTopics.history;
+
+    spacing: 6px;
+    InspectorTabPill {
+        label: "Tier";
+        width: 56px;
+        hint: "Add a tier, or edit the one selected in the table: its\nangle, what it meets, its name and its index positions.";
+        active: EditorModel.inspector_tab == 0;
+        allowed: GuideModel.allows_tier_form();
+        highlighted: GuideModel.highlight_target == "inspector_tier";
+        clicked => { EditorModel.inspector_tab = 0; EditorModel.inspector_collapsed = false; }
+    }
+    InspectorTabPill {
+        label: "Preform";
+        width: 66px;
+        hint: "The starting rough: its shape and size, the stone's proportions\nand how much of the rough is kept. See the glossary.";
+        active: EditorModel.inspector_tab == 1;
+        allowed: GuideModel.allows_preform_tab();
+        highlighted: GuideModel.highlight_target == "preform_tab";
+        clicked => { EditorModel.inspector_tab = 1; EditorModel.inspector_collapsed = false; }
+    }
+    InspectorTabPill {
+        label: "Optimize";
+        width: 76px;
+        hint: "Let the program search for angles that give a brighter stone,\nthen preview and apply one of the results. See the glossary.";
+        active: EditorModel.inspector_tab == 2;
+        allowed: GuideModel.allows_advanced();
+        highlighted: GuideModel.highlight_target == "optimize_tab";
+        clicked => { EditorModel.inspector_tab = 2; EditorModel.inspector_collapsed = false; }
+    }
+    // The Schedule tab is advanced: the Simple interface leaves out its pill and body.
+    if root.advanced: InspectorTabPill {
+        label: "Schedule";
+        width: 76px;
+        hint: "The cutting order of this design, one line per facet, as the program has it now.";
+        active: EditorModel.inspector_tab == 3;
+        clicked => { EditorModel.inspector_tab = 3; EditorModel.inspector_collapsed = false; }
+    }
+    InspectorTabPill {
+        label: "History";
+        width: 70px;
+        hint: "Every edit made to this design, with a picture\nof each step, and saved variants of it.";
+        active: EditorModel.inspector_tab == 4;
+        allowed: GuideModel.allows_history();
+        highlighted: GuideModel.highlight_target == "history_tab";
+        clicked => { EditorModel.inspector_tab = 4; EditorModel.inspector_collapsed = false; }
+    }
+    // The manual page for the open tab (the History tab too: its own "?" inside the tab was
+    // dropped, so the slot is never empty). Always 20 px wide, so the pills never shift when the
+    // tab changes.
+    VerticalLayout {
+        width: 20px;
+        alignment: center;
+        help-button-inspector-tab := HelpButton {
+            topic: root.tab_help_topic;
+            hint: EditorModel.inspector_tab == 0
+                ? (root.concave_loaded ? "Open the manual page on adding a concave tier" : "Open the manual page on the tier form")
+                : EditorModel.inspector_tab == 1 ? "Open the manual page on the Preform tab"
+                : EditorModel.inspector_tab == 2 ? "Open the manual page on Optimize"
+                : EditorModel.inspector_tab == 3 ? "Open the manual page on the Schedule tab"
+                : "Open the manual page on the History tab, saved variants and trials";
+        }
+    }
+}

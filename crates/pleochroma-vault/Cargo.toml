@@ -1,0 +1,44 @@
+[package]
+name = "pleochroma-vault"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+authors = { workspace = true }
+description = "SQLite-backed storage, data models, and local import/export for gemstone faceting design libraries."
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+documentation = "https://docs.rs/pleochroma-vault"
+keywords = ["gemstone", "faceting", "sqlite", "catalog", "database"]
+categories = ["database", "database-implementations"]
+publish = { workspace = true }
+
+[dependencies]
+anyhow = { workspace = true }
+# Local library only: reads/writes the user's own `.asc` files (see `crate::local`).
+# Keeping this crate's dependency surface to exactly these five is deliberate -- it is
+# the storage layer, and nothing in it should ever reach outside the process.
+pleochroma-formats = { workspace = true }
+# Optional behind the default `sqlite` feature: only `crate::db` needs it, so a build
+# with `--no-default-features` (the browser build: `model` + `local`) never compiles
+# the C build of bundled SQLite.
+rusqlite = { workspace = true, optional = true }
+serde = { workspace = true }
+tracing = { workspace = true }
+
+[features]
+default = ["sqlite"]
+# The SQLite store (`crate::db`) and the one importer helper that writes to it
+# (`local::apply_imported_extras`). Every native consumer keeps it on.
+sqlite = ["dep:rusqlite"]
+
+[dev-dependencies]
+# Tests only: the typed color-recipe round trip (`db::sqlite::tests::materials`) stores a real
+# `ColorRecipe`; the storage layer itself still treats `color_recipe_json` as opaque text.
+pleochroma = { workspace = true }
+serde_json = { workspace = true }
+# Tests only: names the `toml::Table` of a design file's `unknown` catch-all in a test literal.
+toml = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,388 @@
+//! The value of one stone in one piece, the unit grid, and the shared piece
+//! table (`P[gx][gy][gz]`).
+//!
+//! A design is normalised to `(1, l = L/W, h = H/W, f = V/W^3)`. In a piece
+//! with usable box `p` and an axis assignment `pi` (which piece axis takes the
+//! design's W, L and H), the finished width in mm is
+//! `s = min(p[pi(W)], p[pi(L)] / l, p[pi(H)] / h)` and the finished volume is
+//! `f * s^3`. Every consumer (the table, the uniform pass, the refinement, the
+//! layout builder) goes through [`stone_scale`]/[`stone_value`], so their
+//! numbers agree bit for bit.
+
+use super::{
+    OP_CAP,
+    shaped::parallel::{even_chunks, run_lanes},
+    types::{CandidateDesign, PlanProgress, PlanSettings, RoughBlock},
+};
+
+/// The six ways a design's `(W, L, H)` map onto a piece's axes: entry `j` of
+/// an assignment is the piece axis that design dimension `j` runs along.
+pub const ASSIGNMENTS: [[usize; 3]; 6] = [
+    [0, 1, 2],
+    [1, 0, 2],
+    [0, 2, 1],
+    [2, 0, 1],
+    [1, 2, 0],
+    [2, 1, 0],
+];
+
+/// Relative slack of the minimum-width test: a stone counts as wide enough when its width is
+/// at least `min_width * (1 - MIN_WIDTH_SLACK)`.
+///
+/// The table, the uniform pass and the refinement reach the same physical width through
+/// different expressions (`g * unit - kerf - 2a`, `(r + kerf) / n - kerf - 2a`,
+/// `x - 2a`), which can differ in the last bits. Accepting that much noise keeps a stone
+/// exactly at the minimum from being feasible on one path and infeasible on another.
+pub const MIN_WIDTH_SLACK: f64 = 1e-12;
+
+/// The smallest finished width [`stone_value`] accepts for the minimum width `min_width`.
+pub const fn min_width_floor(min_width: f64) -> f64 {
+    min_width * (1.0 - MIN_WIDTH_SLACK)
+}
+
+/// A design normalised by its width.
+#[derive(Debug, Clone, Copy)]
+pub struct Norm {
+    /// `L / W`.
+    pub l: f64,
+    /// `H / W`.
+    pub h: f64,
+    /// `V / W^3`.
+    pub f: f64,
+    /// The orientation factor of each assignment (`1` for every assignment when the design has no
+    /// rule; `0` marks an assignment a Required rule does not allow). Every value
+    /// [`stone_value`] and [`Norm::value_at`] return is multiplied by it, so the table, the
+    /// uniform pass, the refinement and the shaped scalers all see the rule.
+    pub factors: [f64; 6],
+}
+
+impl Norm {
+    /// Normalise `design` (its `width` must be positive), with the factors of its orientation
+    /// rule.
+    pub(crate) fn of(design: &CandidateDesign) -> Self {
+        let mut norm = Self::plain(design);
+        if let Some(rule) = &design.orientation {
+            norm.factors = rule.assignment_factors();
+        }
+        norm
+    }
+
+    /// Normalise `design` without its rule: the true size of a stone, which the layout builders
+    /// use (the weight of a stone never depends on how well it is oriented).
+    pub(crate) fn plain(design: &CandidateDesign) -> Self {
+        let w = design.width;
+        Self {
+            l: design.length / w,
+            h: design.height / w,
+            f: design.volume / (w * w * w),
+            factors: [1.0; 6],
+        }
+    }
+
+    /// The value of a stone of finished width `k` under assignment `orient`: its volume times
+    /// the assignment's orientation factor, `-inf` when the factor forbids the assignment.
+    ///
+    /// For a design without a rule this is `f * k^3`, bit for bit.
+    ///
+    /// # Panics
+    ///
+    /// When `orient` is not an index into [`ASSIGNMENTS`] (`0..6`).
+    pub(crate) fn value_at(&self, k: f64, orient: usize) -> f64 {
+        let base = self.f * (k * k * k);
+        let factor = self.factors[orient];
+        if factor >= 1.0 {
+            base
+        } else if factor > 0.0 {
+            base * factor
+        } else {
+            f64::NEG_INFINITY
+        }
+    }
+
+    /// The design's dimensions in units of its width: `[1, l, h]`.
+    pub(crate) const fn dims(&self) -> [f64; 3] {
+        [1.0, self.l, self.h]
+    }
+}
+
+/// The finished width in mm of a stone in the usable box `p` (canonical axes)
+/// under assignment `orient`.
+///
+/// # Panics
+///
+/// When `orient` is not an index into [`ASSIGNMENTS`] (`0..6`).
+pub fn stone_scale(norm: &Norm, orient: usize, p: [f64; 3]) -> f64 {
+    let a = &ASSIGNMENTS[orient];
+    p[a[0]].min(p[a[1]] / norm.l).min(p[a[2]] / norm.h)
+}
+
+/// The finished volume in mm^3 (times the orientation factor of the design's rule, `1` without
+/// one), or `-inf` when the stone is infeasible (non-positive box, narrower than `min_width`
+/// to within [`MIN_WIDTH_SLACK`] relative, or an assignment the design's Required rule forbids).
+///
+/// # Panics
+///
+/// When `orient` is not an index into [`ASSIGNMENTS`] (`0..6`).
+pub fn stone_value(norm: &Norm, orient: usize, p: [f64; 3], min_width: f64) -> f64 {
+    let s = stone_scale(norm, orient, p);
+    if s > 0.0 && s >= min_width_floor(min_width) {
+        norm.value_at(s, orient)
+    } else {
+        f64::NEG_INFINITY
+    }
+}
+
+/// The best `(design, orientation, value)` over `norms` (ascending index) and
+/// the six assignments; a later candidate replaces only on a strictly greater
+/// value. `None` when nothing is feasible.
+pub fn best_pick(norms: &[Norm], p: [f64; 3], min_width: f64) -> Option<(usize, usize, f64)> {
+    let mut best: Option<(usize, usize, f64)> = None;
+    for (index, norm) in norms.iter().enumerate() {
+        for orient in 0..ASSIGNMENTS.len() {
+            let value = stone_value(norm, orient, p, min_width);
+            if value > f64::NEG_INFINITY && best.is_none_or(|(_, _, b)| value > b) {
+                best = Some((index, orient, value));
+            }
+        }
+    }
+    best
+}
+
+/// The unit grid the DP cuts on: per axis `G_i` units of `u_i` mm.
+///
+/// A run of `g` units has usable length `g * u_i - kerf`; `n` runs covering
+/// all `G_i` units total `R'_i - (n - 1) * kerf`, the exact kerf accounting,
+/// whichever saw stage cuts the axis.
+#[derive(Debug, Clone)]
+pub struct Grid {
+    /// The rough.
+    pub(crate) rough: RoughBlock,
+    /// The planner settings.
+    pub(crate) settings: PlanSettings,
+    /// Units per axis.
+    pub(crate) cells: [usize; 3],
+    /// Unit length per axis, in mm.
+    pub(crate) unit: [f64; 3],
+}
+
+impl Grid {
+    /// A grid with explicit `cells` per axis (at most 255 each).
+    pub(crate) fn with_cells(
+        rough: &RoughBlock,
+        settings: &PlanSettings,
+        cells: [usize; 3],
+    ) -> Self {
+        debug_assert!(
+            cells.iter().all(|&c| (1..=255).contains(&c)),
+            "grid cells must be in 1..=255 (the DP stores them as u8): {cells:?}"
+        );
+        let usable = usable_rough(rough, settings.skin_mm);
+        let unit = [0, 1, 2].map(|i| (usable[i] + settings.kerf_mm) / cells[i] as f64);
+        Self {
+            rough: *rough,
+            settings: *settings,
+            cells,
+            unit,
+        }
+    }
+
+    /// Units per axis `[x, y, z]`.
+    #[must_use]
+    pub const fn cells(&self) -> [usize; 3] {
+        self.cells
+    }
+
+    /// Length in mm of a run of `g` units along `axis`.
+    pub(crate) fn run_mm(&self, axis: usize, g: usize) -> f64 {
+        (g as f64).mul_add(self.unit[axis], -self.settings.kerf_mm)
+    }
+
+    /// The usable stone box of a piece `(gx, gy, gz)` units in size.
+    pub(crate) fn stone_box(&self, g: [usize; 3]) -> [f64; 3] {
+        let a2 = 2.0 * self.settings.allowance_mm;
+        [0, 1, 2].map(|i| self.run_mm(i, g[i]) - a2)
+    }
+}
+
+/// The rough minus the skin on both faces of every axis (never negative).
+pub fn usable_rough(rough: &RoughBlock, skin_mm: f64) -> [f64; 3] {
+    rough.sizes().map(|r| 2.0f64.mul_add(-skin_mm, r).max(0.0))
+}
+
+/// A deterministic cube root by bisection (no libm).
+fn cube_root(x: f64) -> f64 {
+    let (mut lo, mut hi) = (0.0f64, x.max(1.0));
+    for _ in 0..200 {
+        let mid = f64::midpoint(lo, hi);
+        if mid * mid * mid <= x {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
+}
+
+/// Units per axis of a rough with the proportions of a cube, before the grid is scaled to
+/// the rough's own proportions: the resolution the planner used for its largest stone count
+/// (99) when the count was still capped.
+const UNITS_PER_AXIS: f64 = 30.0;
+
+/// The DP operation estimate summed over the six cut orders: per order the bars
+/// (`a * b * c^2`), the slabs (`a * b^2`) and the root (`a^2`).
+fn op_estimate(cells: [usize; 3]) -> f64 {
+    let mut total = 0.0;
+    for order in super::types::CutOrder::ALL {
+        let [a, b, c] = order.axes().map(|i| cells[i] as f64);
+        total += (a * b * c).mul_add(c, (a * b).mul_add(b, a * a));
+    }
+    total
+}
+
+/// Choose the unit grid: [`UNITS_PER_AXIS`] units scaled to the rough's proportions,
+/// `8..=48` per axis, shrunk until the DP operation estimate is at most `3e9`.
+///
+/// The shrink works in 5 % steps on all axes together and may take an axis
+/// below the 8-unit floor (never below 2). Without a stone dimension the DP is cheap, so
+/// the shrink only matters for the shaped planner's own caps (`shaped::grid`).
+///
+/// The grid never depends on the settings' stone cap or design cap: a stone cap is solved on
+/// this same grid (by the count DP of `dp_capped`), so a cap that does not bind changes
+/// nothing.
+#[must_use]
+pub fn choose_grid(rough: &RoughBlock, settings: &PlanSettings) -> Grid {
+    let usable = usable_rough(rough, settings.skin_mm);
+    let geomean = cube_root(usable[0] * usable[1] * usable[2]);
+    let per_axis = UNITS_PER_AXIS;
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the rounded value is a non-negative length ratio and is clamped to 8..=48 immediately"
+    )]
+    let mut cells = if geomean > 0.0 {
+        usable.map(|r| ((per_axis * r / geomean).round() as usize).clamp(8, 48))
+    } else {
+        [8usize; 3]
+    };
+    loop {
+        let next = cells.map(|g| (g * 19 / 20).max(2));
+        if op_estimate(cells) <= OP_CAP || next == cells {
+            break;
+        }
+        cells = next;
+    }
+    Grid::with_cells(rough, settings, cells)
+}
+
+/// The best stone value per piece size, shared read-only by all cut orders.
+///
+/// Holds, for every `(gx, gy, gz)` in `1..=G`, the best value over the front
+/// and the six assignments (`-inf` = infeasible) and its argmax: the front
+/// index and the assignment.
+#[derive(Debug, Clone)]
+pub struct PieceTable {
+    /// Units per axis.
+    pub(crate) cells: [usize; 3],
+    /// Best value per cell.
+    pub(crate) values: Vec<f64>,
+    /// Front index of the best design per cell.
+    pub(crate) design: Vec<u32>,
+    /// Best assignment per cell.
+    pub(crate) orient: Vec<u8>,
+}
+
+impl PieceTable {
+    /// Flat-index strides of the three axes.
+    pub(crate) const fn strides(&self) -> [usize; 3] {
+        [self.cells[1] * self.cells[2], self.cells[2], 1]
+    }
+
+    /// Flat index of the 1-based cell `g`.
+    pub(crate) const fn index(&self, g: [usize; 3]) -> usize {
+        let s = self.strides();
+        (g[0] - 1) * s[0] + (g[1] - 1) * s[1] + (g[2] - 1) * s[2]
+    }
+}
+
+/// Fill the piece table over `front` (which must be sorted by `entry_id`, as
+/// [`super::pareto_front`] returns it).
+///
+/// Reports [`PlanProgress::Grid`] once per
+/// x-plane; `None` when `on_progress` returns `false`.
+pub fn build_piece_table(
+    grid: &Grid,
+    front: &[CandidateDesign],
+    on_progress: &mut dyn FnMut(PlanProgress) -> bool,
+) -> Option<PieceTable> {
+    build_piece_table_lanes(grid, front, 1, on_progress)
+}
+
+/// [`build_piece_table`] on `lanes` scoped threads, one run of x-planes per thread.
+///
+/// Every cell is computed by the same call as in the serial build and the runs are
+/// concatenated in plane order, so the table is bitwise the serial one whatever the lane
+/// count. Reports [`PlanProgress::Grid`] once per x-plane (`done` is the plane, 1-based;
+/// the events of different lanes interleave) on the calling thread; `None` when cancelled.
+/// With one lane nothing is spawned.
+///
+/// # Panics
+///
+/// Panics if a design index exceeds `u32::MAX` or an orientation index exceeds 255, which a
+/// candidate front never produces.
+pub fn build_piece_table_lanes(
+    grid: &Grid,
+    front: &[CandidateDesign],
+    lanes: usize,
+    on_progress: &mut dyn FnMut(PlanProgress) -> bool,
+) -> Option<PieceTable> {
+    let norms: Vec<Norm> = front.iter().map(Norm::of).collect();
+    let [nx, ny, nz] = grid.cells;
+    let parts = run_lanes(
+        even_chunks(nx, lanes),
+        |planes, report| {
+            let cells = planes.len() * ny * nz;
+            let mut part = PieceTable {
+                cells: grid.cells,
+                values: Vec::with_capacity(cells),
+                design: Vec::with_capacity(cells),
+                orient: Vec::with_capacity(cells),
+            };
+            for plane in planes {
+                let gx = plane + 1;
+                for gy in 1..=ny {
+                    for gz in 1..=nz {
+                        let p = grid.stone_box([gx, gy, gz]);
+                        let (d, o, v) = best_pick(&norms, p, grid.settings.min_width_mm)
+                            .unwrap_or((0, 0, f64::NEG_INFINITY));
+                        part.values.push(v);
+                        part.design
+                            .push(u32::try_from(d).expect("a design index fits u32"));
+                        part.orient
+                            .push(u8::try_from(o).expect("an orientation index is below 6"));
+                    }
+                }
+                if !report(PlanProgress::Grid {
+                    done: gx,
+                    total: nx,
+                }) {
+                    return None;
+                }
+            }
+            Some(part)
+        },
+        on_progress,
+    )?;
+    let total = nx * ny * nz;
+    let mut table = PieceTable {
+        cells: grid.cells,
+        values: Vec::with_capacity(total),
+        design: Vec::with_capacity(total),
+        orient: Vec::with_capacity(total),
+    };
+    for part in parts {
+        table.values.extend(part.values);
+        table.design.extend(part.design);
+        table.orient.extend(part.orient);
+    }
+    Some(table)
+}

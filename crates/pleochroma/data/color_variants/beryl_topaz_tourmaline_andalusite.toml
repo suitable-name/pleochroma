@@ -1,0 +1,930 @@
+# Built-in color variants: beryl (Emerald, Aquamarine, Morganite), Topaz, Tourmaline, Andalusite.
+# Schema: see ../color_variants.toml. Research: docs/color_variants/R2_beryl_topaz_tourmaline_andalusite.md.
+# Fit record (bands, scaling, targets, reached colors): docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md.
+# Every entry is per_mm (peak = Napierian absorption coefficient in mm^-1, sigma of the energy Gaussians in cm^-1)
+# calibrated for the face-up path of a 7 mm stone (9.905 mm, see the fit record). o_ray / e_ray are E perpendicular /
+# parallel to c for the uniaxial hosts (beryl, tourmaline); alpha / gamma / beta_ray = beta for the biaxial hosts
+# (topaz: alpha = E parallel a, gamma = E parallel c; andalusite: alpha = E parallel c, gamma = E parallel a).
+#
+# Estimated flag (one rule for every data file): `estimated = true` when the spectrum shape is NOT a measured
+# spectrum of that variety, OR the strength is NOT anchored (no concentration, no published color value, a factor
+# chosen for how the variety looks). `estimated = false` only for a measured spectrum at a strength that a published
+# number fixes. The FIRST line of `sources` is one short plain sentence saying which part is estimated: the UI shows it
+# as the "Estimated" tooltip. The full citations follow on the later lines.
+
+data_version = 1
+
+[[variant]]
+material = "Emerald"
+key = "emerald.zambian"
+label = "Zambian"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (Caltech Miku, Zambia).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: beryl, Miku, Zambia, light green emerald (M. N. Taran), 2.148 mm, E perpendicular / parallel to c, http://minerals.gps.caltech.edu/FILES/Visible/Beryl/taran/Emerald_Zambia.a and .c (reference_spectra/variant_emerald_zambian_miku_{eperpc,eparc}.csv)",
+  "Bands refitted per ray with bounded energy Gaussians (Cr3+ 4T1 and 4T2, Fe2+ near 825-880 nm, UV edge), constant baseline removed; scaled to a medium-dark bluish green stone (fit record, emerald.zambian)",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#emerald-zambian"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 334.3, width_nm = 3783.2, peak = 0.7166, shape = "energy" },
+    { center_nm = 438.7, width_nm = 1549.0, peak = 0.5991, shape = "energy" },
+    { center_nm = 609.5, width_nm = 1470.6, peak = 0.5206, shape = "energy" },
+    { center_nm = 824.9, width_nm = 936.2, peak = 2.007, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 293.9, width_nm = 3977.1, peak = 3.466, shape = "energy" },
+    { center_nm = 422.3, width_nm = 1194.8, peak = 0.4327, shape = "energy" },
+    { center_nm = 636.5, width_nm = 1275.0, peak = 0.987, shape = "energy" },
+    { center_nm = 878.8, width_nm = 1602.9, peak = 1.163, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Emerald"
+key = "emerald.light"
+label = "Light"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (Caltech Jos, Nigeria).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: beryl, Jos, Nigeria, light green emerald (M. N. Taran), 0.95 mm, both rays (reference_spectra/variant_emerald_light_jos_nigeria_{eperpc,eparc}.csv)",
+  "Bands refitted per ray (Cr3+ 4T1 / 4T2, Fe2+ near 808 nm, UV edge), baseline removed; scaled to a pale green stone (fit record, emerald.light)",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#emerald-light"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 340.0, width_nm = 4874.3, peak = 0.05876, shape = "energy" },
+    { center_nm = 435.6, width_nm = 1366.0, peak = 0.06389, shape = "energy" },
+    { center_nm = 604.1, width_nm = 1608.4, peak = 0.06987, shape = "energy" },
+    { center_nm = 808.0, width_nm = 937.5, peak = 0.2569, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 323.1, width_nm = 5800.0, peak = 0.04899, shape = "energy" },
+    { center_nm = 420.1, width_nm = 1187.5, peak = 0.04293, shape = "energy" },
+    { center_nm = 625.0, width_nm = 1064.6, peak = 0.08205, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Emerald"
+key = "emerald.heliodor"
+label = "Heliodor"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 309, sparse digitised traces).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: beryl GRR 309, golden heliodor, Goias, 3.306 mm, baseline corrected (reference_spectra/variant_heliodor_golden_grr309_{eperpc,eparc}.csv; sparse digitised traces, o-ray 374-1295 nm, e-ray from 410 nm)",
+  "Fe3+ (UV edge, 427 nm line); minor Fe2+ near 800 nm (Caltech beryl index page). The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#heliodor"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 295.5, width_nm = 4533.9, peak = 4.593, shape = "energy" },
+    { center_nm = 847.7, width_nm = 500.0, peak = 0.01873, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 315.5, width_nm = 5800.0, peak = 2.043, shape = "energy" },
+    { center_nm = 403.9, width_nm = 1400.4, peak = 2.157, shape = "energy" },
+    { center_nm = 902.7, width_nm = 1500.0, peak = 0.3487, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Emerald"
+key = "emerald.red_beryl"
+label = "Red Beryl"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 602).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: beryl GRR 602, red beryl, Wah Wah Mountains, Utah, 1.559 mm (reference_spectra/variant_red_beryl_grr602_{eperpc,eparc}.csv)",
+  "Mn3+ on the Al site (Nassau and Wood 1968, Am. Mineral. 53:801). The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#red-beryl"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 312.7, width_nm = 3500.0, peak = 1.401, shape = "energy" },
+    { center_nm = 440.0, width_nm = 778.0, peak = 0.06105, shape = "energy" },
+    { center_nm = 495.9, width_nm = 1358.1, peak = 0.3955, shape = "energy" },
+    { center_nm = 554.6, width_nm = 830.3, peak = 0.3549, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 319.9, width_nm = 3500.0, peak = 1.43, shape = "energy" },
+    { center_nm = 440.0, width_nm = 1500.0, peak = 0.1979, shape = "energy" },
+    { center_nm = 543.6, width_nm = 1480.8, peak = 0.6151, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Emerald"
+key = "emerald.goshenite"
+label = "Goshenite"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Colorless: no visible absorption assumed; no goshenite spectrum exists.",
+  "Colorless beryl: no absorption in 380-780 nm, the host edge lies near 300 nm (no goshenite spectrum on the Caltech server; GRR 3557 'colorless perp c' is an aquamarine)",
+  "The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#goshenite"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = []
+  e_ray = []
+
+[[variant]]
+material = "Aquamarine"
+key = "aquamarine.santa_maria"
+label = "Santa Maria"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 1780).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: beryl GRR 1780, deep blue aquamarine (Tatu mine, Minas Gerais; stand-in for Santa Maria, there is no Santa Maria sample on the server), 2.449 mm (reference_spectra/variant_aquamarine_santa_maria_grr1780_{eperpc,eparc}.csv)",
+  "Refitted 2026-10-27 per ray (UV edge, Fe3+ 428 nm, IVCT 660 nm, Fe2+ 830-860 nm, near-infrared band) with the header's visible pedestal (A 0.16 o / 0.40 e) removed first; ONE factor 0.5 over every band, the edge included (owner rule). The crystal's o-ray is yellow-green and its face-up color a teal blue, greener than the trade name suggests",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#aquamarine-santa-maria"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 340.0, width_nm = 3370.4, peak = 0.2966, shape = "energy" },
+    { center_nm = 428.3, width_nm = 373.5, peak = 0.01271, shape = "energy" },
+    { center_nm = 720.0, width_nm = 1500.0, peak = 0.00543, shape = "energy" },
+    { center_nm = 825.1, width_nm = 872.0, peak = 0.2442, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 360.0, width_nm = 2121.7, peak = 0.8119, shape = "energy" },
+    { center_nm = 423.4, width_nm = 500.0, peak = 0.05513, shape = "energy" },
+    { center_nm = 662.4, width_nm = 2237.3, peak = 0.6372, shape = "energy" },
+    { center_nm = 859.2, width_nm = 1500.0, peak = 0.7427, shape = "energy" },
+    { center_nm = 1047.3, width_nm = 806.2, peak = 0.21, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Aquamarine"
+key = "aquamarine.greenish"
+label = "Greenish"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Blue part measured (GRR 1488) at a chosen strength; the Fe3+ amount is estimated.",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: beryl GRR 1488 Lajes Pintada, 5.531 mm (reference_spectra/caltech_aquamarine_grr1488_{eperpc,eparc}_5p531mm.csv) refitted per mm for the Fe2+ / Fe2+-Fe3+ blue; GRR 309 golden heliodor (variant_heliodor_golden_grr309_*.csv) for the added Fe3+ absorption",
+  "Estimated: the Fe3+ amount of a greenish aquamarine is a free parameter (GIA: unheated aquamarine leans greenish; Caltech GRR 1754: heating turns greenish-yellow to blue)",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#aquamarine-greenish"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 295.5, width_nm = 4533.9, peak = 0.1508, shape = "energy" },
+    { center_nm = 316.2, width_nm = 5800.0, peak = 0.1093, shape = "energy" },
+    { center_nm = 429.7, width_nm = 300.0, peak = 0.003569, shape = "energy" },
+    { center_nm = 679.0, width_nm = 2735.8, peak = 0.03799, shape = "energy" },
+    { center_nm = 825.1, width_nm = 925.9, peak = 0.2447, shape = "energy" },
+    { center_nm = 847.7, width_nm = 500.0, peak = 0.0006149, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 309.3, width_nm = 3500.0, peak = 0.1976, shape = "energy" },
+    { center_nm = 315.5, width_nm = 5800.0, peak = 0.06708, shape = "energy" },
+    { center_nm = 403.9, width_nm = 1400.4, peak = 0.07081, shape = "energy" },
+    { center_nm = 427.8, width_nm = 300.0, peak = 0.009292, shape = "energy" },
+    { center_nm = 658.6, width_nm = 2450.1, peak = 0.2232, shape = "energy" },
+    { center_nm = 877.2, width_nm = 1857.2, peak = 0.3033, shape = "energy" },
+    { center_nm = 902.7, width_nm = 1500.0, peak = 0.01145, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Aquamarine"
+key = "aquamarine.heliodor"
+label = "Heliodor"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 309, sparse digitised traces).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: beryl GRR 309, golden heliodor, Goias, 3.306 mm, baseline corrected (reference_spectra/variant_heliodor_golden_grr309_{eperpc,eparc}.csv; sparse digitised traces, o-ray 374-1295 nm, e-ray from 410 nm)",
+  "Fe3+ (UV edge, 427 nm line); minor Fe2+ near 800 nm (Caltech beryl index page). The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#heliodor"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 295.5, width_nm = 4533.9, peak = 4.593, shape = "energy" },
+    { center_nm = 847.7, width_nm = 500.0, peak = 0.01873, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 315.5, width_nm = 5800.0, peak = 2.043, shape = "energy" },
+    { center_nm = 403.9, width_nm = 1400.4, peak = 2.157, shape = "energy" },
+    { center_nm = 902.7, width_nm = 1500.0, peak = 0.3487, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Aquamarine"
+key = "aquamarine.red_beryl"
+label = "Red Beryl"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 602).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: beryl GRR 602, red beryl, Wah Wah Mountains, Utah, 1.559 mm (reference_spectra/variant_red_beryl_grr602_{eperpc,eparc}.csv)",
+  "Mn3+ on the Al site (Nassau and Wood 1968, Am. Mineral. 53:801). The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#red-beryl"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 312.7, width_nm = 3500.0, peak = 1.401, shape = "energy" },
+    { center_nm = 440.0, width_nm = 778.0, peak = 0.06105, shape = "energy" },
+    { center_nm = 495.9, width_nm = 1358.1, peak = 0.3955, shape = "energy" },
+    { center_nm = 554.6, width_nm = 830.3, peak = 0.3549, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 319.9, width_nm = 3500.0, peak = 1.43, shape = "energy" },
+    { center_nm = 440.0, width_nm = 1500.0, peak = 0.1979, shape = "energy" },
+    { center_nm = 543.6, width_nm = 1480.8, peak = 0.6151, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Aquamarine"
+key = "aquamarine.goshenite"
+label = "Goshenite"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Colorless: no visible absorption assumed; no goshenite spectrum exists.",
+  "Colorless beryl: no absorption in 380-780 nm, the host edge lies near 300 nm (no goshenite spectrum on the Caltech server; GRR 3557 'colorless perp c' is an aquamarine)",
+  "The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#goshenite"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = []
+  e_ray = []
+
+[[variant]]
+material = "Morganite"
+key = "morganite.pink"
+label = "Pink"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from the bands of a different beryl (red beryl GRR 602) and published positions; strength estimated.",
+  "no digital morganite spectrum exists (Caltech GRR 508 and 2536b are figures). Mn3+ band shapes (visible bands only, no UV edge) from the measured red beryl GRR 602 (variant_red_beryl_grr602_*.csv); Mn3+ band at 560-567 nm from the Caltech GRR 2536b page text and GIA Gems & Gemology Fall 2024 GNI",
+  "A trace of the heliodor Fe3+ edge (GRR 309) is added to the o-ray so the hue is pink rather than purple; the e-ray keeps only the Mn3+ band and the UV edge (the heliodor 404 nm band turned it peach, the documented e-ray is light violet). The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#morganite-pink"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 295.5, width_nm = 4533.9, peak = 0.1752, shape = "energy" },
+    { center_nm = 495.9, width_nm = 1358.1, peak = 0.03065, shape = "energy" },
+    { center_nm = 554.6, width_nm = 830.3, peak = 0.02751, shape = "energy" },
+    { center_nm = 847.7, width_nm = 500.0, peak = 0.0007145, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 315.5, width_nm = 5800.0, peak = 0.07796, shape = "energy" },
+    { center_nm = 543.6, width_nm = 1480.8, peak = 0.04768, shape = "energy" },
+    { center_nm = 902.7, width_nm = 1500.0, peak = 0.01331, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Morganite"
+key = "morganite.peach"
+label = "Peach"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Red beryl bands (GRR 602) plus an Fe3+ part (GRR 309), both at chosen strengths.",
+  "Mn3+ bands of red beryl GRR 602 (visible bands only) plus the Fe3+ part of heliodor GRR 309; GIA Gems & Gemology Fall 2024 GNI (iron-bearing Mn beryl turns orangey pink from an added charge-transfer band)",
+  "The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#morganite-peach"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 295.5, width_nm = 4533.9, peak = 0.6199, shape = "energy" },
+    { center_nm = 495.9, width_nm = 1358.1, peak = 0.03642, shape = "energy" },
+    { center_nm = 554.6, width_nm = 830.3, peak = 0.03268, shape = "energy" },
+    { center_nm = 847.7, width_nm = 500.0, peak = 0.002528, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 315.5, width_nm = 5800.0, peak = 0.2758, shape = "energy" },
+    { center_nm = 403.9, width_nm = 1400.4, peak = 0.2911, shape = "energy" },
+    { center_nm = 543.6, width_nm = 1480.8, peak = 0.05665, shape = "energy" },
+    { center_nm = 902.7, width_nm = 1500.0, peak = 0.04707, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Morganite"
+key = "morganite.heliodor"
+label = "Heliodor"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 309, sparse digitised traces).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: beryl GRR 309, golden heliodor, Goias, 3.306 mm, baseline corrected (reference_spectra/variant_heliodor_golden_grr309_{eperpc,eparc}.csv; sparse digitised traces, o-ray 374-1295 nm, e-ray from 410 nm)",
+  "Fe3+ (UV edge, 427 nm line); minor Fe2+ near 800 nm (Caltech beryl index page). The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#heliodor"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 295.5, width_nm = 4533.9, peak = 4.593, shape = "energy" },
+    { center_nm = 847.7, width_nm = 500.0, peak = 0.01873, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 315.5, width_nm = 5800.0, peak = 2.043, shape = "energy" },
+    { center_nm = 403.9, width_nm = 1400.4, peak = 2.157, shape = "energy" },
+    { center_nm = 902.7, width_nm = 1500.0, peak = 0.3487, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Morganite"
+key = "morganite.red_beryl"
+label = "Red Beryl"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 602).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: beryl GRR 602, red beryl, Wah Wah Mountains, Utah, 1.559 mm (reference_spectra/variant_red_beryl_grr602_{eperpc,eparc}.csv)",
+  "Mn3+ on the Al site (Nassau and Wood 1968, Am. Mineral. 53:801). The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#red-beryl"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 312.7, width_nm = 3500.0, peak = 1.401, shape = "energy" },
+    { center_nm = 440.0, width_nm = 778.0, peak = 0.06105, shape = "energy" },
+    { center_nm = 495.9, width_nm = 1358.1, peak = 0.3955, shape = "energy" },
+    { center_nm = 554.6, width_nm = 830.3, peak = 0.3549, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 319.9, width_nm = 3500.0, peak = 1.43, shape = "energy" },
+    { center_nm = 440.0, width_nm = 1500.0, peak = 0.1979, shape = "energy" },
+    { center_nm = 543.6, width_nm = 1480.8, peak = 0.6151, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Morganite"
+key = "morganite.goshenite"
+label = "Goshenite"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Colorless: no visible absorption assumed; no goshenite spectrum exists.",
+  "Colorless beryl: no absorption in 380-780 nm, the host edge lies near 300 nm (no goshenite spectrum on the Caltech server; GRR 3557 'colorless perp c' is an aquamarine)",
+  "The color is defined relative to the c axis (o = E perpendicular to c, e = E parallel to c): the stone's own c axis decides the face-up look",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#goshenite"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = []
+  e_ray = []
+
+[[variant]]
+material = "Topaz"
+key = "topaz.imperial"
+label = "Imperial"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Two measured topaz spectra (Cr3+ pink, brown GRR 515a) combined at chosen strengths; no imperial spectrum exists.",
+  "Estimated combination of two measured parts: Cr3+ from the Ural pink topaz (variant_topaz_pink_cr_ural_bobrovka_*.csv) and the brown color center of GRR 515 (variant_topaz_brown_natural_grr515_*.csv); no imperial topaz spectrum exists on the Caltech server",
+  "The cause is disputed (Cr3+ plus color centers versus Cr4+, RSC Advances 2025, article d5ra02029h, https://pubs.rsc.org/en/content/articlehtml/2025/ra/d5ra02029h (Cr3+ gives pink to purple, Cr4+ red-orange)); modelled as Cr3+ plus a brown center. GIA: medium reddish orange to orange-red",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#topaz-imperial"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 312.8, width_nm = 5800.0, peak = 0.3827, shape = "energy" },
+    { center_nm = 340.0, width_nm = 3500.0, peak = 0.02404, shape = "energy" },
+    { center_nm = 405.4, width_nm = 2194.5, peak = 0.06823, shape = "energy" },
+    { center_nm = 478.0, width_nm = 3069.1, peak = 0.1771, shape = "energy" },
+    { center_nm = 559.1, width_nm = 1393.8, peak = 0.03469, shape = "energy" },
+    { center_nm = 900.0, width_nm = 4000.0, peak = 0.004463, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 288.3, width_nm = 3500.1, peak = 0.1801, shape = "energy" },
+    { center_nm = 340.0, width_nm = 5313.7, peak = 0.1687, shape = "energy" },
+    { center_nm = 407.3, width_nm = 2257.7, peak = 0.03726, shape = "energy" },
+    { center_nm = 472.9, width_nm = 3005.1, peak = 0.1579, shape = "energy" },
+    { center_nm = 550.4, width_nm = 1427.6, peak = 0.04895, shape = "energy" },
+  ]
+  beta_ray = [
+    { center_nm = 285.0, width_nm = 3500.0, peak = 0.03638, shape = "energy" },
+    { center_nm = 340.0, width_nm = 5313.7, peak = 0.1687, shape = "energy" },
+    { center_nm = 394.5, width_nm = 2242.1, peak = 0.05115, shape = "energy" },
+    { center_nm = 472.9, width_nm = 3005.1, peak = 0.1579, shape = "energy" },
+    { center_nm = 538.8, width_nm = 1348.0, peak = 0.05718, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Topaz"
+key = "topaz.sherry"
+label = "Sherry"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 515a, gamma taken equal to beta).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: topaz GRR 515a, natural brown, Thomas Mountains, Utah, 7.00 mm, E parallel alpha and beta only (variant_topaz_brown_natural_grr515_{alpha,beta}.csv)",
+  "Unstable hole-type color centers, brown (bleach below 250 C or in sunlight); gamma has no data and is set equal to beta (a documented estimate for that ray)",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#topaz-sherry"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 312.8, width_nm = 5800.0, peak = 0.3001, shape = "energy" },
+    { center_nm = 478.0, width_nm = 3069.1, peak = 0.1388, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 340.0, width_nm = 5313.7, peak = 0.1323, shape = "energy" },
+    { center_nm = 472.9, width_nm = 3005.1, peak = 0.1238, shape = "energy" },
+  ]
+  beta_ray = [
+    { center_nm = 340.0, width_nm = 5313.7, peak = 0.1323, shape = "energy" },
+    { center_nm = 472.9, width_nm = 3005.1, peak = 0.1238, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Topaz"
+key = "topaz.pink"
+label = "Pink"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = false
+sources = [
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: topaz, Bobrovka, Ural (M. N. Taran), 3.0 mm, Cr2O3 0.36, FeO 0.03, MnO 0.02 wt%, E parallel alpha / beta / gamma (variant_topaz_pink_cr_ural_bobrovka_{alpha,beta,gamma}.csv)",
+  "Cr3+ 4T2 near 530-560 nm and 4T1 near 390-410 nm; Katlang pink topaz has Cr2O3 0.01-0.03 wt% (Gubelin et al. 1986, G&G 22(3)): the crystal is 12-36 times stronger than a pink gem",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#topaz-pink"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 340.0, width_nm = 3500.0, peak = 0.05749, shape = "energy" },
+    { center_nm = 405.4, width_nm = 2194.5, peak = 0.1632, shape = "energy" },
+    { center_nm = 559.1, width_nm = 1393.8, peak = 0.08296, shape = "energy" },
+    { center_nm = 900.0, width_nm = 4000.0, peak = 0.01067, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 288.3, width_nm = 3500.1, peak = 0.4306, shape = "energy" },
+    { center_nm = 407.3, width_nm = 2257.7, peak = 0.08911, shape = "energy" },
+    { center_nm = 550.4, width_nm = 1427.6, peak = 0.1171, shape = "energy" },
+  ]
+  beta_ray = [
+    { center_nm = 285.0, width_nm = 3500.0, peak = 0.08701, shape = "energy" },
+    { center_nm = 394.5, width_nm = 2242.1, peak = 0.1223, shape = "energy" },
+    { center_nm = 538.8, width_nm = 1348.0, peak = 0.1368, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Topaz"
+key = "topaz.sky"
+label = "Sky"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GIA 3828).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: GIA 3828, natural blue topaz, Zimbabwe, E parallel alpha 13.31 mm, beta 13.31 mm, gamma 9.28 mm (variant_topaz_blue_natural_gia3828_{alpha,beta,gamma}.csv)",
+  "O- hole color center near 660 nm (RSC Advances 2025, article d5ra02029h, https://pubs.rsc.org/en/content/articlehtml/2025/ra/d5ra02029h: the O- concentration follows the 620 nm absorption); blue absorbs most along alpha (E parallel a), beta nearly zero (R2 section 0.2 item 2); the header thickness was used (the index page plots another)",
+  "Gamma ray refitted 2026-10-27 with three bands (edge, 410 nm, 630 nm; the old two-band fit had the 400-450 nm absorption 4 times too weak); ONE factor 1.5 over every band",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#topaz-sky"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 298.7, width_nm = 3500.0, peak = 0.3824, shape = "energy" },
+    { center_nm = 442.1, width_nm = 2971.0, peak = 0.09207, shape = "energy" },
+    { center_nm = 660.6, width_nm = 2260.0, peak = 0.2445, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 285.0, width_nm = 3833.0, peak = 0.2812, shape = "energy" },
+    { center_nm = 412.0, width_nm = 3500.0, peak = 0.02655, shape = "energy" },
+    { center_nm = 633.7, width_nm = 2223.0, peak = 0.0255, shape = "energy" },
+  ]
+  beta_ray = [
+    { center_nm = 285.0, width_nm = 3500.0, peak = 0.3232, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Topaz"
+key = "topaz.swiss"
+label = "Swiss"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 1632).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: topaz GRR 1632, neutron-irradiated blue, Nigeria, 3.462 mm, three rays (variant_topaz_blue_irradiated_grr1632_{alpha,beta,gamma}.csv)",
+  "Refitted 2026-10-27 as London (the three-ray fit of the Topaz Material Default); ONE factor 0.46 over every band. Swiss is a trade shade between the natural Sky and the irradiated London strength",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#topaz-swiss"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 322.6, width_nm = 1992.1, peak = 0.7245, shape = "energy" },
+    { center_nm = 424.6, width_nm = 2156.9, peak = 0.1837, shape = "energy" },
+    { center_nm = 622.1, width_nm = 2093.6, peak = 0.5088, shape = "energy" },
+    { center_nm = 719.2, width_nm = 1537.3, peak = 0.2838, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 300.0, width_nm = 2945.9, peak = 0.8081, shape = "energy" },
+    { center_nm = 424.0, width_nm = 2210.8, peak = 0.0645, shape = "energy" },
+    { center_nm = 617.6, width_nm = 2272.8, peak = 0.1042, shape = "energy" },
+    { center_nm = 723.3, width_nm = 1596.3, peak = 0.0483, shape = "energy" },
+  ]
+  beta_ray = [
+    { center_nm = 300.0, width_nm = 2700.0, peak = 0.71, shape = "energy" },
+    { center_nm = 400.0, width_nm = 3761.6, peak = 0.02157, shape = "energy" },
+    { center_nm = 603.9, width_nm = 1685.1, peak = 0.02312, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Topaz"
+key = "topaz.london"
+label = "London"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 1632).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: topaz GRR 1632, neutron-irradiated blue, Nigeria, 3.462 mm, three rays (variant_topaz_blue_irradiated_grr1632_{alpha,beta,gamma}.csv)",
+  "Refitted 2026-10-27: the three-ray fit of the Topaz Material Default (4 / 3 / 4 bands, model / data 1.00 +- 3 percent on alpha and gamma, beta within 5 percent from 400 to 650 nm); ONE factor 0.85 over every band",
+  "O- hole color center near 620-720 nm; London blue is a deep, steely blue at high dose",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#topaz-london"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 322.6, width_nm = 1992.1, peak = 1.339, shape = "energy" },
+    { center_nm = 424.6, width_nm = 2156.9, peak = 0.3394, shape = "energy" },
+    { center_nm = 622.1, width_nm = 2093.6, peak = 0.9402, shape = "energy" },
+    { center_nm = 719.2, width_nm = 1537.3, peak = 0.5244, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 300.0, width_nm = 2945.9, peak = 1.493, shape = "energy" },
+    { center_nm = 424.0, width_nm = 2210.8, peak = 0.1192, shape = "energy" },
+    { center_nm = 617.6, width_nm = 2272.8, peak = 0.1926, shape = "energy" },
+    { center_nm = 723.3, width_nm = 1596.3, peak = 0.08925, shape = "energy" },
+  ]
+  beta_ray = [
+    { center_nm = 300.0, width_nm = 2700.0, peak = 1.312, shape = "energy" },
+    { center_nm = 400.0, width_nm = 3761.6, peak = 0.03986, shape = "energy" },
+    { center_nm = 603.9, width_nm = 1685.1, peak = 0.04272, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Topaz"
+key = "topaz.colorless"
+label = "Colorless"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Colorless: no visible absorption assumed; host edge near 220 nm.",
+  "Colorless topaz: host edge near 220 nm, no absorption in 380-780 nm (repo Report)",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#topaz-colorless"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = []
+  e_ray = []
+  beta_ray = []
+
+[[variant]]
+material = "Tourmaline"
+key = "tourmaline.rubellite"
+label = "Rubellite"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 1368).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: elbaite GRR 1368, dark pink, Otjimbinque, Namibia, 2.188 mm (reference_spectra/variant_tourmaline_rubellite_grr1368_{eperpc,eparc}.csv)",
+  "Mn3+ (5E to 5T2) near 540 nm; GIA tourmaline description",
+  "Single factor 0.8 over every fitted band, the edge included (2026-10-27, owner rule; the earlier 0.79 / 1.04 split differed by 1.3 times)",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#tourmaline-rubellite"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 285.0, width_nm = 4209.0, peak = 1.542, shape = "energy" },
+    { center_nm = 453.6, width_nm = 2460.0, peak = 0.2024, shape = "energy" },
+    { center_nm = 542.2, width_nm = 1119.0, peak = 0.4552, shape = "energy" },
+    { center_nm = 1028.3, width_nm = 1426.0, peak = 0.103, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 307.4, width_nm = 3500.0, peak = 0.3925, shape = "energy" },
+    { center_nm = 479.6, width_nm = 2919.0, peak = 0.2144, shape = "energy" },
+    { center_nm = 539.3, width_nm = 883.0, peak = 0.1544, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Tourmaline"
+key = "tourmaline.pink"
+label = "Pink"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Measured rubellite spectrum (GRR 1368) scaled down to a light pink; no light pink spectrum exists.",
+  "the measured rubellite spectrum (GRR 1368, as in tourmaline.rubellite) scaled down to a light pink; no light pink spectrum is available as data (Caltech GRR 565 natural is a figure)",
+  "Mn3+, often radiation induced (Caltech tourmaline index page)",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#tourmaline-pink"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 285.0, width_nm = 4209.2, peak = 1.324, shape = "energy" },
+    { center_nm = 453.6, width_nm = 2459.7, peak = 0.0447, shape = "energy" },
+    { center_nm = 542.2, width_nm = 1119.5, peak = 0.1005, shape = "energy" },
+    { center_nm = 1028.3, width_nm = 1426.2, peak = 0.02274, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 307.4, width_nm = 3500.0, peak = 0.3369, shape = "energy" },
+    { center_nm = 479.6, width_nm = 2918.8, peak = 0.04735, shape = "energy" },
+    { center_nm = 539.3, width_nm = 883.2, peak = 0.0341, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Tourmaline"
+key = "tourmaline.indicolite"
+label = "Indicolite"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 3770).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: elbaite GRR 3770, pure blue, 2.00 mm (variant_tourmaline_indicolite_grr3770_{eperpc,eparc}.csv), checked against GRR 1935 blue, Usakos, 3.641 mm (variant_tourmaline_indicolite_grr1935_blue_*.csv)",
+  "Refitted 2026-10-27 (UV edge, a weak 640 nm shoulder, Fe2+ 720 nm, near-infrared Fe2+ band per ray) with the visible floor (A 0.394 o / 0.341 e) removed; ONE factor 3.0 over every band, the edge included (owner rule). The measured crystal is a teal green (face-up hue about 155), greener than the trade name suggests; the factor gives a saleable face-up lightness",
+  "Fe2+ at 713-720 nm and 1120 nm; the Fe2+ band is almost unpolarized in both crystals (o:e 0.95:0.94 and 0.91:0.98), unlike the 3:1 of the Tourmaline built-in (R2 section 0.2). The o and e sets are stored separately (pleochroic) but nearly equal in the Fe2+ band",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#tourmaline-indicolite"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 285.0, width_nm = 5121.5, peak = 3.082, shape = "energy" },
+    { center_nm = 640.0, width_nm = 800.0, peak = 0.3442, shape = "energy" },
+    { center_nm = 720.0, width_nm = 907.0, peak = 2.503, shape = "energy" },
+    { center_nm = 1161.9, width_nm = 700.7, peak = 0.6144, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 353.7, width_nm = 3876.5, peak = 0.4812, shape = "energy" },
+    { center_nm = 640.0, width_nm = 800.0, peak = 0.2272, shape = "energy" },
+    { center_nm = 721.2, width_nm = 979.2, peak = 2.674, shape = "energy" },
+    { center_nm = 1185.6, width_nm = 891.1, peak = 0.9477, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Tourmaline"
+key = "tourmaline.verdelite"
+label = "Verdelite"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 1935 green).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: elbaite GRR 1935, small green crystal, Usakos, Namibia, 3.645 mm, baseline corrected (variant_tourmaline_verdelite_grr1935_green_{eperpc,eparc}.csv)",
+  "Refitted 2026-10-27 with four bands per ray (UV edge, 525-620 nm shoulder, Fe2+ 711 nm, near-infrared Fe2+), the fit of the Tourmaline Material Default (model / data 0.94-1.03 at 550-750 nm); ONE factor 1.4 over every band. The earlier yellow-green hue (h 136) is not reachable from this crystal: its face-up hue is about 154",
+  "Fe2+ near 712 nm plus Fe2+-Ti4+ charge transfer and UV edge absorbing blue (Caltech tourmaline index page)",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#tourmaline-verdelite"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 300.0, width_nm = 5171.5, peak = 2.494, shape = "energy" },
+    { center_nm = 620.0, width_nm = 1482.1, peak = 0.128, shape = "energy" },
+    { center_nm = 711.4, width_nm = 928.3, peak = 0.7233, shape = "energy" },
+    { center_nm = 1156.1, width_nm = 1061.7, peak = 0.2977, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 300.0, width_nm = 3710.7, peak = 2.981, shape = "energy" },
+    { center_nm = 524.8, width_nm = 3111.1, peak = 0.04947, shape = "energy" },
+    { center_nm = 708.9, width_nm = 1027.3, peak = 0.6568, shape = "energy" },
+    { center_nm = 1180.0, width_nm = 1061.7, peak = 0.1742, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Tourmaline"
+key = "tourmaline.chrome"
+label = "Chrome"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "no Chrome tourmaline spectrum is available as data (Caltech GRR 2128, 2467, 1719, 768 are figures). Cr3+ / V3+ bands at 432 nm and 607 nm (green Brumado uvite, 16 400 and 23 140 cm^-1) with the polarization e = 0.4 o (Amstall tourmaline Cr epsilon 39.7 / 15.9)",
+  "Band widths and strengths from docs/chromophores/beryl_topaz_tourmaline_andalusite.md (Report p.22, secondary): Cr2O3 0.2 wt%; GIA: intense green colored mostly by vanadium",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#tourmaline-chrome"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 432.0, width_nm = 1360.0, peak = 0.5115, shape = "energy" },
+    { center_nm = 607.0, width_nm = 1190.0, peak = 0.5683, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 432.0, width_nm = 1360.0, peak = 0.2046, shape = "energy" },
+    { center_nm = 607.0, width_nm = 1190.0, peak = 0.2273, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Tourmaline"
+key = "tourmaline.paraiba"
+label = "Paraiba"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GIA R030, a thin Cu-rich section scaled down).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57 and Rossman, Fritsch and Shigley 1991, Am. Mineral. 76:1479: GIA R030, Sao Jose da Batalha, 0.200 mm thin section (variant_tourmaline_paraiba_r030_{eperpc,eparc}.csv)",
+  "Cu2+ (about 700 nm and 900-950 nm, strongest E parallel c; Merkel and Breeding 2009, G&G 45(2)); the o-ray is baseline corrected, the e-ray is not (pedestal fitted and removed)",
+  "Single factor 0.31 over every fitted band, the edge included (2026-10-27, owner rule; the earlier 0.31 / 0.32 split was the same within 4 percent). The e-ray plateau (0.4 mm^-1 raw, visible 700-1000 nm) is deconvolved into three bands and a 1100 nm plateau; the thin section's fit RMS (0.47 mm^-1) equals the visible signal there, so the e-ray is the least certain part",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#tourmaline-paraiba"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 293.9, width_nm = 3695.0, peak = 1.51, shape = "energy" },
+    { center_nm = 718.7, width_nm = 1500.0, peak = 1.109, shape = "energy" },
+    { center_nm = 907.0, width_nm = 786.0, peak = 1.941, shape = "energy" },
+    { center_nm = 1100.0, width_nm = 1500.0, peak = 0.3819, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 312.1, width_nm = 3500.0, peak = 3.72, shape = "energy" },
+    { center_nm = 704.0, width_nm = 1377.0, peak = 3.435, shape = "energy" },
+    { center_nm = 763.1, width_nm = 700.0, peak = 0.9185, shape = "energy" },
+    { center_nm = 955.8, width_nm = 1390.0, peak = 4.851, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Tourmaline"
+key = "tourmaline.paraiba_violet"
+label = "Paraiba Violet"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (Mn-Cu elbaite).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: elbaite with Cu and Mn, pink, 1.84 mm (M. N. Taran; variant_tourmaline_paraiba_mn_cu_pink_{eperpc,eparc}.csv)",
+  "Cu2+ plus Mn3+ (about 520 nm): violet Paraiba (GIA: intense violetish blue; Mn3+ gives violet)",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#tourmaline-paraiba-violet"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 285.0, width_nm = 3500.0, peak = 0.5682, shape = "energy" },
+    { center_nm = 524.1, width_nm = 1068.9, peak = 0.3784, shape = "energy" },
+    { center_nm = 715.9, width_nm = 905.4, peak = 0.1352, shape = "energy" },
+    { center_nm = 905.6, width_nm = 912.3, peak = 0.4256, shape = "energy" },
+    { center_nm = 1100.0, width_nm = 1500.0, peak = 0.001978, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 340.0, width_nm = 5800.0, peak = 0.1724, shape = "energy" },
+    { center_nm = 509.0, width_nm = 2600.0, peak = 0.2797, shape = "energy" },
+    { center_nm = 717.5, width_nm = 1278.6, peak = 0.1966, shape = "energy" },
+    { center_nm = 954.2, width_nm = 1800.0, peak = 0.2472, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Tourmaline"
+key = "tourmaline.yellow"
+label = "Yellow"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 1935 yellow, a very pale crystal scaled up about tenfold).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: elbaite GRR 1935, very pale yellow, Usakos, 5.353 mm (variant_tourmaline_yellow_grr1935_yellow_{eperpc,eparc}.csv)",
+  "Mn2+-Ti4+ charge transfer (band at 325 nm, Rossman and Mattson 1986, Am. Mineral. 71:599) with a tail into the visible; the polarized bands at 397 nm (o) and 375 nm (e) are not assigned by Caltech",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#tourmaline-yellow"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 386.6, width_nm = 1745.1, peak = 4.759, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 367.9, width_nm = 1553.2, peak = 3.385, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Andalusite"
+key = "andalusite.greener"
+label = "Greener"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Measured Fe-Ti spectrum plus an estimated Mn3+ part, both at chosen strengths.",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: andalusite, color-zoned crystal, Brazil, FeO 0.35 wt% (M. N. Taran), light zone, normalized 1.0 cm, E parallel c = alpha, b = beta, a = gamma (variant_andalusite_fe_ti_brazil_light_zone_{alpha,beta,gamma}.csv): Fe2+-Ti4+ in alpha",
+  "Estimated: Mn3+ on the Al1 site, bands at 702, 455 and 426 nm (Halenius 1978, Can. Mineral. 16:567); widths and polarization from the repo Report (secondary); the viridine spectra GRR 305 are not available (404 on the server)",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#andalusite-greener"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 285.0, width_nm = 5011.2, peak = 1.081, shape = "energy" },
+    { center_nm = 426.0, width_nm = 760.0, peak = 0.03401, shape = "energy" },
+    { center_nm = 455.0, width_nm = 850.0, peak = 0.04252, shape = "energy" },
+    { center_nm = 464.6, width_nm = 2041.3, peak = 0.4184, shape = "energy" },
+    { center_nm = 510.0, width_nm = 1426.4, peak = 0.2298, shape = "energy" },
+    { center_nm = 600.0, width_nm = 1909.6, peak = 0.1106, shape = "energy" },
+    { center_nm = 702.0, width_nm = 1060.0, peak = 0.03827, shape = "energy" },
+    { center_nm = 730.7, width_nm = 2818.1, peak = 0.04316, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 340.0, width_nm = 3739.5, peak = 0.08539, shape = "energy" },
+    { center_nm = 426.0, width_nm = 760.0, peak = 0.06803, shape = "energy" },
+    { center_nm = 455.0, width_nm = 850.0, peak = 0.08504, shape = "energy" },
+    { center_nm = 480.0, width_nm = 4500.0, peak = 0.005835, shape = "energy" },
+    { center_nm = 702.0, width_nm = 1060.0, peak = 0.1276, shape = "energy" },
+  ]
+  beta_ray = [
+    { center_nm = 297.8, width_nm = 4342.1, peak = 0.75, shape = "energy" },
+    { center_nm = 426.0, width_nm = 760.0, peak = 0.08504, shape = "energy" },
+    { center_nm = 455.0, width_nm = 850.0, peak = 0.1063, shape = "energy" },
+    { center_nm = 480.0, width_nm = 4500.0, peak = 0.01091, shape = "energy" },
+    { center_nm = 702.0, width_nm = 1060.0, peak = 0.102, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Andalusite"
+key = "andalusite.vanadian"
+label = "Vanadian"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (Llano, Texas).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman), CC BY-NC 4.0, DOI 10.7907/jywr-qq57: andalusite, Llano uplift, Texas, GRR 3467, 0.110 mm, V2O3 about 0.81 and Cr2O3 about 0.09 wt% (Carlson and Rossman 1988, Am. Mineral. 73:1366), alpha / beta / gamma (variant_andalusite_v_cr_llano_{alpha,beta,gamma}.csv)",
+  "V3+ bands at 418 nm (strongest in alpha) and 557-575 nm; the crystal is a reddish-brown thin section, so the scale is set to a trace of V2O3",
+]
+fit_record = "docs/color_variants/fit_records/beryl_topaz_tourmaline_andalusite.md#andalusite-vanadian"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 259.1, width_nm = 5800.0, peak = 0.6789, shape = "energy" },
+    { center_nm = 418.6, width_nm = 2131.1, peak = 0.5166, shape = "energy" },
+    { center_nm = 563.5, width_nm = 1343.9, peak = 0.125, shape = "energy" },
+    { center_nm = 700.0, width_nm = 1731.2, peak = 0.05201, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 283.5, width_nm = 4847.6, peak = 0.1599, shape = "energy" },
+    { center_nm = 417.3, width_nm = 2203.4, peak = 0.02102, shape = "energy" },
+    { center_nm = 578.7, width_nm = 1800.0, peak = 0.009746, shape = "energy" },
+  ]
+  beta_ray = [
+    { center_nm = 286.1, width_nm = 3500.0, peak = 0.9478, shape = "energy" },
+    { center_nm = 407.1, width_nm = 1716.7, peak = 0.05351, shape = "energy" },
+    { center_nm = 557.3, width_nm = 1800.0, peak = 0.01929, shape = "energy" },
+  ]

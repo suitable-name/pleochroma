@@ -1,0 +1,495 @@
+//! The solve Worker's job: a design as native TOML in, everything the page needs to
+//! install the result out.
+//!
+//! # Same solve as the desktop
+//!
+//! [`solve_design`] is the desktop's background-solve body
+//! (`apps/pleochroma-cut/src/gui/editor/auto_solve/dispatch.rs`,
+//! `solve_and_build_result` + `panel_inputs`) minus the parts that need the page's own
+//! state: ONE `solve_policy::solve_cancellably`, then the status line, the
+//! tier-tagged manufacturability warnings and the viewport planes built from that same
+//! solved list, and the plane-cap diagnosis behind its cheap pre-filter. When the design
+//! does not solve, each readout falls back to its solving form, exactly like
+//! `panel_inputs`.
+//!
+//! The tier rows and yield texts are NOT built here: they depend on the page's custom
+//! materials (RI, specific gravity) and are cheap `*_from_solved` calls once the page
+//! has [`SolveOutcome::solved`].
+//!
+//! # Transport
+//!
+//! The design travels as a self-contained design file
+//! (`native::design_to_string` / `native::design_from_str`, the desktop's autosave
+//! pair), which carries every tier's angle, indices, constraint, target and id
+//! plus the schedule metadata. See [`design_to_toml`].
+
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use pleochroma::{
+    geometry::{
+        meet_solver::{SolveError, SolveStrategy, SolvedTier},
+        tool::ToolPrimitive,
+    },
+    optics::materials::GemMaterial,
+};
+use pleochroma_cut_core::{
+    Design, DesignSolveError,
+    native::{DesignExtras, design_from_str, design_to_string},
+};
+use pleochroma_editor::{
+    solve_policy::{
+        design_to_gpu_planes_from_solved, likely_hit_plane_cap, solve_cancellably,
+        too_many_planes_message,
+    },
+    view_model::{
+        rows::manufacturability_warnings_tagged,
+        solid_status::{
+            design_to_gpu_planes, status_text_and_is_problem,
+            status_text_and_is_problem_from_solved,
+        },
+    },
+};
+use serde::{Deserialize, Serialize};
+
+use crate::scene::{PlaneData, planes_to_data};
+
+mod analysis;
+mod body_color;
+mod deep;
+#[cfg(test)]
+mod deep_tests;
+mod optical;
+#[cfg(test)]
+mod tests;
+
+pub use analysis::{
+    AngleChangeData, BlockData, MaterialSelectionData, OptimizeParams, OptimizeResultData,
+    ProgressReport, RetargetModeData, RetargetParams, RetargetResultData, RetargetRowData,
+    RiskData, SolveHooks, run_optimize, run_retarget,
+};
+pub use body_color::{BodyColorParams, BodyColorResultData, run_body_color};
+pub use deep::{
+    DeepSolveParams, DeepSolveResultData, PrintedTargetsData, VerifiedReportData,
+    deep_progress_status, run_deep_solve,
+};
+pub use optical::{
+    MetricsJob, MetricsParams, MetricsResultData, ScoredUnder, TiltAxisData, TiltJob, TiltParams,
+    TiltResultData, run_metrics, run_metrics_with_geometry, run_metrics_with_map, run_tilt,
+    run_tilt_with_geometry, sweep_fraction, sweep_status, tilt_lighting_note,
+};
+
+/// What the solve Worker is asked to do.
+///
+/// New variants go at the END of this enum; postcard encodes variants by index, so
+/// existing ones keep their encoding.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum SolveRequest {
+    /// A full solve, like the desktop's background solve.
+    Solve,
+    /// The desktop's Optimize action on the design (progress reports stream back).
+    Optimize {
+        /// Weights, budget, seed, polish and the "only selected tiers" restriction.
+        params: OptimizeParams,
+        /// The session's custom materials, for resolving the design's material.
+        custom_materials: Vec<GemMaterial>,
+    },
+    /// The desktop's "Retarget for material" proposal for a target material (Optimize
+    /// mode streams progress reports back).
+    Retarget {
+        /// The target material, crown policy, mode and search settings.
+        params: RetargetParams,
+        /// The session's custom materials, for resolving both materials.
+        custom_materials: Vec<GemMaterial>,
+    },
+    /// The five optical metrics of the frame being rendered (no design needed: the
+    /// message's `design_toml` is ignored), scored under the HDR map the Worker holds when
+    /// the params name it.
+    Metrics {
+        /// The stone, material, pose and HDR map.
+        params: MetricsParams,
+    },
+    /// The Tilt Performance sweep: four axes of 181 points (progress reports stream back;
+    /// no design needed).
+    Tilt {
+        /// The stone, material and light.
+        params: TiltParams,
+    },
+    /// The path-aware L*C*h body-colour solve of the Design settings colour editor (no design
+    /// needed: the message's `design_toml` is ignored; the answer is
+    /// [`SolveResponse::BodyColor`]).
+    BodyColor {
+        /// The typed colour and the reference path.
+        params: BodyColorParams,
+    },
+    /// [`Self::Metrics`] for a concave stone: the stone is scored with its tools, like the
+    /// desktop (`StoneGeometry`). Build with [`Self::metrics`], which sends the planar
+    /// variant when there are no tools. Wire version 20.
+    MetricsWithTools {
+        /// The stone, material, pose and HDR map.
+        params: MetricsParams,
+        /// The resolved cutting tools in cutting order (never empty on the wire).
+        tools: Vec<ToolPrimitive>,
+    },
+    /// [`Self::Tilt`] for a concave stone (build with [`Self::tilt`]). Wire version 20.
+    TiltWithTools {
+        /// The stone, material and light.
+        params: TiltParams,
+        /// The resolved cutting tools in cutting order (never empty on the wire).
+        tools: Vec<ToolPrimitive>,
+    },
+    /// The desktop's Deep Solve on the design: the verified repair search against the
+    /// design's printed proportions (progress reports stream back; the answer is
+    /// [`SolveResponse::DeepSolved`], or [`SolveResponse::AnalysisFailed`] when the design
+    /// does not qualify). Wire version 30.
+    DeepSolve {
+        /// The printed proportions to verify against.
+        params: DeepSolveParams,
+    },
+}
+
+impl SolveRequest {
+    /// The metrics request for `params` and the stone's `tools`: [`Self::Metrics`] when there
+    /// are none (byte-identical to before concave stones reached the metrics), else
+    /// [`Self::MetricsWithTools`].
+    #[must_use]
+    pub fn metrics(params: MetricsParams, tools: &[ToolPrimitive]) -> Self {
+        if tools.is_empty() {
+            Self::Metrics { params }
+        } else {
+            Self::MetricsWithTools {
+                params,
+                tools: tools.to_vec(),
+            }
+        }
+    }
+
+    /// The tilt-sweep request for `params` and the stone's `tools`: [`Self::Tilt`] when there
+    /// are none, else [`Self::TiltWithTools`].
+    #[must_use]
+    pub fn tilt(params: TiltParams, tools: &[ToolPrimitive]) -> Self {
+        if tools.is_empty() {
+            Self::Tilt { params }
+        } else {
+            Self::TiltWithTools {
+                params,
+                tools: tools.to_vec(),
+            }
+        }
+    }
+
+    /// Whether a running job of this kind can be asked to stop early with a partial
+    /// answer (it polls the page's cancel URL): the searches and the tilt sweep. Deep Solve
+    /// has no partial answer, so its early stop is [`SolveResponse::Cancelled`].
+    #[must_use]
+    pub const fn supports_graceful_cancel(&self) -> bool {
+        !matches!(
+            self,
+            Self::Solve | Self::Metrics { .. } | Self::MetricsWithTools { .. }
+        )
+    }
+
+    /// Whether the job reports progress while it runs, so a long one is only "hung"
+    /// after a silence (`SolveClient`'s inactivity timeout) rather than after a fixed time.
+    #[must_use]
+    pub const fn streams_progress(&self) -> bool {
+        matches!(
+            self,
+            Self::Optimize { .. }
+                | Self::Retarget { .. }
+                | Self::Tilt { .. }
+                | Self::TiltWithTools { .. }
+                | Self::DeepSolve { .. }
+        )
+    }
+}
+
+/// `SolveStrategy` as plain data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StrategyData {
+    /// See `SolveStrategy::ScaleReference`.
+    ScaleReference,
+    /// See `SolveStrategy::DependencyOrder`.
+    DependencyOrder,
+    /// See `SolveStrategy::JointGroup`.
+    JointGroup,
+    /// See `SolveStrategy::LeastSquaresFallback`.
+    LeastSquaresFallback,
+    /// See `SolveStrategy::Failed`.
+    Failed,
+}
+
+impl From<SolveStrategy> for StrategyData {
+    fn from(strategy: SolveStrategy) -> Self {
+        match strategy {
+            SolveStrategy::ScaleReference => Self::ScaleReference,
+            SolveStrategy::DependencyOrder => Self::DependencyOrder,
+            SolveStrategy::JointGroup => Self::JointGroup,
+            SolveStrategy::LeastSquaresFallback => Self::LeastSquaresFallback,
+            SolveStrategy::Failed => Self::Failed,
+        }
+    }
+}
+
+impl From<StrategyData> for SolveStrategy {
+    fn from(strategy: StrategyData) -> Self {
+        match strategy {
+            StrategyData::ScaleReference => Self::ScaleReference,
+            StrategyData::DependencyOrder => Self::DependencyOrder,
+            StrategyData::JointGroup => Self::JointGroup,
+            StrategyData::LeastSquaresFallback => Self::LeastSquaresFallback,
+            StrategyData::Failed => Self::Failed,
+        }
+    }
+}
+
+/// One solved tier (`SolvedTier`) as plain data; converts back losslessly.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SolvedTierData {
+    /// The solved mast.
+    pub mast: f64,
+    /// How it was obtained.
+    pub strategy: StrategyData,
+    /// The solver's prose detail (tooltip text).
+    pub detail: String,
+}
+
+impl From<&SolvedTier> for SolvedTierData {
+    fn from(tier: &SolvedTier) -> Self {
+        Self {
+            mast: tier.mast,
+            strategy: tier.strategy.into(),
+            detail: tier.detail.clone(),
+        }
+    }
+}
+
+impl SolvedTierData {
+    /// The `SolvedTier` this came from, for the editor's `*_from_solved` helpers.
+    #[must_use]
+    pub fn to_solved_tier(&self) -> SolvedTier {
+        SolvedTier {
+            mast: self.mast,
+            strategy: self.strategy.into(),
+            detail: self.detail.clone(),
+        }
+    }
+}
+
+/// Converts a whole solved list back (see [`SolvedTierData::to_solved_tier`]).
+#[must_use]
+pub fn to_solved_tiers(tiers: &[SolvedTierData]) -> Vec<SolvedTier> {
+    tiers.iter().map(SolvedTierData::to_solved_tier).collect()
+}
+
+/// A manufacturability warning tagged with the tier it is about.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TierWarning {
+    /// Tier index in the design.
+    pub tier_index: u32,
+    /// The warning line.
+    pub text: String,
+}
+
+/// The result of a solve that ran to the end (solved or not).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SolveOutcome {
+    /// Every tier's solved mast, `None` when the design does not solve.
+    pub solved: Option<Vec<SolvedTierData>>,
+    /// Why it did not solve (`DesignSolveError`'s text), `None` when it did.
+    pub error: Option<String>,
+    /// The solid-status line (`status_text_and_is_problem*`).
+    pub status_text: String,
+    /// Whether that line reports a problem.
+    pub status_is_problem: bool,
+    /// Manufacturability warnings, tier-tagged.
+    pub warnings: Vec<TierWarning>,
+    /// The viewport planes for the solved design (or the solving fallback).
+    pub planes: Vec<PlaneData>,
+    /// The design is over the solver's plane cap (the desktop's one-time toast).
+    pub too_many_planes: bool,
+    /// Tiers in the solved design.
+    pub tier_count: u32,
+}
+
+/// The solve Worker's answer.
+///
+/// Later request variants add their response variants at the END (see
+/// [`SolveRequest`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the postcard wire format pins variant order and payload layout (protocol/tests*.rs); \
+              one answer is built per job, and boxing a payload would change every consumer's \
+              pattern (the web page and the mobile core) for no measurable gain"
+)]
+pub enum SolveResponse {
+    /// The solve ran; see [`SolveOutcome`].
+    Solved(SolveOutcome),
+    /// The design TOML could not be loaded.
+    InvalidDesign {
+        /// Why.
+        message: String,
+    },
+    /// The job was cancelled before it finished.
+    Cancelled,
+    /// An Optimize run finished (or was cancelled with a partial result).
+    Optimized(OptimizeResultData),
+    /// An Optimize run that could not start or solve: `message` is the reason, and
+    /// `missing_anchor` says it was a `MissingAnchor` (the desktop then appends the
+    /// remedy).
+    AnalysisFailed {
+        /// Why.
+        message: String,
+        /// Whether the design lacks a scale anchor for a block.
+        missing_anchor: bool,
+    },
+    /// A Retarget proposal (or why there is none).
+    Retargeted(RetargetResultData),
+    /// The optical metrics of a [`SolveRequest::Metrics`], with what they were scored
+    /// under (a failure is [`Self::AnalysisFailed`]).
+    Metrics(MetricsResultData),
+    /// A finished [`SolveRequest::Tilt`] sweep (a stopped one is [`Self::Cancelled`]).
+    TiltCurves(TiltResultData),
+    /// A finished [`SolveRequest::BodyColor`] solve (a superseded one is [`Self::Cancelled`]).
+    BodyColor(BodyColorResultData),
+    /// A finished [`SolveRequest::DeepSolve`] (a cancelled one is [`Self::Cancelled`], one
+    /// the design does not qualify for is [`Self::AnalysisFailed`]). Wire version 30.
+    DeepSolved(DeepSolveResultData),
+}
+
+/// Encodes `design` for [`handle_solve`]: the self-contained design file, as the
+/// desktop's autosave writes it.
+///
+/// # Errors
+///
+/// The design-file writer's error text (in practice unreachable -- see
+/// `native::design_to_string`).
+pub fn design_to_toml(design: &Design) -> Result<String, String> {
+    design_to_string(design, None, &DesignExtras::default()).map_err(|e| e.to_string())
+}
+
+/// Loads a design sent through [`design_to_toml`].
+///
+/// # Errors
+///
+/// The loader's error text.
+pub fn design_from_toml(design_toml: &str) -> Result<Design, String> {
+    design_from_str(design_toml)
+        .map(|loaded| loaded.design)
+        .map_err(|e| e.to_string())
+}
+
+/// Runs `request` on the design in `design_toml` -- the solve Worker's handler, with no
+/// progress reports and nothing to cancel it (see [`handle_solve_with`]).
+#[must_use]
+pub fn handle_solve(design_toml: &str, request: &SolveRequest) -> SolveResponse {
+    let cancel = AtomicBool::new(false);
+    handle_solve_with(
+        design_toml,
+        request,
+        &SolveHooks {
+            cancel: &cancel,
+            on_progress: &|_| {},
+            on_sweep: &|_| {},
+        },
+    )
+}
+
+/// [`handle_solve`] with `hooks`: the flag a search polls for cancellation, and where
+/// its progress reports go.
+#[must_use]
+pub fn handle_solve_with(
+    design_toml: &str,
+    request: &SolveRequest,
+    hooks: &SolveHooks<'_>,
+) -> SolveResponse {
+    let with_design = |run: &dyn Fn(&Design) -> SolveResponse| match design_from_toml(design_toml) {
+        Ok(design) => run(&design),
+        Err(message) => SolveResponse::InvalidDesign { message },
+    };
+    match request {
+        // These three carry their own inputs and never look at the design.
+        SolveRequest::Metrics { params } => run_metrics(&mut None, params),
+        SolveRequest::Tilt { params } => run_tilt(params, hooks),
+        SolveRequest::MetricsWithTools { params, tools } => {
+            run_metrics_with_geometry(&mut None, params, None, tools)
+        }
+        SolveRequest::TiltWithTools { params, tools } => {
+            run_tilt_with_geometry(params, hooks, tools, None)
+        }
+        SolveRequest::BodyColor { params } => run_body_color(params, hooks.cancel),
+        SolveRequest::Solve => with_design(&|design| solve_design(design, hooks.cancel)),
+        SolveRequest::Optimize {
+            params,
+            custom_materials,
+        } => with_design(&|design| run_optimize(design, params, custom_materials, hooks)),
+        SolveRequest::Retarget {
+            params,
+            custom_materials,
+        } => with_design(&|design| run_retarget(design, params, custom_materials, hooks)),
+        // The Worker answers this one itself, with a progress hook that shows the phase
+        // (`worker::run_deep_job`); this arm is the same run with no progress.
+        SolveRequest::DeepSolve { params } => {
+            with_design(&|design| run_deep_solve(design, params, hooks.cancel, &|_| {}))
+        }
+    }
+}
+
+/// Solves `design` like the desktop's background solve -- see the module doc comment.
+/// `cancel` is polled by the solver; a set flag returns [`SolveResponse::Cancelled`].
+///
+/// # Panics
+///
+/// Panics if the design has more than `u32::MAX` tiers, which no real design has.
+#[must_use]
+pub fn solve_design(design: &Design, cancel: &AtomicBool) -> SolveResponse {
+    let solved = solve_cancellably(design, cancel);
+    if matches!(solved, Err(DesignSolveError::Solve(SolveError::Cancelled)))
+        || cancel.load(Ordering::Relaxed)
+    {
+        return SolveResponse::Cancelled;
+    }
+    let too_many_planes = solved.as_ref().is_ok_and(|s| likely_hit_plane_cap(s))
+        && too_many_planes_message(design).is_some();
+    let tier_count = u32::try_from(design.tiers.len()).expect("a design's tier count fits u32");
+    let outcome = match solved {
+        Ok(solved) => {
+            let (status_text, status_is_problem) =
+                status_text_and_is_problem_from_solved(design, &solved);
+            SolveOutcome {
+                warnings: tag_warnings(manufacturability_warnings_tagged(design, Some(&solved))),
+                planes: planes_to_data(&design_to_gpu_planes_from_solved(design, &solved)),
+                solved: Some(solved.iter().map(SolvedTierData::from).collect()),
+                error: None,
+                status_text,
+                status_is_problem,
+                too_many_planes,
+                tier_count,
+            }
+        }
+        Err(error) => {
+            let (status_text, status_is_problem) = status_text_and_is_problem(design);
+            SolveOutcome {
+                solved: None,
+                error: Some(error.to_string()),
+                status_text,
+                status_is_problem,
+                warnings: tag_warnings(manufacturability_warnings_tagged(design, None)),
+                planes: planes_to_data(&design_to_gpu_planes(design)),
+                too_many_planes,
+                tier_count,
+            }
+        }
+    };
+    SolveResponse::Solved(outcome)
+}
+
+fn tag_warnings(pairs: Vec<(usize, String)>) -> Vec<TierWarning> {
+    pairs
+        .into_iter()
+        .map(|(tier_index, text)| TierWarning {
+            tier_index: u32::try_from(tier_index).expect("a tier index fits u32"),
+            text,
+        })
+        .collect()
+}

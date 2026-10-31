@@ -1,0 +1,556 @@
+import { ComboBox, ScrollView } from "std-widgets.slint";
+import { ScrollFade } from "rough_planner/fields.slint";
+import { Theme } from "../theme.slint";
+import { PreferencesModel } from "../models/preferences.slint";
+import { ManipulateModel } from "../models/manipulate.slint";
+import { UpdateModel } from "../models/update.slint";
+import { RadvWorkaroundModel } from "../models/radv_workaround.slint";
+import { HelpTopics } from "../models/help.slint";
+import { HelpButton } from "help_button.slint";
+import { IconButton } from "icon_button.slint";
+import { TipButton } from "compact_controls.slint";
+import { TipBox } from "tip_box.slint";
+import { FacetingMachineSection } from "faceting_machine_section.slint";
+
+// One section heading with a hairline under it.
+component SectionHeading inherits Rectangle {
+    in property <string> text;
+    // A topic of `HelpTopics` for a "?" at the right end of the heading. Empty: none.
+    in property <string> help_topic;
+    in property <string> help_hint;
+    height: 22px;
+    Text {
+        x: 0px;
+        y: 0px;
+        text: root.text;
+        font-size: 11px;
+        font-weight: 700;
+        color: Theme.accent-cyan;
+        accessible-role: AccessibleRole.text;
+    }
+    if root.help_topic != "": help-button-help-hint := HelpButton {
+        x: parent.width - self.width;
+        y: 0px;
+        diameter: 20px;
+        topic: root.help_topic;
+        hint: root.help_hint;
+    }
+    Rectangle {
+        x: 0px;
+        y: parent.height - 1px;
+        width: parent.width;
+        height: 1px;
+        background: Theme.border-subtle;
+    }
+}
+
+// One radio-style choice card (Simple / Advanced): a title and a line of explanation.
+// Drawn by hand like the rough planner's radio rows: Tab reaches it, Space or Enter
+// picks it.
+component ModeChoice inherits Rectangle {
+    in property <string> title;
+    in property <string> detail;
+    // The tooltip: a sentence on what picking this does.
+    in property <string> hint;
+    in property <bool> selected;
+    callback picked();
+
+    height: 44px;
+    border-radius: Theme.radius-sm;
+    background: choice_touch.has-hover ? Theme.surface-control-hover : Theme.surface-control;
+    border-width: choice_focus.has-focus ? 2px : 1px;
+    border-color: choice_focus.has-focus ? Theme.accent-cyan-hover
+        : (root.selected ? Theme.accent-cyan : Theme.border-control);
+
+    accessible-role: AccessibleRole.radio-button;
+    accessible-label: root.title + ". " + root.detail;
+    accessible-checkable: true;
+    accessible-checked: root.selected;
+    accessible-action-default => { root.picked(); }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+
+    choice_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.picked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 10px;
+
+        // The radio dot.
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                border-width: 1px;
+                border-color: root.selected ? Theme.accent-cyan : Theme.border-control;
+                background: Theme.surface-sunken;
+                Rectangle {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 6px;
+                    height: 6px;
+                    border-radius: 3px;
+                    background: Theme.accent-cyan;
+                    visible: root.selected;
+                }
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 2px;
+            Text {
+                text: root.title;
+                font-size: 12px;
+                font-weight: 700;
+                color: Theme.text-primary;
+                overflow: elide;
+            }
+            Text {
+                text: root.detail;
+                font-size: 10px;
+                color: Theme.text-secondary;
+                overflow: elide;
+            }
+        }
+    }
+
+    choice_touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.picked(); }
+    }
+}
+
+// One on/off row: a title, a line of explanation and a switch on the right. The whole row
+// is the target, which suits touch screens. Tab reaches it, Space or Enter flips it.
+component PreferenceSwitch inherits Rectangle {
+    in property <string> title;
+    in property <string> detail;
+    // The tooltip: a sentence on what the switch does and when it takes effect.
+    in property <string> hint;
+    in property <bool> checked;
+    callback toggled();
+
+    height: 40px;
+    border-radius: Theme.radius-sm;
+    background: switch_touch.has-hover ? Theme.surface-control-hover : transparent;
+    border-width: switch_focus.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+
+    accessible-role: AccessibleRole.checkbox;
+    accessible-label: root.title + ". " + root.detail;
+    accessible-checked: root.checked;
+    accessible-action-default => { root.toggled(); }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+
+    switch_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.toggled();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 12px;
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 2px;
+            Text {
+                text: root.title;
+                font-size: 12px;
+                font-weight: 600;
+                color: Theme.text-primary;
+                overflow: elide;
+            }
+            Text {
+                text: root.detail;
+                font-size: 10px;
+                color: Theme.text-secondary;
+                overflow: elide;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 36px;
+                height: 20px;
+                border-radius: 10px;
+                border-width: 1px;
+                border-color: root.checked ? Theme.accent-cyan : Theme.border-control;
+                background: root.checked ? Theme.accent-cyan : Theme.surface-sunken;
+
+                Rectangle {
+                    width: 14px;
+                    height: 14px;
+                    border-radius: 7px;
+                    background: root.checked ? Theme.text-on-accent : Theme.text-secondary;
+                    x: root.checked ? parent.width - self.width - 3px : 3px;
+                    y: (parent.height - self.height) / 2;
+                    animate x { duration: 120ms; }
+                }
+            }
+        }
+    }
+
+    switch_touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.toggled(); }
+    }
+}
+
+// The Preferences dialog (Edit > Preferences..., Ctrl+Comma): app-wide choices that are
+// not about one design. Mounted by `GlobalDialogsOverlay`, which also closes it on Escape.
+// Every control writes `PreferencesModel` (or `ManipulateModel` for Snap) and calls the
+// matching `*_changed` callback; `gui::preferences` saves the choice and applies it.
+export component PreferencesDialog inherits Rectangle {
+    background: Theme.overlay-backdrop;
+
+    // What the last tutorial button did, so the click is not silent.
+    property <string> tutorial_feedback: "";
+
+    // The backdrop: a click outside the card closes the dialog.
+    TouchArea {
+        clicked => { PreferencesModel.dialog_open = false; }
+    }
+
+    Rectangle {
+        width: min(480px, parent.width - 40px);
+        height: min(600px, parent.height - 40px);
+        background: Theme.surface-dialog;
+        border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.border-dialog;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: Theme.modal-shadow;
+        clip: true;
+
+        // Isolates clicks inside the card from the backdrop above.
+        TouchArea {}
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 10px;
+
+            HorizontalLayout {
+                Text {
+                    horizontal-stretch: 1;
+                    text: "Preferences";
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                    vertical-alignment: center;
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    VerticalLayout {
+                        alignment: center;
+                        HelpButton { topic: HelpTopics.preferences; hint: "Open the manual page on preferences and accessibility"; }
+                    }
+                    IconButton {
+                        icon: @image-url("../icons/close.svg");
+                        hint: "Close the preferences";
+                        tint: Theme.text-secondary;
+                        clicked => { PreferencesModel.dialog_open = false; }
+                    }
+                }
+            }
+
+            // The fade over the bottom edge (and its chevron) says the sections go on below.
+            Rectangle {
+                vertical-stretch: 1;
+
+                pref_scroll := ScrollView {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: parent.height;
+                    content-width: self.visible-width;
+
+                VerticalLayout {
+                    spacing: 14px;
+                    // The scroll bar is drawn over the right edge of the content: keep the
+                    // combo, the switches and the buttons clear of it.
+                    padding-right: 14px;
+
+                    // --- Interface ---------------------------------------------------
+                    VerticalLayout {
+                        spacing: 6px;
+                        SectionHeading {
+                            text: "Interface";
+                            help_topic: HelpTopics.simple-advanced;
+                            help_hint: "Open the manual page on the Simple and Advanced interface";
+                        }
+                        ModeChoice {
+                            title: "Simple";
+                            detail: "Simple shows the controls most designs need.";
+                            hint: "Hide the controls most designs never touch. Nothing is lost: a hidden setting keeps its value and still applies, and you can switch back at any time.";
+                            selected: PreferencesModel.simple_mode;
+                            picked => {
+                                PreferencesModel.simple_mode = true;
+                                PreferencesModel.simple_mode_changed(true);
+                            }
+                        }
+                        ModeChoice {
+                            title: "Advanced";
+                            detail: "Advanced shows every control.";
+                            hint: "Show every control, including the tuning of the solver, the render and the material.";
+                            selected: !PreferencesModel.simple_mode;
+                            picked => {
+                                PreferencesModel.simple_mode = false;
+                                PreferencesModel.simple_mode_changed(false);
+                            }
+                        }
+                    }
+
+                    // --- Appearance --------------------------------------------------
+                    VerticalLayout {
+                        spacing: 6px;
+                        SectionHeading { text: "Appearance"; }
+                        HorizontalLayout {
+                            height: 30px;
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 12px;
+                            Text {
+                                horizontal-stretch: 1;
+                                text: "Interface Scale";
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: Theme.text-primary;
+                                vertical-alignment: center;
+                                accessible-role: AccessibleRole.text;
+                            }
+                            TipBox {
+                                width: 150px;
+                                hint: "How large the whole interface is drawn. Automatic follows the scale your operating system uses. The choice takes effect the next time the program starts.";
+                                ComboBox {
+                                    model: PreferencesModel.ui_scale_options;
+                                    current-index <=> PreferencesModel.ui_scale_index;
+                                    accessible-label: "Interface Scale";
+                                    selected(val) => {
+                                        PreferencesModel.ui_scale_changed(PreferencesModel.ui_scale_index);
+                                    }
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            Text {
+                                text: "Takes effect after a restart.";
+                                font-size: 10px;
+                                color: Theme.text-secondary;
+                                accessible-role: AccessibleRole.text;
+                            }
+                        }
+                        PreferenceSwitch {
+                            title: "High Contrast";
+                            detail: "Near-black surfaces, white text and bright accents.";
+                            hint: "Draw the program with near-black surfaces, white text and bright accents, for easier reading. It takes effect at once. The standard controls keep their own subtle borders.";
+                            checked: PreferencesModel.high_contrast;
+                            toggled => {
+                                PreferencesModel.high_contrast = !PreferencesModel.high_contrast;
+                                PreferencesModel.high_contrast_changed(PreferencesModel.high_contrast);
+                            }
+                        }
+                    }
+
+                    // --- Direct manipulation ------------------------------------------
+                    VerticalLayout {
+                        spacing: 6px;
+                        SectionHeading { text: "Direct Manipulation"; }
+                        PreferenceSwitch {
+                            title: "Larger Handles";
+                            detail: "Bigger drag handles, for touch screens and pens.";
+                            hint: "Make the drag handles on the 3D stone and their hit areas larger, so they are easy to grab with a finger or a pen.";
+                            checked: PreferencesModel.large_handles;
+                            toggled => {
+                                PreferencesModel.large_handles = !PreferencesModel.large_handles;
+                                PreferencesModel.large_handles_changed(PreferencesModel.large_handles);
+                            }
+                        }
+                        // The same setting as the Solid view toolbar's Snap button
+                        // (`ManipulateModel.snap_off`, inverted), so the two stay in step.
+                        PreferenceSwitch {
+                            title: "Snap to Gear Steps When Dragging";
+                            detail: "Same as the Snap button in the Solid view toolbar.";
+                            hint: "While you drag a handle, jump from one index-gear step to the next instead of moving freely. It is the same switch as the Snap button in the Solid view toolbar.";
+                            checked: !ManipulateModel.snap_off;
+                            toggled => {
+                                ManipulateModel.snap_off = !ManipulateModel.snap_off;
+                                ManipulateModel.snap_toggled();
+                            }
+                        }
+                    }
+
+                    // --- Faceting Machine ----------------------------------------------
+                    VerticalLayout {
+                        spacing: 6px;
+                        SectionHeading { text: "Faceting Machine"; }
+                        FacetingMachineSection { }
+                    }
+
+                    // --- Updates -----------------------------------------------------
+                    VerticalLayout {
+                        spacing: 6px;
+                        SectionHeading { text: "Updates"; }
+                        PreferenceSwitch {
+                            title: "Check for New Versions";
+                            detail: "Ask GitHub once a day whether a newer release exists.";
+                            hint: "Once a day, when the program starts, ask GitHub for the latest release and tell you if it is newer than this one. Nothing is downloaded or installed, and nothing but the request itself is sent.";
+                            checked: UpdateModel.check_enabled;
+                            toggled => {
+                                UpdateModel.check_enabled = !UpdateModel.check_enabled;
+                                UpdateModel.enabled_changed(UpdateModel.check_enabled);
+                            }
+                        }
+                        HorizontalLayout {
+                            height: 32px;
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 10px;
+                            alignment: start;
+                            TipButton {
+                                text: "Check Now";
+                                hint: "Ask GitHub right now whether a newer release exists, and show the answer below.";
+                                enabled: !UpdateModel.checking;
+                                clicked => { UpdateModel.check_now(); }
+                            }
+                        }
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            Text {
+                                horizontal-stretch: 1;
+                                text: UpdateModel.status_text;
+                                font-size: 10px;
+                                color: Theme.text-secondary;
+                                wrap: word-wrap;
+                                visible: UpdateModel.status_text != "";
+                                accessible-role: AccessibleRole.text;
+                            }
+                        }
+                    }
+
+                    // --- Graphics Driver (Linux only) ---------------------------------
+                    // Shown only where Mesa's AMD driver can exist (`RadvWorkaroundModel.available`,
+                    // set by Rust). The choice is read when the graphics device is created, so it
+                    // takes effect after a restart.
+                    if RadvWorkaroundModel.available: VerticalLayout {
+                        spacing: 6px;
+                        SectionHeading { text: "Graphics Driver"; }
+                        PreferenceSwitch {
+                            title: "RADV Shader Workaround";
+                            detail: "Mesa's AMD driver (RADV) only. About 10 % slower.";
+                            hint: "On Mesa's AMD driver, some stones with color zones, play-of-color structure or oriented inclusions render too bright or with errors. This turns off one optimization of the AMD shader compiler, which makes them right; GPU rendering is about 10 % slower. It takes effect after a restart. Other graphics drivers are not affected.";
+                            checked: RadvWorkaroundModel.enabled;
+                            toggled => {
+                                RadvWorkaroundModel.enabled = !RadvWorkaroundModel.enabled;
+                                RadvWorkaroundModel.enabled_changed(RadvWorkaroundModel.enabled);
+                            }
+                        }
+                        HorizontalLayout {
+                            height: 32px;
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 10px;
+                            alignment: start;
+                            TipButton {
+                                text: "Restart Now";
+                                hint: "Restart the program now, so the choice above takes effect. You are asked first about unsaved changes.";
+                                clicked => { RadvWorkaroundModel.restart_now(); }
+                            }
+                            Text {
+                                vertical-alignment: center;
+                                text: "Takes effect after a restart.";
+                                font-size: 10px;
+                                color: Theme.text-secondary;
+                                accessible-role: AccessibleRole.text;
+                            }
+                        }
+                    }
+
+                    // --- Tutorials ---------------------------------------------------
+                    VerticalLayout {
+                        spacing: 6px;
+                        SectionHeading {
+                            text: "Tutorials";
+                            help_topic: HelpTopics.tutorials;
+                            help_hint: "Open the manual page on the tutorials";
+                        }
+                        HorizontalLayout {
+                            height: 32px;
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 10px;
+                            alignment: start;
+                            TipButton {
+                                text: "Reset Tutorial Progress";
+                                hint: "Forget which tutorials you have finished, so every one shows as new again.";
+                                clicked => {
+                                    PreferencesModel.reset_tutorials();
+                                    root.tutorial_feedback = "Tutorial progress was reset.";
+                                }
+                            }
+                            TipButton {
+                                text: "Show the Welcome Tour Again";
+                                hint: "Show the short welcome tour again the next time you start the program.";
+                                clicked => {
+                                    PreferencesModel.show_tour_again();
+                                    root.tutorial_feedback = "The welcome tour will show again.";
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            Text {
+                                text: root.tutorial_feedback;
+                                font-size: 10px;
+                                color: Theme.success;
+                                visible: root.tutorial_feedback != "";
+                                accessible-role: AccessibleRole.text;
+                            }
+                        }
+                    }
+                }
+                }
+
+                ScrollFade {
+                    y: parent.height - self.height;
+                    width: parent.width - 14px;
+                    tint: Theme.surface-dialog;
+                    more: pref_scroll.content-height + pref_scroll.content-y - pref_scroll.visible-height > 2px;
+                }
+            }
+
+            HorizontalLayout {
+                alignment: end;
+                TipButton {
+                    text: "Done";
+                    hint: "Close the preferences. Every choice is already saved.";
+                    primary: true;
+                    clicked => { PreferencesModel.dialog_open = false; }
+                }
+            }
+        }
+    }
+}

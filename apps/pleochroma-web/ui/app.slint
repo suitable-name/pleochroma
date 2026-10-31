@@ -1,0 +1,548 @@
+// The browser app's window: menu bar, header, main view (Render / Solid / Diagram
+// tabs, or the empty state), right-hand Design dock, status strip, and the toast
+// and New Design overlays. Components live in `components/`, the three views in
+// `views/`, the dock in `editor/`, the globals in `models/`.
+import { Theme } from "components/theme.slint";
+import { Header } from "components/header.slint";
+import { StatusStrip } from "components/status_strip.slint";
+import { Toast } from "components/toast.slint";
+import { NewDesignDialog, NewDesignModel } from "editor/new_design_dialog.slint";
+import { DesignSettingsDialog, DesignSettingsModel, GearRemapRow } from "editor/design_settings.slint";
+import { ChipRow, InspectorModel, PreformReadout, ScheduleRow, SolvedInfo, Verdict, VerdictSet } from "editor/inspector_model.slint";
+import { OptimizeChangeRow, OptimizeModel, OptimizeResultRow } from "editor/optimize_model.slint";
+import { DeepSolveModel, DeepSolveRow } from "editor/deep_solve_model.slint";
+import { RetargetDialog, RetargetModel, RetargetRow } from "editor/retarget_dialog.slint";
+import { DiffRow, SnapshotDialog, SnapshotModel } from "editor/snapshot_dialog.slint";
+import { MainArea } from "views/main_area.slint";
+import { DesignDock, DockModel } from "editor/design_dock.slint";
+import { TierRowData, TierTableModel, WarningLine } from "editor/tier_table_model.slint";
+import { AppModel, GalleryModel, TemplateCard } from "models/app_model.slint";
+import { RenderModel } from "components/render_model.slint";
+import { ExportDialog } from "components/export_dialog.slint";
+import { StartupOverlay } from "components/startup_overlay.slint";
+import { SolidModel } from "components/solid_model.slint";
+import { ManipulateModel } from "components/manipulate_model.slint";
+import { ConfirmDialog, ConfirmModel } from "components/confirm_dialog.slint";
+import { GuideAllow, GuideModel, GuideStepData } from "models/guide_model.slint";
+import { GuideOverlayLayer, GuidePanel } from "components/guide_panel.slint";
+import { MetricsModel, TiltModel } from "components/metrics_model.slint";
+import { TiltDialog } from "components/tilt_dialog.slint";
+import { ShortcutOverlay, ShortcutsModel } from "components/shortcut_overlay.slint";
+import { UserGuideDialog, UserGuideModel } from "components/user_guide_dialog.slint";
+import { VerdictModel, VerdictPopover, VerdictReasonData } from "components/verdict_badge.slint";
+import { CuttingModeScreen } from "editor/cutting_mode.slint";
+import { CmChip, CmScheduleRow, CmWheelMark, CmWheelScale, CuttingModeModel } from "models/cutting_mode_model.slint";
+import { LibraryScreen } from "library/library_screen.slint";
+import { TutorialBrowser, TutorialRowData, TutorialsModel } from "components/tutorial_browser.slint";
+import { LibraryModel, LibraryRow } from "models/library_model.slint";
+
+// A global is only a Rust type if it is named here.
+export { AppModel, GalleryModel, TemplateCard, Theme }
+export { VerdictModel, VerdictReasonData }
+export { GuideAllow, GuideModel, GuideStepData }
+export { RenderModel }
+export { SolidModel }
+export { ManipulateModel }
+export { MetricsModel, TiltModel }
+export { ConfirmModel }
+export { TierRowData, TierTableModel, WarningLine }
+export { ChipRow, InspectorModel, PreformReadout, ScheduleRow, SolvedInfo, Verdict, VerdictSet }
+export { OptimizeChangeRow, OptimizeModel, OptimizeResultRow }
+export { DeepSolveModel, DeepSolveRow }
+export { DesignSettingsModel, GearRemapRow }
+export { NewDesignModel }
+export { RetargetModel, RetargetRow }
+export { DiffRow, SnapshotModel }
+export { CmChip, CmScheduleRow, CmWheelMark, CmWheelScale, CuttingModeModel }
+export { LibraryModel, LibraryRow }
+export { TutorialRowData, TutorialsModel }
+// The guided lessons' Next opens the shortcuts list from Rust (`editor/guide/perform.rs`).
+export { ShortcutsModel }
+
+export component AppWindow inherits Window {
+    title: "Pleochroma Web";
+    // A hint only: `src/render/viewport.rs` sizes the window to the browser viewport.
+    preferred-width: 1100px;
+    preferred-height: 700px;
+    background: Theme.bg-darkest;
+    default-font-family: "Segoe UI";
+
+    // Below this width the dock no longer fits beside the main view: it becomes an
+    // overlay, opened by the "Design" toggle at the main view's top-right corner.
+    property <bool> narrow: root.width < 900px;
+    // The guided walkthrough docks as a column beside the dock only where the main view
+    // keeps a usable width (and never as the collapsed pill, which always floats).
+    // The Library and Cutting Mode screens cover the window; the floating guide panel
+    // (`GuideOverlayLayer`, above them) serves the lesson while either is open.
+    property <bool> guide-docked: GuideModel.open && !root.narrow && root.width >= 1180px && !GuideModel.collapsed
+        && !LibraryModel.open && !CuttingModeModel.open;
+
+    // A dialog opening or closing removes any focused field without a `has-focus`
+    // change, which would leave `AppModel.text-focus` stuck on and Ctrl+Z dead.
+    property <bool> dialog-open: GalleryModel.open || DesignSettingsModel.open || RetargetModel.is-open || SnapshotModel.compare-open
+        || ShortcutsModel.open || TutorialsModel.browser-open || UserGuideModel.open || RenderModel.export-open || TiltModel.open || ConfirmModel.open;
+    changed dialog-open => {
+        AppModel.text-focus = false;
+        // The dialog's own scope held the keyboard focus; hand it back so the shortcuts
+        // work again the moment the last dialog closes.
+        if !root.dialog-open {
+            if LibraryModel.open {
+                // A dialog over the design library (the delete confirmation): it takes the keys back.
+                LibraryModel.focus-pulse += 1;
+            } else if CuttingModeModel.open {
+                // A dialog opened from the menu bar over Cutting Mode: the screen takes the keys back.
+                CuttingModeModel.focus-pulse += 1;
+            } else {
+                shortcuts.focus();
+            }
+        }
+    }
+    // Closing Cutting Mode hands the keyboard back to the shortcuts.
+    property <bool> cutting-open: CuttingModeModel.open;
+    changed cutting-open => {
+        if !root.cutting-open {
+            shortcuts.focus();
+        }
+    }
+    // The design library is a full-window screen too; its search box and detail fields are
+    // text fields, so closing it clears a stuck `AppModel.text-focus`, and the keys go back
+    // to Cutting Mode (opened underneath) or the editor shortcuts.
+    property <bool> library-open: LibraryModel.open;
+    changed library-open => {
+        AppModel.text-focus = false;
+        if !root.library-open {
+            if CuttingModeModel.open {
+                CuttingModeModel.focus-pulse += 1;
+            } else {
+                shortcuts.focus();
+            }
+        }
+    }
+
+    // A `MenuBar` must be a direct child of the Window.
+    MenuBar {
+        Menu {
+            title: "File";
+            // While the guided walkthrough runs, every item ANDs the `GuideModel.allows-*()`
+            // group it belongs to into its `enabled` (see `models/guide_model.slint`).
+            MenuItem {
+                title: "New Design... (Alt+N)";
+                enabled: GuideModel.allows-new-design();
+                activated => { GalleryModel.open = true; }
+            }
+            MenuItem {
+                title: "Open... (Ctrl+O)";
+                enabled: GuideModel.allows-file-ops();
+                activated => { AppModel.open-file(); }
+            }
+            MenuItem {
+                title: "Design Library... (Alt+L)";
+                enabled: GuideModel.allows-file-ops();
+                activated => { LibraryModel.open-library(); }
+            }
+            MenuItem {
+                title: "Save .asc (Ctrl+Shift+S)";
+                enabled: AppModel.has-design && GuideModel.allows-file-ops();
+                activated => { AppModel.save-asc(); }
+            }
+            MenuItem {
+                title: "Save Design (.psdd) (Ctrl+S)";
+                enabled: AppModel.has-design && GuideModel.allows-file-ops();
+                activated => { AppModel.save-design(); }
+            }
+            MenuItem {
+                title: "Save to Library";
+                enabled: AppModel.has-design && GuideModel.allows-file-ops();
+                activated => { LibraryModel.save-current(); }
+            }
+            MenuItem {
+                title: "Export .gcs (Experimental)";
+                enabled: AppModel.has-design && GuideModel.allows-file-ops();
+                activated => { AppModel.save-gcs(); }
+            }
+            MenuItem {
+                title: "Download Cutting Sheet (HTML)";
+                enabled: AppModel.has-design && GuideModel.allows-file-ops();
+                activated => { AppModel.download-cutting-sheet(); }
+            }
+            MenuItem {
+                title: "Download Diagram PNG";
+                enabled: AppModel.has-design && GuideModel.allows-file-ops();
+                activated => { AppModel.download-diagram(); }
+            }
+            MenuItem {
+                title: "Export PNG...";
+                enabled: AppModel.has-design && GuideModel.allows-file-ops();
+                activated => { AppModel.export-png(); }
+            }
+        }
+        Menu {
+            title: "Edit";
+            MenuItem {
+                title: "Undo (Ctrl+Z)";
+                enabled: AppModel.can-undo && GuideModel.allows-history();
+                activated => { AppModel.undo(); }
+            }
+            MenuItem {
+                title: "Redo (Ctrl+Y)";
+                enabled: AppModel.can-redo && GuideModel.allows-history();
+                activated => { AppModel.redo(); }
+            }
+        }
+        Menu {
+            title: "Design";
+            MenuItem {
+                title: "Design Settings...";
+                enabled: AppModel.has-design && GuideModel.allows-design-settings();
+                activated => { DesignSettingsModel.open = true; }
+            }
+            MenuItem {
+                title: "Optimize Angles...";
+                enabled: AppModel.has-design && GuideModel.allows-advanced();
+                activated => {
+                    InspectorModel.tab = 2;
+                    InspectorModel.collapsed = false;
+                }
+            }
+            MenuItem {
+                title: "Retarget for Material...";
+                enabled: AppModel.has-design && GuideModel.allows-advanced();
+                activated => { RetargetModel.open(); }
+            }
+            MenuItem {
+                title: "Snapshot Design";
+                enabled: AppModel.has-design && GuideModel.allows-advanced();
+                activated => { SnapshotModel.take(); }
+            }
+            MenuItem {
+                title: "Compare to Snapshot...";
+                enabled: AppModel.has-design && SnapshotModel.has-snapshot && GuideModel.allows-advanced();
+                activated => { SnapshotModel.compare(); }
+            }
+            MenuItem {
+                title: "Cutting Mode... (Alt+C)";
+                enabled: AppModel.has-design && CuttingModeModel.unavailable-reason == "" && GuideModel.allows-advanced();
+                activated => { CuttingModeModel.open-cutting-mode(); }
+            }
+        }
+        Menu {
+            title: "Help";
+            // The worked example: builds a stone from an empty design, step by step, locking
+            // everything but the step's own controls (close the guide to unlock them).
+            MenuItem {
+                title: "Guided Walkthrough";
+                activated => { GuideModel.start(); }
+            }
+            MenuItem {
+                title: "Tutorials...";
+                activated => { TutorialsModel.open-browser(); }
+            }
+            MenuItem {
+                title: "User Guide";
+                activated => { UserGuideModel.open = true; }
+            }
+            MenuItem {
+                title: "Keyboard Shortcuts (?)";
+                activated => { ShortcutsModel.open = true; }
+            }
+        }
+    }
+
+    // Global keyboard shortcuts, the desktop's `global_shortcuts` pattern: Slint
+    // reports a shifted letter in upper case. Ctrl+Z/Ctrl+Y stay with a focused
+    // text field (`AppModel.text-focus`).
+    shortcuts := FocusScope {
+        width: 100%;
+        height: 100%;
+        init => { self.focus(); }
+        key-pressed(event) => {
+            // Every action arm also checks the same `GuideModel.allows-*()` helper as its
+            // menu item, so a locked shortcut does exactly what its menu item does.
+            if (event.modifiers.control || event.modifiers.meta) && !event.modifiers.shift && event.text == "z" {
+                if !AppModel.text-focus && GuideModel.allows-history() { AppModel.undo(); }
+                return accept;
+            } else if (event.modifiers.control || event.modifiers.meta) && (event.text == "y" || (event.modifiers.shift && event.text == "Z")) {
+                if !AppModel.text-focus && GuideModel.allows-history() { AppModel.redo(); }
+                return accept;
+            } else if (event.modifiers.control || event.modifiers.meta) && !event.modifiers.shift && event.text == "o" {
+                if GuideModel.allows-file-ops() { AppModel.open-file(); }
+                return accept;
+            } else if (event.modifiers.control || event.modifiers.meta) && !event.modifiers.shift && event.text == "s" {
+                if AppModel.has-design && GuideModel.allows-file-ops() { AppModel.save-design(); }
+                return accept;
+            } else if (event.modifiers.control || event.modifiers.meta) && event.modifiers.shift && event.text == "S" {
+                if AppModel.has-design && GuideModel.allows-file-ops() { AppModel.save-asc(); }
+                return accept;
+            } else if event.modifiers.alt && !event.modifiers.control && !event.modifiers.meta && (event.text == "n" || event.text == "N") {
+                // The desktop's Ctrl+N would open a new browser window, so the web app uses Alt+N.
+                if GuideModel.allows-new-design() { GalleryModel.open = true; }
+                return accept;
+            } else if event.modifiers.alt && !event.modifiers.control && !event.modifiers.meta && (event.text == "1" || event.text == "2" || event.text == "3") {
+                // Alt+1/2/3 for the desktop's Ctrl+1/2/3, which the browser keeps for its own
+                // tabs. Only with a design open, and only where the walkthrough allows the tab.
+                if AppModel.has-design && (event.text == "1" ? GuideModel.allows-view-tabs() : true) {
+                    AppModel.view-tab = event.text == "1" ? 0 : (event.text == "2" ? 1 : 2);
+                    AppModel.view-tab-changed(AppModel.view-tab);
+                }
+                return accept;
+            } else if event.modifiers.alt && !event.modifiers.control && !event.modifiers.meta && (event.text == "c" || event.text == "C") {
+                // Cutting Mode. Opens even without a design, so the screen can say why it cannot.
+                if GuideModel.allows-advanced() { CuttingModeModel.open-cutting-mode(); }
+                return accept;
+            } else if event.modifiers.alt && !event.modifiers.control && !event.modifiers.meta && (event.text == "l" || event.text == "L") {
+                // The design library (Ctrl+L is the browser's address bar).
+                if GuideModel.allows-file-ops() { LibraryModel.open-library(); }
+                return accept;
+            } else if event.text == Key.F5 {
+                // The Solve button's own gate (`tier_table_commands.slint`): a design, no solve
+                // already running, and the walkthrough allows it. Slint's web backend calls
+                // `preventDefault` on this key, so the page does not reload.
+                if AppModel.has-design && TierTableModel.status-kind != "solving" && GuideModel.allows-solve() {
+                    TierTableModel.solve();
+                }
+                return accept;
+            } else if event.text == Key.Escape {
+                // The global fallback, after any dialog, drag or inline editor has taken its
+                // own Escape: clear the tier selection and dismiss the message.
+                SolidModel.clear-selection();
+                AppModel.dismiss-message();
+                VerdictModel.open = false;
+                return accept;
+            } else if event.text == "?" && !AppModel.text-focus {
+                ShortcutsModel.open = true;
+                return accept;
+            }
+            return reject;
+        }
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 6px;
+
+            Header {
+                compact: root.width < 640px;
+            }
+
+            // Fixed minimums, and the two `narrow` branches as direct `if` children
+            // positioned with `width/height: 100%`: this wrapper's layout
+            // contribution then does not depend on which branch is mounted. The
+            // branches read `root.width`, which would otherwise feed back into
+            // itself (a binding loop).
+            Rectangle {
+                min-width: 200px;
+                min-height: 160px;
+                vertical-stretch: 1;
+
+                if root.narrow: MainArea {
+                    width: 100%;
+                    height: 100%;
+                }
+                // The narrow window's way to the dock: a toggle over the main view, and
+                // the dock itself as a right-hand overlay with a click-away backdrop. The
+                // toggle sits at the bottom-right corner: the top-right is where the views'
+                // toolbars, timing readout and Render's Denoise / Settings buttons are.
+                if root.narrow && !DockModel.overlay-open: Rectangle {
+                    x: parent.width - self.width - 10px;
+                    y: parent.height - self.height - 10px;
+                    width: dock-toggle-label.preferred-width + 24px;
+                    height: 28px;
+                    background: dock-toggle-touch.has-hover ? Theme.bg-elevated : Theme.bg-card;
+                    border-radius: Theme.radius-sm;
+                    border-width: 1px;
+                    border-color: Theme.border-medium;
+                    dock-toggle-label := Text {
+                        text: AppModel.is-dirty ? "Design \u{2022}" : "Design";
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: Theme.accent-cyan;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    dock-toggle-touch := TouchArea {
+                        clicked => { DockModel.overlay-open = true; }
+                    }
+                }
+                if root.narrow && DockModel.overlay-open: Rectangle {
+                    width: 100%;
+                    height: 100%;
+                    background: Theme.overlay-backdrop;
+                    TouchArea {
+                        clicked => { DockModel.overlay-open = false; }
+                    }
+                    DesignDock {
+                        overlay: true;
+                        x: parent.width - self.width;
+                        y: 0;
+                        width: min(DockModel.width, parent.width - 24px);
+                        height: 100%;
+                    }
+                }
+                if !root.narrow: HorizontalLayout {
+                    width: 100%;
+                    height: 100%;
+                    spacing: 8px;
+                    MainArea {
+                        horizontal-stretch: 1;
+                    }
+                    // The guided walkthrough's column, where the window is wide enough to
+                    // spare one; everywhere else the floating panel (`GuideOverlayLayer`).
+                    if root.guide-docked: GuidePanel {
+                        horizontal-stretch: 0;
+                    }
+                    DesignDock {
+                        horizontal-stretch: 0;
+                        preferred-width: DockModel.width;
+                        min-width: DockModel.min-width;
+                    }
+                }
+            }
+
+            StatusStrip {}
+        }
+    }
+
+    // Cutting Mode: over the editor, under the toast and every dialog (a dialog opened from the
+    // menu bar must stay visible).
+    if CuttingModeModel.open: CuttingModeScreen {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    // The design library: over the editor and Cutting Mode, under the toast (import results)
+    // and every dialog (the delete confirmation).
+    if LibraryModel.open: LibraryScreen {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    if AppModel.toast-visible: Toast {
+        width: min(380px, root.width - 32px);
+        x: root.width - self.width - 16px;
+        y: root.height - self.height - 44px;
+        text: AppModel.message;
+        kind: AppModel.message-kind;
+        dismiss => { AppModel.dismiss-message(); }
+    }
+
+    // The verdict badge's popover (`components/verdict_badge.slint`): below the header at the
+    // right edge, over a transparent click-away layer. Escape closes it (the shortcuts above).
+    if VerdictModel.open && VerdictModel.level >= 0 && AppModel.has-design: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        TouchArea {
+            clicked => { VerdictModel.open = false; }
+        }
+        VerdictPopover {
+            width: min(360px, root.width - 16px);
+            x: max(8px, root.width - self.width - 8px);
+            // Under the header: 8 px window padding, then its 40 px row (76 px stacked).
+            y: root.width < 640px ? 90px : 54px;
+            height-limit: root.height * 0.6;
+        }
+    }
+
+    if GalleryModel.open: NewDesignDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    if DesignSettingsModel.open && AppModel.has-design: DesignSettingsDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    if RetargetModel.is-open: RetargetDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    if SnapshotModel.compare-open: SnapshotDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    if RenderModel.export-open: ExportDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    if TiltModel.open && AppModel.has-design: TiltDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    if UserGuideModel.open: UserGuideDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    if ShortcutsModel.open: ShortcutOverlay {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    if TutorialsModel.browser-open: TutorialBrowser {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    // The GPU start-up test's progress card, over every dialog but under the walkthrough
+    // panel and the unsaved-changes guard.
+    if RenderModel.startup-active && !RenderModel.startup-hidden: StartupOverlay {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    // The guided walkthrough's floating panel (and the timer behind its "Done" moment),
+    // over the dialogs so its step text stays readable and draggable while one is open.
+    // The layer has no `TouchArea` of its own: clicks outside the panel pass through.
+    GuideOverlayLayer {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        docked: root.guide-docked;
+    }
+
+    // Topmost: the unsaved-changes guard (`src/editor/unsaved.rs`) must sit over every
+    // other dialog it can be raised from.
+    if ConfirmModel.open: ConfirmDialog {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        heading: ConfirmModel.heading;
+        message: ConfirmModel.message;
+        primary-label: ConfirmModel.primary-label;
+        secondary-label: ConfirmModel.secondary-label;
+        primary => { ConfirmModel.open = false; ConfirmModel.primary(); }
+        secondary => { ConfirmModel.open = false; ConfirmModel.secondary(); }
+        cancel => { ConfirmModel.open = false; ConfirmModel.cancel(); }
+    }
+}

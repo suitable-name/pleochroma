@@ -1,0 +1,227 @@
+import { Theme } from "../../theme.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { GuideLockTip } from "../guide_lock.slint";
+
+// Catalogue tab pills (3D Spectral Preview / Cutting Instructions / Files &
+// Downloads) share one 28px row with the Live Render/Edit view pills -- split
+// out of `app.slint` to keep that file under its line budget. The row is always
+// visible (tabs must be reachable from every tab), with the view pills as a
+// conditional right-hand cluster shown only when `active_tab == 0` (they are
+// meaningless on Cutting Instructions/Files).
+//
+// `active_tab`/`render_view_tab` are two-way bound to `MainWindow`'s own
+// properties of the same name (see `app.slint`), so a click here updates
+// `MainWindow`'s copy immediately; the matching `*_changed` callbacks are
+// forwarded up separately since Rust hooks those directly on `MainWindow`.
+//
+// While the worked-example guide runs, the Cutting Instructions/Files pills and
+// Live Render follow `GuideModel.allows_view_tabs()`. The 3D tab pill and the
+// Edit pill never lock, so the guide can never strand the user away from the
+// Edit sub-tab its steps happen in.
+export component TabViewPillRow inherits HorizontalLayout {
+    height: 28px;
+    spacing: root.tight ? 4px : 6px;
+
+    in-out property <int> active_tab: 0;
+    callback active_tab_changed(int);
+    in-out property <int> render_view_tab: 0;
+    callback render_view_tab_changed(int);
+    // Set by `app.slint` below 1200px: the three catalogue pills drop to short labels
+    // ("3D (1)", "Cutting (2)", "Files (3)") and every pill's side padding shrinks, so
+    // the row's minimum width no longer forces a clip beside a 340px library.
+    in property <bool> compact: false;
+    // Set by `app.slint` below 800px: beside the 340px library the column is then under 424px, which
+    // the five pills only fit without their icons (about 316px against 344px at the 720px minimum
+    // window; with icons they need about 401px and the Edit pill ran off the window edge). The
+    // accessible labels stay the same, so a screen reader and the pointer lose nothing. The side
+    // padding and the gaps shrink too: with Linux fonts (DejaVu/Noto) the text alone is about 11px
+    // wider than with Segoe UI, which put the Edit pill past the window edge again.
+    in property <bool> tight: false;
+
+    Rectangle {
+        height: 28px;
+        background: root.active_tab == 0 ? Theme.primary : (tabpill0_touch.has-hover ? Theme.bg-elevated : Theme.bg-input);
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: root.active_tab == 0 ? Theme.accent-cyan : Theme.border-subtle;
+        tabpill0_touch := TouchArea {
+            accessible-role: AccessibleRole.tab;
+            accessible-label: "3D Spectral Preview";
+            accessible-item-selectable: true;
+            accessible-item-selected: root.active_tab == 0;
+            accessible-checked: root.active_tab == 0;
+            accessible-action-default => { root.active_tab = 0; root.active_tab_changed(0); }
+            clicked => { root.active_tab = 0; root.active_tab_changed(0); }
+        }
+        HorizontalLayout {
+            padding-left: root.tight ? 5px : root.compact ? 8px : 12px;
+            padding-right: root.tight ? 5px : root.compact ? 8px : 12px;
+            alignment: center;
+            spacing: 6px;
+            // Centred by a layout of its own: a fixed-size Image in the row sits at the top of
+            // its cell (`vertical-alignment` only places the picture inside the Image).
+            if !root.tight: VerticalLayout {
+                alignment: center;
+                Image { source: @image-url("../../icons/gem.svg"); colorize: root.active_tab == 0 ? Theme.text-on-primary : Theme.text-secondary; width: 11px; height: 11px; }
+            }
+            Text { text: root.compact ? "3D (1)" : "3D Spectral Preview (1)"; font-size: 11px; font-weight: 600; color: root.active_tab == 0 ? Theme.text-on-primary : Theme.text-secondary; vertical-alignment: center; }
+        }
+    }
+
+    Rectangle {
+        height: 28px;
+        opacity: GuideModel.allows_view_tabs() ? 1.0 : 0.4;
+        background: root.active_tab == 1 ? Theme.primary : (tabpill1_touch.has-hover ? Theme.bg-elevated : Theme.bg-input);
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: root.active_tab == 1 ? Theme.accent-cyan : Theme.border-subtle;
+        tabpill1_touch := TouchArea {
+            enabled: GuideModel.allows_view_tabs();
+            accessible-role: AccessibleRole.tab;
+            accessible-label: "Cutting Instructions";
+            accessible-item-selectable: true;
+            accessible-item-selected: root.active_tab == 1;
+            accessible-checked: root.active_tab == 1;
+            accessible-enabled: GuideModel.allows_view_tabs();
+            accessible-action-default => { root.active_tab = 1; root.active_tab_changed(1); }
+            clicked => { root.active_tab = 1; root.active_tab_changed(1); }
+        }
+        GuideLockTip { locked: !GuideModel.allows_view_tabs(); }
+        HorizontalLayout {
+            padding-left: root.tight ? 5px : root.compact ? 8px : 12px;
+            padding-right: root.tight ? 5px : root.compact ? 8px : 12px;
+            alignment: center;
+            spacing: 6px;
+            if !root.tight: VerticalLayout {
+                alignment: center;
+                Image { source: @image-url("../../icons/ruler.svg"); colorize: root.active_tab == 1 ? Theme.text-on-primary : Theme.text-secondary; width: 11px; height: 11px; }
+            }
+            Text { text: root.compact ? "Cutting (2)" : "Cutting Instructions (2)"; font-size: 11px; font-weight: 600; color: root.active_tab == 1 ? Theme.text-on-primary : Theme.text-secondary; vertical-alignment: center; }
+        }
+    }
+
+    Rectangle {
+        height: 28px;
+        opacity: GuideModel.allows_view_tabs() ? 1.0 : 0.4;
+        background: root.active_tab == 2 ? Theme.primary : (tabpill2_touch.has-hover ? Theme.bg-elevated : Theme.bg-input);
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: root.active_tab == 2 ? Theme.accent-cyan : Theme.border-subtle;
+        tabpill2_touch := TouchArea {
+            enabled: GuideModel.allows_view_tabs();
+            accessible-role: AccessibleRole.tab;
+            accessible-label: "Files & Downloads";
+            accessible-item-selectable: true;
+            accessible-item-selected: root.active_tab == 2;
+            accessible-checked: root.active_tab == 2;
+            accessible-enabled: GuideModel.allows_view_tabs();
+            accessible-action-default => { root.active_tab = 2; root.active_tab_changed(2); }
+            clicked => { root.active_tab = 2; root.active_tab_changed(2); }
+        }
+        GuideLockTip { locked: !GuideModel.allows_view_tabs(); }
+        HorizontalLayout {
+            padding-left: root.tight ? 5px : root.compact ? 8px : 12px;
+            padding-right: root.tight ? 5px : root.compact ? 8px : 12px;
+            alignment: center;
+            spacing: 6px;
+            if !root.tight: VerticalLayout {
+                alignment: center;
+                Image { source: @image-url("../../icons/folder.svg"); colorize: root.active_tab == 2 ? Theme.text-on-primary : Theme.text-secondary; width: 11px; height: 11px; }
+            }
+            Text { text: root.compact ? "Files (3)" : "Files & Downloads (3)"; font-size: 11px; font-weight: 600; color: root.active_tab == 2 ? Theme.text-on-primary : Theme.text-secondary; vertical-alignment: center; }
+        }
+    }
+
+    Rectangle { horizontal-stretch: 1; }
+
+    // View pills -- the Live Render/Edit sub-tab -- only meaningful while
+    // looking at the 3D Preview tab.
+    if root.active_tab == 0: HorizontalLayout {
+        spacing: root.tight ? 4px : 6px;
+
+        Rectangle {
+            height: 28px;
+            opacity: GuideModel.allows_view_tabs() ? 1.0 : 0.4;
+            background: root.render_view_tab == 0 ? Theme.primary : (live_render_tab_touch.has-hover ? Theme.bg-elevated : Theme.bg-input);
+            border-radius: Theme.radius-sm;
+            // The open tutorial step may outline this pill (a cyan, 2px border).
+            border-width: GuideModel.highlight_target == "live_render_tab" ? 2px : 1px;
+            border-color: root.render_view_tab == 0 || GuideModel.highlight_target == "live_render_tab" ? Theme.accent-cyan : Theme.border-subtle;
+            live_render_tab_touch := TouchArea {
+                enabled: GuideModel.allows_view_tabs();
+                accessible-role: AccessibleRole.tab;
+                accessible-label: "Live Render";
+                accessible-item-selectable: true;
+                accessible-item-selected: root.render_view_tab == 0;
+                accessible-checked: root.render_view_tab == 0;
+                accessible-enabled: GuideModel.allows_view_tabs();
+                accessible-action-default => { root.render_view_tab = 0; root.render_view_tab_changed(0); }
+                clicked => { root.render_view_tab = 0; root.render_view_tab_changed(0); }
+            }
+            GuideLockTip { locked: !GuideModel.allows_view_tabs(); }
+            HorizontalLayout {
+                padding-left: root.tight ? 5px : root.compact ? 8px : 12px;
+                padding-right: root.tight ? 5px : root.compact ? 8px : 12px;
+                alignment: center;
+                spacing: 6px;
+                if !root.tight: VerticalLayout {
+                    alignment: center;
+                    Image {
+                        source: @image-url("../../icons/gem.svg");
+                        colorize: root.render_view_tab == 0 ? Theme.text-on-primary : Theme.text-secondary;
+                        width: 11px;
+                        height: 11px;
+                    }
+                }
+                Text {
+                    text: "Live Render";
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: root.render_view_tab == 0 ? Theme.text-on-primary : Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        if EditorModel.enabled: Rectangle {
+            height: 28px;
+            background: root.render_view_tab == 1 ? Theme.primary : (edit_tab_touch.has-hover ? Theme.bg-elevated : Theme.bg-input);
+            border-radius: Theme.radius-sm;
+            border-width: 1px;
+            border-color: root.render_view_tab == 1 ? Theme.accent-cyan : Theme.border-subtle;
+            edit_tab_touch := TouchArea {
+                accessible-role: AccessibleRole.tab;
+                accessible-label: "Edit";
+                accessible-item-selectable: true;
+                accessible-item-selected: root.render_view_tab == 1;
+                accessible-checked: root.render_view_tab == 1;
+                accessible-action-default => { root.render_view_tab = 1; root.render_view_tab_changed(1); }
+                clicked => { root.render_view_tab = 1; root.render_view_tab_changed(1); }
+            }
+            HorizontalLayout {
+                padding-left: root.tight ? 5px : root.compact ? 8px : 12px;
+                padding-right: root.tight ? 5px : root.compact ? 8px : 12px;
+                alignment: center;
+                spacing: 6px;
+                if !root.tight: VerticalLayout {
+                    alignment: center;
+                    Image {
+                        source: @image-url("../../icons/pencil.svg");
+                        colorize: root.render_view_tab == 1 ? Theme.text-on-primary : Theme.text-secondary;
+                        width: 11px;
+                        height: 11px;
+                    }
+                }
+                Text {
+                    text: "Edit";
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: root.render_view_tab == 1 ? Theme.text-on-primary : Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+    }
+}

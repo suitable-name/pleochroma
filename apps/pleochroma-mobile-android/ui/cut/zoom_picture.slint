@@ -1,0 +1,104 @@
+// A picture that can be zoomed and panned: pinch to zoom (1x is "fit", at most `max-zoom`),
+// drag with one finger while zoomed to pan, double-tap to toggle between fit and
+// `tap-zoom`. The pan is clamped so the picture always covers the box. The box clips.
+//
+// While `zoomed` is true the owner should switch off its own horizontal swipe handling, so
+// a drag over the picture pans instead of changing page. Changing `reset-key` returns the
+// picture to fit.
+export component ZoomPicture inherits Rectangle {
+    in property <image> source;
+    in property <string> accessible-text: "";
+    in property <int> reset-key: 0;
+    in property <float> max-zoom: 5.0;
+    in property <float> tap-zoom: 2.5;
+    // True while the picture is zoomed in.
+    in-out property <bool> zoomed: false;
+
+    property <float> zoom: 1.0;
+    // The top-left corner of the zoomed picture relative to the box (0 or negative).
+    property <length> pan-x: 0px;
+    property <length> pan-y: 0px;
+    // The pan clamped to the current size, so a resize can never leave a gap.
+    property <length> shown-x: clamp(root.pan-x, root.width * (1.0 - root.zoom), 0px);
+    property <length> shown-y: clamp(root.pan-y, root.height * (1.0 - root.zoom), 0px);
+
+    // Gesture start values.
+    property <float> start-zoom: 1.0;
+    property <length> start-x: 0px;
+    property <length> start-y: 0px;
+
+    clip: true;
+
+    // Zooms to `z` keeping the picture point under (`cx`, `cy`) fixed on screen.
+    function zoom-at(z: float, cx: length, cy: length, from-zoom: float, from-x: length, from-y: length) {
+        let zz = clamp(z, 1.0, root.max-zoom);
+        let ratio = zz / from-zoom;
+        root.zoom = zz;
+        root.pan-x = clamp(cx - (cx - from-x) * ratio, root.width * (1.0 - zz), 0px);
+        root.pan-y = clamp(cy - (cy - from-y) * ratio, root.height * (1.0 - zz), 0px);
+        root.zoomed = zz > 1.01;
+    }
+
+    function reset() {
+        root.zoom = 1.0;
+        root.pan-x = 0px;
+        root.pan-y = 0px;
+        root.zoomed = false;
+    }
+
+    init => {
+        root.zoomed = false;
+    }
+
+    changed reset-key => {
+        root.reset();
+    }
+
+    pinch := ScaleRotateGestureHandler {
+        started => {
+            root.start-zoom = root.zoom;
+            root.start-x = root.shown-x;
+            root.start-y = root.shown-y;
+        }
+
+        updated => {
+            root.zoom-at(root.start-zoom * self.scale, self.center.x, self.center.y, root.start-zoom, root.start-x, root.start-y);
+        }
+
+        touch := TouchArea {
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down) {
+                    root.start-x = root.shown-x;
+                    root.start-y = root.shown-y;
+                }
+            }
+
+            moved => {
+                if (root.zoomed && !pinch.active) {
+                    root.pan-x = clamp(root.start-x + (self.mouse-x - self.pressed-x), root.width * (1.0 - root.zoom), 0px);
+                    root.pan-y = clamp(root.start-y + (self.mouse-y - self.pressed-y), root.height * (1.0 - root.zoom), 0px);
+                }
+            }
+
+            double-clicked => {
+                if (root.zoomed) {
+                    root.reset();
+                } else {
+                    root.zoom-at(root.tap-zoom, self.mouse-x, self.mouse-y, 1.0, 0px, 0px);
+                }
+            }
+        }
+
+        Image {
+            x: root.shown-x;
+            y: root.shown-y;
+            width: root.width * root.zoom;
+            height: root.height * root.zoom;
+            source: root.source;
+            image-fit: contain;
+            visible: root.source.width > 0;
+            accessible-role: AccessibleRole.image;
+            accessible-label: root.accessible-text;
+        }
+    }
+}

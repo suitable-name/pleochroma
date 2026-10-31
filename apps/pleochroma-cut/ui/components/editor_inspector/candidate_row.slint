@@ -1,0 +1,92 @@
+import { Theme } from "../../theme.slint";
+import { OptimizeCandidateRow } from "../../models/optimize.slint";
+
+// The parts of the Optimize tab's candidate list (moved out of `optimize_tab.slint`, unchanged):
+// the colored figure cell, the column heading and one row of the list.
+
+// One figure of a candidate row, coloured by whether it beats the starting stone.
+export component ResultCell inherits Text {
+    in property <int> dir: 0;
+    font-size: 10px;
+    horizontal-alignment: right;
+    vertical-alignment: center;
+    color: root.dir > 0 ? Theme.accent-emerald : (root.dir < 0 ? Theme.accent-ruby : Theme.text-secondary);
+}
+
+// A small column heading of the candidate list, with a tooltip saying what the column is.
+export component ColumnHead inherits Rectangle {
+    in property <string> text;
+    in property <string> tip;
+    // Left-aligned (the "#" and "NAME" columns); otherwise right-aligned over a figure.
+    in property <bool> align_left: false;
+
+    height: head_text.preferred-height;
+    if root.tip != "": Tooltip { text: @markdown("\{root.tip}"); }
+    head_text := Text {
+        width: parent.width;
+        text: root.text;
+        font-size: 9px;
+        font-weight: 700;
+        color: Theme.text-muted;
+        horizontal-alignment: root.align_left ? TextHorizontalAlignment.left : TextHorizontalAlignment.right;
+        vertical-alignment: center;
+        accessible-role: AccessibleRole.text;
+    }
+}
+
+// One row of the candidate list (the starting stone, or a ranked candidate). A click picks it.
+// `ringed` draws the keyboard cursor while the list has focus.
+export component CandidateRowView inherits Rectangle {
+    in property <OptimizeCandidateRow> item;
+    in property <bool> selected: false;
+    in property <bool> active: true;
+    in property <bool> ringed: false;
+    callback clicked();
+
+    height: 22px;
+    border-radius: Theme.radius-sm;
+    background: root.selected ? Theme.surface-selected : (row_touch.has-hover ? Theme.bg-card-hover : transparent);
+    border-width: root.ringed ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+    accessible-role: AccessibleRole.list-item;
+    accessible-label: (root.item.rank == "Start" ? "Starting Stone" : "Candidate " + root.item.rank) + ", score " + root.item.score;
+    accessible-item-selectable: true;
+    accessible-item-selected: root.selected;
+    accessible-action-default => { root.clicked(); }
+
+    HorizontalLayout {
+        padding-left: 4px;
+        padding-right: 4px;
+        spacing: 3px;
+        Text { width: 34px; text: root.item.rank; font-size: 10px; font-weight: 700; color: Theme.text-primary; vertical-alignment: center; }
+        ResultCell { width: 38px; text: root.item.score; dir: root.item.score_dir; font-weight: 700; }
+        ResultCell { width: 38px; text: root.item.windowing; dir: root.item.windowing_dir; }
+        ResultCell { width: 40px; text: root.item.brilliance; dir: root.item.brilliance_dir; }
+        ResultCell { width: 38px; text: root.item.extinction; dir: root.item.extinction_dir; }
+        ResultCell { width: 38px; text: root.item.yield_loss; dir: root.item.yield_dir; }
+        // The predicted face-up colour dot, then the lightness L*.
+        HorizontalLayout {
+            width: 72px;
+            padding-left: 6px;
+            spacing: 2px;
+            alignment: start;
+            if root.item.has_tone: Rectangle {
+                width: 10px;
+                Rectangle {
+                    width: 10px;
+                    height: 10px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: 5px;
+                    background: root.item.tone_swatch;
+                }
+            }
+            ResultCell { width: 54px; text: root.item.tone; dir: root.item.tone_dir; horizontal-alignment: left; }
+        }
+        ResultCell { horizontal-stretch: 1; text: root.item.changed; }
+    }
+    row_touch := TouchArea {
+        enabled: root.active;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}

@@ -1,0 +1,679 @@
+import { ScrollView, CheckBox, Button } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { TiltModel, TiltVideoExportModel } from "../models/tilt.slint";
+import { ViewportModel } from "../models/viewport.slint";
+import { HelpTopics } from "../models/help.slint";
+import { StaleBadge } from "stale_badge.slint";
+import { HelpButton } from "help_button.slint";
+import { IconButton } from "icon_button.slint";
+import { ChipToggle, ActionButton } from "chip_toggle.slint";
+import { TiltCurveChart } from "performance_graph/tilt_curve_chart.slint";
+import { TiltVideoExportSection } from "performance_graph/tilt_video_export_section.slint";
+
+export component PerformanceGraphDialog inherits Rectangle {
+    // Azimuth-0 ("canonical") sweep -- see `graph_*_extra_axes` below for the other
+    // three. Kept as its own flat property (rather than folded into a 4-row array)
+    // because the Parameters panel's mini tilt chart also binds to this exact
+    // property; this dialog must not change what it means.
+    in property <[float]> graph_brilliance: TiltModel.graph_brilliance;
+    in property <[float]> graph_extinction: TiltModel.graph_extinction;
+    in property <[float]> graph_windowing: TiltModel.graph_windowing;
+    // SVG path-data strings (`M x y L x y ...`) for the same three curves, built by
+    // `curve_path::tilt_curve_path` in a 0..100 x 0..100 viewbox.
+    in property <string> graph_brilliance_path: TiltModel.graph_brilliance_path;
+    in property <string> graph_extinction_path: TiltModel.graph_extinction_path;
+    in property <string> graph_windowing_path: TiltModel.graph_windowing_path;
+    // All FOUR camera azimuths (0/45/90/135 deg, `PROFILE_AZIMUTHS_DEG`), one row per
+    // azimuth, EACH spanning the full +-90 deg tilt range at 1 deg resolution (181
+    // points, `TILT_ANGLES_DEG`) -- computed lazily off the UI thread by
+    // `gui::tilt_profile` only while this dialog is open (roughly 1.36s for all four
+    // axes together; that module's own cache key avoids repeating it against
+    // unchanged inputs). Empty until that computation finishes; use
+    // `extra_axes_ready` rather than assuming a length of 4. Axis 0 is included here
+    // too since its negative half cannot be supplied by the always-available live
+    // `graph_brilliance`/etc below (positive 0..90 deg only); `active_*` below always
+    // reads from these rows once ready.
+    in property <[[float]]> graph_brilliance_extra_axes: TiltModel.graph_brilliance_extra_axes;
+    in property <[[float]]> graph_extinction_extra_axes: TiltModel.graph_extinction_extra_axes;
+    in property <[[float]]> graph_windowing_extra_axes: TiltModel.graph_windowing_extra_axes;
+    in property <[string]> graph_brilliance_extra_paths: TiltModel.graph_brilliance_extra_paths;
+    in property <[string]> graph_extinction_extra_paths: TiltModel.graph_extinction_extra_paths;
+    in property <[string]> graph_windowing_extra_paths: TiltModel.graph_windowing_extra_paths;
+    in property <bool> extra_axes_loading: TiltModel.extra_axes_loading;
+    // True whenever the swept geometry/material/light has moved since these curves
+    // last actually finished computing (`gui::tilt::tilt_profile`'s own
+    // `AxesCacheKey` comparison) -- a DIFFERENT signal from `cache_is_stale` below,
+    // which only compares the MATERIAL a database-cached preview image was
+    // rendered under, not this session's live sweep inputs. See
+    // `TiltModel.curves_stale`'s own doc comment.
+    in property <bool> curves_stale: TiltModel.curves_stale;
+    in property <float> cam_pitch_deg: TiltModel.cam_pitch_deg;
+    in property <string> material_name: ViewportModel.material_options[ViewportModel.selected_material_index];
+
+    // Stale-cached-curve prompt: the `GemMaterial` name whatever cached curve/image
+    // the catalogue has on file for this design was rendered under -- pushed on every
+    // design selection. Empty string means "no cached data to compare against".
+    in property <string> cached_curve_material: TiltModel.cached_curve_material;
+    // Decision function implemented in Rust (`gui::tilt_profile::
+    // cached_curve_material_is_stale`) so the staleness check lives in exactly ONE
+    // place rather than being re-derived in Slint too.
+    pure callback is_cached_curve_material_stale(string, string) -> bool;
+    is_cached_curve_material_stale(c, m) => { TiltModel.is_cached_curve_material_stale(c, m) }
+    // Re-renders the tilt curve fresh against the CURRENT material rather than the one
+    // the cached curve/image was built with.
+    callback rerender_curve_with_current_material();
+    rerender_curve_with_current_material => { TiltModel.rerender_curve_with_current_material(); }
+
+    // Mini stone preview at the hovered angle: rendered off the UI thread by
+    // `gui::tilt_hover_preview` for whichever point the user is hovering/scrubbing.
+    // Retains its last value while the tooltip isn't hovered (harmless: the preview
+    // panel is only shown while hovering).
+    in property <image> tilt_hover_preview_image: TiltModel.hover_preview_image;
+    // Requests a fresh preview for `(axis_index, tilt_deg)`; `gui::tilt_hover_preview`
+    // debounces on its own end, so firing this on every hovered pixel is safe.
+    callback request_tilt_hover_preview(int, float);
+    request_tilt_hover_preview(a, t) => { TiltModel.request_tilt_hover_preview(a, t); }
+
+    in-out property <bool> show_brilliance: true;
+    in-out property <bool> show_windowing: true;
+    in-out property <bool> show_extinction: true;
+
+    // Which of the four camera azimuths is plotted -- directly indexes
+    // `graph_*_extra_axes`/`graph_*_extra_paths`. Dialog-local UI state, not
+    // forwarded from Rust: nothing outside this dialog needs to know which axis is
+    // on screen.
+    in-out property <int> selected_axis_index: 0;
+    // "All" overlay: draws all four azimuth sweeps of every visible channel at once,
+    // fading every axis except `selected_axis_index`.
+    in-out property <bool> show_all_axes: false;
+
+    // "Export tilt video" collapsible section (see near the footer, below the chart).
+    // Both reset every time this dialog is re-instantiated (`GlobalDialogsOverlay` in
+    // `components/app/global_dialogs.slint` mounts it fresh, window-wide, via `if TiltModel.dialog_open:
+    // PerformanceGraphDialog { ... }`), matching the task's own "collapsed on popup
+    // open, not persisted" requirement -- every OTHER video-export setting lives on
+    // `TiltVideoExportModel` instead, which DOES persist across re-opens, matching how
+    // `ExportModel`'s own quality settings persist for the still-image export dialog.
+    in-out property <bool> video_export_expanded: false;
+    // First click on a >2000-frame run only arms this (showing a confirmation banner);
+    // a second click actually starts the export. See the footer's Start button below.
+    in-out property <bool> confirmed_large_run: false;
+
+    property <[string]> axis_labels: ["0° (length)", "45°", "90° (width)", "135°"];
+    property <string> selected_axis_label: root.axis_labels[root.selected_axis_index];
+    // Below 900px the channel/axis pill rows put their caption on its own line and
+    // use short labels. `root` is pinned to the full backdrop by its parent, so
+    // reading its width here cannot loop.
+    property <bool> narrow: root.width < 900px;
+    property <[string]> axis_short_labels: ["0°", "45°", "90°", "135°"];
+    // True once all four full-axis sweeps have arrived -- guards the axis pills, the
+    // summary badges, and the chart canvas; nothing here has an always-available
+    // fallback, since even axis 0 needs its negative half swept off-thread.
+    property <bool> extra_axes_ready: root.graph_brilliance_extra_axes.length >= 4
+        && root.graph_extinction_extra_axes.length >= 4
+        && root.graph_windowing_extra_axes.length >= 4;
+
+    // Whether the cached curve's own material differs from the one currently loaded
+    // -- `false` whenever there is nothing cached to compare against yet
+    // (`cached_curve_material == ""`).
+    property <bool> cache_is_stale: root.cached_curve_material != ""
+        && root.is_cached_curve_material_stale(root.cached_curve_material, root.material_name);
+
+    // The currently-selected axis's data, in the flat shape the summary badges and
+    // hover tooltip's interpolation both want. Only meaningful once
+    // `extra_axes_ready` -- callers gate on that themselves.
+    property <[float]> active_brilliance_values: root.graph_brilliance_extra_axes[root.selected_axis_index];
+    property <[float]> active_extinction_values: root.graph_extinction_extra_axes[root.selected_axis_index];
+    property <[float]> active_windowing_values: root.graph_windowing_extra_axes[root.selected_axis_index];
+    property <string> active_brilliance_path: root.graph_brilliance_extra_paths[root.selected_axis_index];
+    property <string> active_extinction_path: root.graph_extinction_extra_paths[root.selected_axis_index];
+    property <string> active_windowing_path: root.graph_windowing_extra_paths[root.selected_axis_index];
+
+    // Linear interpolation and pixel-to-angle snapping for the tilt chart's hover
+    // readout (`interpolated_value`/`snap_tilt_deg`) live on `TiltCurveChart` itself
+    // (`performance_graph/tilt_curve_chart.slint`) -- see that component's own doc
+    // comments.
+
+    // Shown again while a video renders (the header's export indicator): open on the section
+    // that holds the progress, instead of collapsed.
+    init => { root.video_export_expanded = TiltVideoExportModel.is_exporting; }
+
+    callback close();
+    close => { TiltModel.dialog_open = false; }
+    // Forwarded to `TiltModel.copy_curve_data()` (Rust: `gui::library::
+    // clipboard`) exactly like `rerender_curve_with_current_material`/
+    // `request_tilt_hover_preview` above, so the "Copy" button (bound at this
+    // dialog's `clicked => { root.copy_curve_data(); }` site below) works.
+    callback copy_curve_data();
+    copy_curve_data => { TiltModel.copy_curve_data(); }
+
+    // Full Viewport Modal Backdrop
+    background: Theme.overlay-backdrop;
+
+    TouchArea {
+        clicked => { root.close(); }
+    }
+
+    // Escape closes the dialog -- same "guard against closing mid-export"
+    // `export_dialog.slint`'s own Escape handler uses, since closing this one
+    // while `TiltVideoExportModel.is_exporting`
+    // would abandon that export with the same graceless surprise. No Return
+    // binding: unlike `export_dialog.slint`/`retarget_dialog.slint`, this dialog
+    // is a read-only graph viewer with no single "primary" action for Return to
+    // trigger -- every other key is still swallowed (`accept`) so it cannot bubble
+    // to `global_shortcuts` and fire a shortcut on the design underneath.
+    key_scope := FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                if (!TiltVideoExportModel.is_exporting) {
+                    root.close();
+                }
+                return accept;
+            }
+            accept
+        }
+    }
+
+    // Modal Card Container. Sized off the backdrop (`root`, pinned to the full
+    // window by `GlobalDialogsOverlay`, `components/app/global_dialogs.slint`) rather than a fixed pixel width.
+    Rectangle {
+        width: Math.min(960px, root.width - 80px);
+        // Bounded to the backdrop (`root`), NOT `content.preferred-height`: the
+        // "Export Tilt Video" section's expanded form can grow taller than the
+        // window, and binding height to content would push the "Start Video
+        // Export" row (and everything below it) off the bottom on a short
+        // window. Capped at `root.height - 80px` (a 40px top/bottom margin,
+        // matching the 40px each side `width` already uses above) and
+        // additionally at 720px so the card doesn't dwarf a very tall window
+        // either. Whatever doesn't fit scrolls inside the `body` ScrollView
+        // below, between the fixed title row and the fixed footer -- same idiom
+        // as `tilt_batch_dialog.slint`'s own card (see its `height` doc comment).
+        height: Math.min(720px, root.height - 80px);
+        background: Theme.surface-graph;
+        border-radius: Theme.radius-lg;
+        border-width: 1px;
+        border-color: Theme.border-dialog;
+        drop-shadow-blur: 32px;
+        drop-shadow-color: Theme.shadow-heavy;
+        drop-shadow-offset-y: 8px;
+        clip: true;
+
+        // Isolate clicks inside modal card
+        TouchArea {}
+
+        content := VerticalLayout {
+            padding: 18px;
+            spacing: 14px;
+
+            // 1. Header Bar
+            HorizontalLayout {
+                spacing: 8px;
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    spacing: 3px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        // Centred by a layout of its own: a fixed-size Image in the row sits at
+                        // the top of its cell.
+                        VerticalLayout {
+                            alignment: center;
+                            Image { source: @image-url("../icons/trend-up.svg"); colorize: Theme.text-primary; width: 16px; height: 16px; }
+                        }
+                        Text {
+                            text: "Tilt Performance Curve Analysis";
+                            font-size: 15px;
+                            font-weight: 700;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                        }
+                    }
+                    Text {
+                        text: "Analytical raytracing across -90° to +90° tilt away from table-up (1° step resolution) for " + root.material_name;
+                        font-size: 11px;
+                        color: Theme.text-muted;
+                        wrap: word-wrap;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    VerticalLayout {
+                        alignment: start;
+                        HelpButton {
+                            topic: HelpTopics.tilt-curves;
+                            hint: "Open the manual page on the tilt performance graph";
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: start;
+                        IconButton {
+                            icon: @image-url("../icons/close.svg");
+                            glyph: 13px;
+                            tint: Theme.text-muted;
+                            hint: "Close the tilt performance graph";
+                            clicked => { root.close(); }
+                        }
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.surface-raised; }
+
+            // Scrollable body: everything between the fixed title row above and
+            // the fixed footer below (badges, channel/axis toggles, the chart,
+            // and the "Export Tilt Video" section) -- `vertical-stretch: 1` lets
+            // this take whatever room the card's now-bounded `height` leaves
+            // after the fixed header/divider/footer, and scrolls the rest
+            // rather than overflowing the window. The "Start Video Export" /
+            // Cancel / progress row (inside the video section below) is always
+            // reachable by scrolling here even when it doesn't fit on screen.
+            body := ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    spacing: 14px;
+                    // Top-aligned: while the video section is collapsed the content
+                    // is shorter than the viewport, and the default stretch spread
+                    // the spare height into the three caption texts as big gaps.
+                    alignment: start;
+
+                    // HONESTY: the 181 markers are the only MEASURED points on this
+                    // chart -- everything the curve and hover tooltip show between
+                    // them (`interpolated_value` below) is linearly interpolated, not
+                    // additional raytracing. Said here, not just in a code comment,
+                    // because the tooltip reads like a precise instrument readout.
+                    Text {
+                        text: "Between the 181 measured 1°-step points, the curve and hover readout are linearly interpolated, not additional raytracing.";
+                        font-size: 11px;
+                        font-italic: true;
+                        color: Theme.text-disabled;
+                        wrap: word-wrap;
+                    }
+                    // `crates/pleochroma-cut-core/src/optimize/objective.rs` scores
+                    // every fixed-pose measurement (including Optimize's own
+                    // before/after tilt-brilliance figures) under a fixed CANONICAL
+                    // light pose, while this curve is swept under whatever light
+                    // pose is CURRENTLY dialled into the viewport
+                    // (`RenderContext::light_yaw`/`light_pitch`, dragged with a
+                    // right/Shift-drag) -- the two agree only until the light is
+                    // moved. Stated here (the caption below; Optimize's own result
+                    // panel is `gui::editor::view`, outside this file) rather than
+                    // left for a cutter to notice as two "tilt brilliance" numbers
+                    // disagreeing with no stated reason.
+                    Text {
+                        text: "Optimize scores brilliance under a fixed light pose; this curve uses your current light -- if you've moved it, the two figures may disagree.";
+                        font-size: 11px;
+                        font-italic: true;
+                        color: Theme.text-disabled;
+                        wrap: word-wrap;
+                    }
+                    // The sweep and the hover-preview thumbnail both trace the
+                    // finished stone with the scene's captured material (override
+                    // stack applied), tools, facet finishes, fluorescence and
+                    // lighting (`SceneSnapshot::capture_finished`).
+                    Text {
+                        text: "Finished stone with the current material, finish, lighting and head shadow: " + root.material_name + ".";
+                        font-size: 11px;
+                        font-italic: true;
+                        color: Theme.text-disabled;
+                        wrap: word-wrap;
+                    }
+
+            // 2. Key Performance Metric Badges.
+            // Read at TILT_ANGLES_DEG[90] (tilt 0 deg, the shared TABLE-UP pose every
+            // axis passes through). Guarded on `extra_axes_ready` since no axis has
+            // an always-available fallback (even axis 0 needs its negative half
+            // swept off-thread), so these show a real loading placeholder rather
+            // than a stale/empty array.
+            HorizontalLayout {
+                spacing: 10px;
+
+                // Face-Up Brilliance
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 52px;
+                    background: Theme.surface-chip;
+                    border-radius: Theme.radius-sm;
+                    border-width: 1px;
+                    border-color: Theme.surface-raised;
+
+                    VerticalLayout {
+                        padding: 8px;
+                        alignment: center;
+                        spacing: 2px;
+                        Text { text: "Face-Up Brilliance (0°, " + root.selected_axis_label + ")"; font-size: 10px; font-weight: 600; color: Theme.text-muted; }
+                        Text {
+                            text: root.extra_axes_ready ? Math.round(root.active_brilliance_values[90]) + "%" : "…";
+                            font-size: 16px;
+                            font-weight: 700;
+                            color: Theme.accent-cyan;
+                        }
+                    }
+                }
+
+                // Face-Up Windowing
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 52px;
+                    background: Theme.surface-chip;
+                    border-radius: Theme.radius-sm;
+                    border-width: 1px;
+                    border-color: Theme.surface-raised;
+
+                    VerticalLayout {
+                        padding: 8px;
+                        alignment: center;
+                        spacing: 2px;
+                        Text { text: "Face-Up Windowing (0°, " + root.selected_axis_label + ")"; font-size: 10px; font-weight: 600; color: Theme.text-muted; }
+                        Text {
+                            text: root.extra_axes_ready ? Math.round(root.active_windowing_values[90]) + "%" : "…";
+                            font-size: 16px;
+                            font-weight: 700;
+                            color: Theme.accent-amber;
+                        }
+                    }
+                }
+
+                // Tilt Extinction
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 52px;
+                    background: Theme.surface-chip;
+                    border-radius: Theme.radius-sm;
+                    border-width: 1px;
+                    border-color: Theme.surface-raised;
+
+                    VerticalLayout {
+                        padding: 8px;
+                        alignment: center;
+                        spacing: 2px;
+                        Text { text: "Extinction Shadow (0°, " + root.selected_axis_label + ")"; font-size: 10px; font-weight: 600; color: Theme.text-muted; }
+                        Text {
+                            text: root.extra_axes_ready ? Math.round(root.active_extinction_values[90]) + "%" : "…";
+                            font-size: 16px;
+                            font-weight: 700;
+                            color: Theme.chart-extinction;
+                        }
+                    }
+                }
+            }
+
+            // Badges the curves themselves as stale against the live design --
+            // skipped while `cache_is_stale` already shows its own, more specific
+            // material-mismatch banner just below (never two staleness messages
+            // at once), and while a fresh sweep is already in flight
+            // (`extra_axes_loading`, whose own spinner already says "catching up").
+            if root.curves_stale && !root.cache_is_stale && !root.extra_axes_loading: StaleBadge {
+                recompute => { root.rerender_curve_with_current_material(); }
+            }
+
+            HorizontalLayout {
+                CheckBox { text: "Optical Diagnostics at Hovered Pose"; checked <=> TiltModel.hover_diagnostics; toggled => { TiltModel.request_tilt_hover_preview(TiltModel.hover_axis,TiltModel.hover_tilt); } }
+                Button { text: TiltModel.hover_inspect ? "Close Inspection" : "Inspect This Angle"; clicked => { TiltModel.hover_inspect=!TiltModel.hover_inspect; TiltModel.request_tilt_hover_preview(TiltModel.hover_axis,TiltModel.hover_tilt); } }
+            }
+            Text { text: TiltModel.hover_status; color:Theme.text-secondary; wrap:word-wrap; }
+            if TiltModel.hover_inspect && TiltModel.hover_ready: Image { source:TiltModel.hover_preview_image; height:360px; image-fit:contain; }
+            // 2.5. Stale-cached-curve prompt. Only appears once this design has a
+            // cached preview material on file AND it differs from the material
+            // currently loaded. Placed right under the badges rather than competing
+            // with the header.
+            if root.cache_is_stale: Rectangle {
+                height: 34px;
+                background: Theme.notice-surface;
+                border-radius: Theme.radius-sm;
+                border-width: 1px;
+                border-color: Theme.notice-accent;
+
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 8px;
+                    alignment: space-between;
+
+                    Text {
+                        text: "This cached curve was rendered with " + root.cached_curve_material
+                            + ", not the current material (" + root.material_name + ").";
+                        font-size: 10px;
+                        font-weight: 600;
+                        color: Theme.notice-text;
+                        vertical-alignment: center;
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        ActionButton {
+                            width: 130px;
+                            height: 22px;
+                            text: "Re-Render Fresh";
+                            hint: "Trace the tilt curve again with the material that is loaded now, instead of the one the saved curve was made with.";
+                            fill: Theme.notice-accent;
+                            hover_fill: Theme.notice-accent-hover;
+                            edge: Theme.notice-accent;
+                            ink: Theme.text-on-accent;
+                            font_size: 10px;
+                            weight: 700;
+                            clicked => { root.rerender_curve_with_current_material(); }
+                        }
+                    }
+                }
+            }
+
+            // 3. Channel Toggle Filters. Below 900px the caption moves onto its
+            // own line above the pills, and the pills drop their long
+            // parenthetical labels and color dots so the row fits.
+            VerticalLayout {
+                spacing: 6px;
+
+            if root.narrow: Text {
+                text: "Optical Channels:";
+                font-size: 11px;
+                font-weight: 600;
+                color: Theme.text-secondary;
+            }
+
+            HorizontalLayout {
+                alignment: space-between;
+
+                if !root.narrow: Text {
+                    text: "Optical Channels:";
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    // Brilliance Channel Toggle
+                    chip-toggle-narrow := ChipToggle {
+                        text: root.narrow ? "Brilliance" : "Brilliance % (Light Return)";
+                        hint: "Show or hide the brilliance line: how much of the light that enters the stone comes back out through the top.";
+                        active: root.show_brilliance;
+                        accent: Theme.accent-cyan;
+                        fill: Theme.tint-cyan;
+                        show_dot: !root.narrow;
+                        toggled => { root.show_brilliance = !root.show_brilliance; }
+                    }
+
+                    // Windowing Channel Toggle
+                    chip-toggle-narrow-2 := ChipToggle {
+                        text: root.narrow ? "Windowing" : "Windowing % (TIR Leakage)";
+                        hint: "Show or hide the windowing line: how much light leaks straight through the stone instead of reflecting inside it.";
+                        active: root.show_windowing;
+                        accent: Theme.accent-amber;
+                        fill: Theme.tint-amber;
+                        show_dot: !root.narrow;
+                        toggled => { root.show_windowing = !root.show_windowing; }
+                    }
+
+                    // Extinction Channel Toggle
+                    chip-toggle-narrow-3 := ChipToggle {
+                        text: root.narrow ? "Extinction" : "Extinction % (Shadows)";
+                        hint: "Show or hide the extinction line: how much of the stone looks dark, where it shows the viewer's own head or the room instead of light.";
+                        active: root.show_extinction;
+                        accent: Theme.chart-extinction;
+                        fill: Theme.tint-red;
+                        show_dot: !root.narrow;
+                        toggled => { root.show_extinction = !root.show_extinction; }
+                    }
+                }
+            }
+            } // end channel-row VerticalLayout
+
+            // 3.5. Tilt Axis Switcher. Styled to match the "Optical Channels" pills
+            // above, but in purple rather than per-channel color so the two rows
+            // read as separate axes of control (WHICH channels vs. WHICH sweep).
+            // Below 900px the caption sits on its own line above the pills and
+            // the pills use the short angle labels alone.
+            VerticalLayout {
+                spacing: 6px;
+
+            if root.narrow: HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    text: "Tilt Axis:";
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+                if root.extra_axes_loading: Text {
+                    text: "(sweeping ±90° across all 4 axes, ~1.5s)";
+                    font-size: 10px;
+                    font-italic: true;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+
+            HorizontalLayout {
+                alignment: space-between;
+
+                if !root.narrow: HorizontalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: "Tilt Axis:";
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: Theme.text-secondary;
+                        vertical-alignment: center;
+                    }
+                    if root.extra_axes_loading: Text {
+                        // Named explicitly (not a bare "loading...") since ~1.5s is
+                        // long enough that a silent spinner would read as hung.
+                        text: "(sweeping ±90° across all 4 axes, ~1.5s)";
+                        font-size: 10px;
+                        font-italic: true;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 6px;
+
+                    for label[idx] in root.axis_labels : chip-toggle-narrow-4 := ChipToggle {
+                        text: root.narrow ? root.axis_short_labels[idx] : label;
+                        hint: "Plot the sweep seen from the " + root.axis_short_labels[idx] + " direction around the stone.";
+                        active: root.selected_axis_index == idx;
+                        accent: Theme.accent-purple;
+                        fill: Theme.tint-purple;
+                        // Every axis (0 included) needs `extra_axes_ready`'s
+                        // background sweep to have landed: axis 0's negative half is
+                        // not something the live render thread can supply.
+                        enabled: root.extra_axes_ready;
+                        toggled => { root.selected_axis_index = idx; }
+                    }
+
+                    // "All" overlay toggle -- draws every axis of every visible
+                    // channel at once.
+                    ChipToggle {
+                        text: "All";
+                        hint: "Draw all four directions at once. The one you picked stays bright, the others fade.";
+                        active: root.show_all_axes;
+                        accent: Theme.accent-purple;
+                        fill: Theme.tint-purple;
+                        enabled: root.extra_axes_ready;
+                        toggled => { root.show_all_axes = !root.show_all_axes; }
+                    }
+                }
+            }
+            } // end axis-row VerticalLayout
+
+            // 4. High-Resolution 181-Point (±90°, 1°-step) Performance Chart Canvas.
+            // Tilt angle is continuous, so this draws each channel as a line (via
+            // `Path`'s SVG `commands`, Slint has no polyline element) rather than
+            // discrete bars -- bars would hide the curve shape a reader is here for.
+            TiltCurveChart {
+                extra_axes_ready: root.extra_axes_ready;
+                extra_axes_loading: root.extra_axes_loading;
+                show_all_axes: root.show_all_axes;
+                selected_axis_index: root.selected_axis_index;
+                show_extinction: root.show_extinction;
+                show_windowing: root.show_windowing;
+                show_brilliance: root.show_brilliance;
+                graph_extinction_extra_paths: root.graph_extinction_extra_paths;
+                graph_windowing_extra_paths: root.graph_windowing_extra_paths;
+                graph_brilliance_extra_paths: root.graph_brilliance_extra_paths;
+                active_extinction_path: root.active_extinction_path;
+                active_windowing_path: root.active_windowing_path;
+                active_brilliance_path: root.active_brilliance_path;
+                active_brilliance_values: root.active_brilliance_values;
+                active_extinction_values: root.active_extinction_values;
+                active_windowing_values: root.active_windowing_values;
+                tilt_hover_preview_image: root.tilt_hover_preview_image;
+                request_tilt_hover_preview(a, t) => { root.request_tilt_hover_preview(a, t); }
+            }
+
+            // 4.5. "Export Tilt Video" collapsible section -- collapsed every time this
+            // dialog is (re-)opened (see `video_export_expanded`'s own doc comment).
+            // Renders one high-quality frame per swept angle (posed exactly like this
+            // dialog's own curve/hover-preview -- `gui::tilt::video_export`), optionally
+            // overlaying the tilt performance values, then muxes an MP4/GIF. Every
+            // setting below lives on `TiltVideoExportModel` (persists across re-opens)
+            // except the section's own expanded state and its large-run confirmation
+            // guard, which live on `root` (reset fresh every open).
+            TiltVideoExportSection {
+                video_export_expanded <=> root.video_export_expanded;
+                confirmed_large_run <=> root.confirmed_large_run;
+                selected_axis_index: root.selected_axis_index;
+                selected_axis_label: root.selected_axis_label;
+            }
+                } // end body's inner VerticalLayout
+            } // end body := ScrollView
+
+            // 5. Footer Bar Actions
+            HorizontalLayout {
+                alignment: space-between;
+                spacing: 10px;
+
+                ActionButton {
+                    height: 32px;
+                    icon: @image-url("../icons/clipboard.svg");
+                    text: "Copy 181-Point Data Table (4 Axes, ±90°)";
+                    hint: "Copy the full sweep, four directions of 181 points each, to the clipboard as a table.";
+                    clicked => { root.copy_curve_data(); }
+                }
+
+                ActionButton {
+                    width: 90px;
+                    height: 32px;
+                    text: "Close";
+                    hint: "Close the tilt performance graph.";
+                    fill: Theme.accent-cyan;
+                    hover_fill: Theme.accent-cyan-hover;
+                    edge: Theme.accent-cyan;
+                    ink: Theme.text-on-accent;
+                    font_size: 12px;
+                    weight: 700;
+                    clicked => { root.close(); }
+                }
+            }
+        }
+    }
+}

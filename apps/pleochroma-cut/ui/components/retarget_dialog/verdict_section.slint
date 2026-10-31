@@ -1,0 +1,102 @@
+import { Theme } from "../../theme.slint";
+import { RetargetModel } from "../../models/retarget.slint";
+
+// 7b. The verdict on the retargeted stone (Shift mode): checked on a worker
+// thread after every change, so it says "Checking..." first. Apply needs a
+// valid (or uncheckable) result; the reasons say what to change. The dialog mounts it while
+// `validity_state != 0`.
+export component VerdictBlock inherits VerticalLayout {
+    spacing: 4px;
+
+    HorizontalLayout {
+        spacing: 6px;
+        if RetargetModel.validity_state == 2: Image {
+            source: @image-url("../../icons/check.svg");
+            colorize: Theme.success;
+            width: 12px;
+            height: 12px;
+            y: 1px;
+        }
+        if RetargetModel.validity_state == 3: Image {
+            source: @image-url("../../icons/close.svg");
+            colorize: Theme.danger;
+            width: 12px;
+            height: 12px;
+            y: 1px;
+        }
+        if RetargetModel.validity_state == 4: Image {
+            source: @image-url("../../icons/warning.svg");
+            colorize: Theme.accent-amber;
+            width: 12px;
+            height: 12px;
+            y: 1px;
+        }
+        Text {
+            text: RetargetModel.validity_text;
+            font-size: 11px;
+            font-weight: 700;
+            color: RetargetModel.validity_state == 2 ? Theme.success
+                : (RetargetModel.validity_state == 3 ? Theme.danger
+                : (RetargetModel.validity_state == 4 ? Theme.accent-amber : Theme.accent-cyan));
+            wrap: word-wrap;
+            horizontal-stretch: 1;
+        }
+    }
+
+    for line in RetargetModel.validity_details: Text {
+        text: line;
+        font-size: 10px;
+        color: Theme.text-secondary;
+        wrap: word-wrap;
+    }
+
+    if RetargetModel.strategy_text != "" && RetargetModel.validity_state != 1: Text {
+        text: RetargetModel.strategy_text;
+        font-size: 10px;
+        font-italic: true;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+}
+
+// 7c. The optical comparison: what the material change does to the stone as it
+// is, and what the retarget wins back. Table-up fast estimate, comparable with
+// itself, not with a full tilt sweep. The dialog mounts it once the nine metric cells exist.
+export component OpticalComparison inherits VerticalLayout {
+    spacing: 2px;
+
+    Rectangle {
+        height: metrics_title.preferred-height;
+        Tooltip { text: @markdown("Windowing is light leaking straight out of the pavilion, brilliance is light returned to the eye with the table facing up, extinction is light trapped or lost. A fast table-up estimate under the fixed grading-tray lighting (not the viewport preset): use it to compare the three columns with each other, not with a full tilt sweep. See the glossary."); }
+        metrics_title := Text { text: "Optical Comparison (Table Up)"; font-size: 10px; font-weight: 700; color: Theme.text-muted; }
+    }
+
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 6px;
+        Text { text: ""; width: 66px; }
+        Text { text: "Current"; font-size: 10px; font-weight: 700; color: Theme.text-muted; horizontal-stretch: 1; horizontal-alignment: right; overflow: elide; }
+        Text { text: "Current in " + RetargetModel.target_material_name; font-size: 10px; font-weight: 700; color: Theme.text-muted; horizontal-stretch: 1; horizontal-alignment: right; overflow: elide; }
+        Text { text: "Retargeted"; font-size: 10px; font-weight: 700; color: Theme.text-muted; horizontal-stretch: 1; horizontal-alignment: right; overflow: elide; }
+    }
+
+    for label[index] in ["Windowing", "Brilliance", "Extinction"]: Rectangle {
+        height: 22px;
+        border-radius: Theme.radius-sm;
+        background: Theme.surface-sunken;
+
+        accessible-role: AccessibleRole.list-item;
+        accessible-label: label + ": current " + RetargetModel.metrics_cells[index * 3] + ", current in " + RetargetModel.target_material_name + " " + RetargetModel.metrics_cells[index * 3 + 1] + ", retargeted " + RetargetModel.metrics_cells[index * 3 + 2];
+
+        HorizontalLayout {
+            padding-left: 6px;
+            padding-right: 6px;
+            spacing: 6px;
+            Text { text: label; font-size: 11px; color: Theme.text-secondary; width: 66px; vertical-alignment: center; }
+            Text { text: RetargetModel.metrics_cells[index * 3]; font-size: 11px; color: Theme.text-secondary; horizontal-stretch: 1; horizontal-alignment: right; vertical-alignment: center; }
+            Text { text: RetargetModel.metrics_cells[index * 3 + 1]; font-size: 11px; color: Theme.text-secondary; horizontal-stretch: 1; horizontal-alignment: right; vertical-alignment: center; }
+            Text { text: RetargetModel.metrics_cells[index * 3 + 2]; font-size: 11px; font-weight: 700; color: Theme.accent-cyan; horizontal-stretch: 1; horizontal-alignment: right; vertical-alignment: center; }
+        }
+    }
+}

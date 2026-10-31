@@ -1,0 +1,360 @@
+import { CheckBox, ComboBox, LineEdit } from "std-widgets.slint";
+import { EditorTierItem } from "../../types.slint";
+import { Theme } from "../../theme.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { WarningLine } from "../warning_line.slint";
+import { FormRow, FormRowMetrics } from "form_row.slint";
+import { TipButton } from "../compact_controls.slint";
+import { WrapNote, WrapWarning } from "wrap_note.slint";
+
+// The Inspector's "Tier" tab for a CONCAVE tier -- the tool-cut counterpart of
+// `TierFormTab`. A concave tier is authored as two lines (a facet line and a tool
+// line), so the form has both: name, angle, indices and instructions for the facet,
+// then tool, theta, X/Y/Z, D/W, tool angle and motion for the tool.
+//
+// Like `TierFormTab` this component only renders the scratch state `EditorInspector`
+// owns (its `c_*` properties, dirty snapshot and dirty-draft banner all reuse the flat
+// form's) and reports edits back through two-way properties and callbacks. Every
+// field is a string: Rust parses them (`parse_concave_tier_form`) and prefixes each
+// error with its field, which `EditorModel.tier_form_error_field` carries back here
+// to put a red border on the offending control, exactly as the flat form does. The
+// error buckets are "name", "angle", "indices", "tool", "theta", "x", "y", "z",
+// "diameter" and "tool_angle".
+//
+// Every field is a `FormRow` like the flat form's, so the labels and inputs line up with
+// it and each input carries a tooltip and a screen-reader label. The form has no Simple
+// and Advanced split: a concave tier is already the expert way to cut a facet, and every
+// field of it is needed.
+//
+// `unlocked` is `GuideModel.allows_concave_tier()` (see `GuideAllow`): every input and
+// button ANDs it into its own `enabled:`.
+export component ConcaveFormTab inherits VerticalLayout {
+    in property <bool> unlocked: true;
+
+    in-out property <string> c_name;
+    in-out property <string> c_angle;
+    in-out property <string> c_indices;
+    in-out property <string> c_instructions;
+    // The tool combo's index: 0 CYL, 1 CON, 2 CIR, 3 DSC, 4 SPH (`EditorInspector` maps
+    // it to and from the tool code `parse_concave_tier_form` accepts).
+    in-out property <int> c_tool;
+    in-out property <string> c_theta;
+    in-out property <string> c_x;
+    in-out property <string> c_y;
+    in-out property <string> c_z;
+    in-out property <string> c_diameter;
+    in-out property <string> c_tool_angle;
+    in-out property <bool> c_reciprocating;
+
+    // The concave tier's table position, or -1 for an "Add" draft.
+    in property <int> loaded_tier_index: -1;
+    in property <bool> show_dirty_warning: false;
+    in property <bool> show_external_change: false;
+    in property <int> pending_load_index: -1;
+
+    callback keep_draft();
+    callback confirm_discard_and_load();
+    callback reload_from_design();
+    callback dismiss_external_change();
+    // Commits the draft (Enter in a field) -- forwarded to `EditorInspector.save_form()`.
+    callback save_form();
+
+    // Only a cone and a disc have an included angle; for the other tools the field is
+    // disabled (and Rust rejects a value typed for them).
+    property <bool> has_tool_angle: root.c_tool == 1 || root.c_tool == 3;
+    property <string> field_error: EditorModel.tier_form_error_field;
+
+    // Clears a stale validation-error marker the moment the field it points at is
+    // retyped, the same rule as `TierFormTab.clear_field_error`: used from each
+    // field's own user-edit event, never a `changed` handler (which would also fire
+    // for `EditorInspector`'s own programmatic seeding).
+    function clear_field_error(field: string) {
+        if EditorModel.tier_form_error_field == field {
+            EditorModel.tier_form_error_field = "";
+            EditorModel.tier_form_error = "";
+        }
+    }
+
+    spacing: 8px;
+    // The scroll bar is drawn over the right edge: keep the fields clear of it.
+    padding-right: FormRowMetrics.scroll_gutter;
+    // A small inset above the first row, so a control is never cut right at the top edge of the
+    // scroll area.
+    padding-top: 2px;
+    // Packed at the top, as the other inspector tabs: no row takes the spare height.
+    alignment: start;
+    Text {
+        text: root.loaded_tier_index < 0
+            ? "Add Concave Tier"
+            : "Edit Concave Tier #" + (root.loaded_tier_index + 1) + (root.c_name == "" ? "" : " -- " + root.c_name);
+        font-size: 12px;
+        font-weight: 700;
+        color: Theme.text-primary;
+        accessible-role: AccessibleRole.text;
+    }
+    if root.show_dirty_warning: Rectangle {
+        background: Theme.bg-input;
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: Theme.accent-amber;
+        VerticalLayout {
+            padding: 6px;
+            spacing: 4px;
+            WarningLine {
+                text: "You have unsaved changes to "
+                    + (root.loaded_tier_index < 0 ? "the new tier draft" : "Tier #" + (root.loaded_tier_index + 1))
+                    + ". The table's selection has moved on, but this form still shows your draft.";
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                TipButton {
+                    enabled: root.unlocked;
+                    text: "Keep Draft";
+                    hint: "Keep your unsaved changes in this form. The table's selection stays where it is.";
+                    clicked => { root.keep_draft(); }
+                }
+                TipButton {
+                    enabled: root.unlocked;
+                    text: root.pending_load_index < 0
+                        ? "Discard Draft, Start New"
+                        : "Discard Draft, Load #" + (root.pending_load_index + 1);
+                    hint: root.pending_load_index < 0
+                        ? "Throw away your unsaved changes and start a blank new tier."
+                        : "Throw away your unsaved changes and show the tier you selected in the table.";
+                    clicked => { root.confirm_discard_and_load(); }
+                }
+            }
+        }
+    }
+    if root.show_external_change && !root.show_dirty_warning: Rectangle {
+        background: Theme.bg-input;
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: Theme.accent-amber;
+        VerticalLayout {
+            padding: 6px;
+            spacing: 4px;
+            WarningLine {
+                text: "Tier #" + (root.loaded_tier_index + 1)
+                    + " changed in the design after you started this draft. Saving writes your draft over that change.";
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                TipButton {
+                    enabled: root.unlocked;
+                    text: "Reload From Design";
+                    hint: "Drop your unsaved changes and show the tier as the design now has it.";
+                    clicked => { root.reload_from_design(); }
+                }
+                TipButton {
+                    enabled: root.unlocked;
+                    text: "Keep Draft";
+                    hint: "Keep your unsaved changes and hide this notice.\nSaving writes them over the change in the design.";
+                    clicked => { root.dismiss_external_change(); }
+                }
+            }
+        }
+    }
+
+    // --- The facet line: what the tier is called and where it sits on the gear.
+    Text { text: "Facet Line"; font-size: 11px; font-weight: 700; color: Theme.text-secondary; accessible-role: AccessibleRole.text; }
+    FormRow {
+        label: "Name";
+        tooltip: "Facet name. A concave tier may not reuse a flat tier's\nname, and nothing can meet it by name. See the glossary.";
+        invalid: root.field_error == "name";
+        LineEdit {
+            enabled: root.unlocked;
+            text <=> root.c_name;
+            accessible-label: "Facet Name";
+            accepted => { root.save_form(); }
+            changed has-focus => { EditorModel.text_focus = self.has-focus; }
+            edited => { root.clear_field_error("name"); }
+        }
+    }
+    FormRow {
+        label: "Angle (deg)";
+        tooltip: "Angle of the facet the tool leaves behind, in degrees from the\ngirdle plane. Type a minus sign for a facet on the pavilion\nside and none for the crown side; the tier table shows the\nplain number under a P or C label. See the glossary.";
+        invalid: Math.abs(root.c_angle.to-float()) > 90 || root.field_error == "angle";
+        LineEdit {
+            enabled: root.unlocked;
+            text <=> root.c_angle;
+            placeholder-text: "e.g. -42";
+            accessible-label: "Angle in Degrees";
+            accepted => { root.save_form(); }
+            changed has-focus => { EditorModel.text_focus = self.has-focus; }
+            edited => { root.clear_field_error("angle"); }
+        }
+    }
+    FormRow {
+        label: "Indices";
+        tooltip: "Gear positions the tool is placed at, comma-separated.\nOne tool placement is cut at each. See the glossary.";
+        invalid: root.field_error == "indices";
+        LineEdit {
+            enabled: root.unlocked;
+            text <=> root.c_indices;
+            placeholder-text: "e.g. 0, 24, 48, 72";
+            accessible-label: "Index Positions";
+            accepted => { root.save_form(); }
+            changed has-focus => { EditorModel.text_focus = self.has-focus; }
+            edited => { root.clear_field_error("indices"); }
+        }
+    }
+    FormRow {
+        label: "Instructions";
+        tooltip: "Free-text cutting instructions, printed on the facet line of the cutting sheet.";
+        LineEdit {
+            horizontal-stretch: 1;
+            enabled: root.unlocked;
+            text <=> root.c_instructions;
+            placeholder-text: "optional";
+            accessible-label: "Cutting Instructions";
+            accepted => { root.save_form(); }
+            changed has-focus => { EditorModel.text_focus = self.has-focus; }
+        }
+    }
+
+    // --- The tool line: which tool, where it sits and how it moves.
+    Text { text: "Tool Line"; font-size: 11px; font-weight: 700; color: Theme.text-secondary; accessible-role: AccessibleRole.text; }
+    FormRow {
+        label: "Tool";
+        tooltip: "The tool's shape: cylinder, cone, circle (a ring), disc or sphere.";
+        invalid: root.field_error == "tool";
+        ComboBox {
+            horizontal-stretch: 1;
+            enabled: root.unlocked;
+            accessible-label: "Tool Shape";
+            model: [
+                "Cylinder (CYL)",
+                "Cone (CON)",
+                "Circle (CIR)",
+                "Disc (DSC)",
+                "Sphere (SPH)",
+            ];
+            current-index <=> root.c_tool;
+            selected => { root.clear_field_error("tool"); root.clear_field_error("tool_angle"); }
+        }
+    }
+    FormRow {
+        label: "Theta (deg)";
+        tooltip: "Azimuth of the tool's axis around the stone, in degrees. Blank is 0.";
+        invalid: root.field_error == "theta";
+        LineEdit {
+            enabled: root.unlocked;
+            text <=> root.c_theta;
+            placeholder-text: "0";
+            accessible-label: "Tool Azimuth in Degrees";
+            accepted => { root.save_form(); }
+            changed has-focus => { EditorModel.text_focus = self.has-focus; }
+            edited => { root.clear_field_error("theta"); }
+        }
+    }
+    FormRow {
+        label: "X / Y / Z";
+        tooltip: "Displacement of the tool from its default position,\nas ratios of the stone width. Blank is 0.";
+        invalid: root.field_error == "x" || root.field_error == "y" || root.field_error == "z";
+        LineEdit {
+            horizontal-stretch: 1;
+            enabled: root.unlocked;
+            text <=> root.c_x;
+            placeholder-text: "X";
+            accessible-label: "Tool Displacement X";
+            accepted => { root.save_form(); }
+            changed has-focus => { EditorModel.text_focus = self.has-focus; }
+            edited => { root.clear_field_error("x"); }
+        }
+        LineEdit {
+            horizontal-stretch: 1;
+            enabled: root.unlocked;
+            text <=> root.c_y;
+            placeholder-text: "Y";
+            accessible-label: "Tool Displacement Y";
+            accepted => { root.save_form(); }
+            changed has-focus => { EditorModel.text_focus = self.has-focus; }
+            edited => { root.clear_field_error("y"); }
+        }
+        LineEdit {
+            horizontal-stretch: 1;
+            enabled: root.unlocked;
+            text <=> root.c_z;
+            placeholder-text: "Z";
+            accessible-label: "Tool Displacement Z";
+            accepted => { root.save_form(); }
+            changed has-focus => { EditorModel.text_focus = self.has-focus; }
+            edited => { root.clear_field_error("z"); }
+        }
+    }
+    FormRow {
+        label: "D/W";
+        tooltip: "Tool diameter over stone width (D/W). Must be positive.";
+        invalid: root.field_error == "diameter";
+        LineEdit {
+            enabled: root.unlocked;
+            text <=> root.c_diameter;
+            placeholder-text: "e.g. 0.25";
+            accessible-label: "Tool Diameter over Stone Width";
+            accepted => { root.save_form(); }
+            changed has-focus => { EditorModel.text_focus = self.has-focus; }
+            edited => { root.clear_field_error("diameter"); }
+        }
+    }
+    FormRow {
+        label: "Tool Angle";
+        tooltip: "Included angle of a cone or disc, in degrees. Only those\ntwo tools have one; leave it blank for the others.";
+        invalid: root.field_error == "tool_angle";
+        LineEdit {
+            enabled: root.unlocked && root.has_tool_angle;
+            text <=> root.c_tool_angle;
+            placeholder-text: root.has_tool_angle ? "e.g. 60" : "n/a";
+            accessible-label: "Tool Included Angle in Degrees";
+            accepted => { root.save_form(); }
+            changed has-focus => { EditorModel.text_focus = self.has-focus; }
+            edited => { root.clear_field_error("tool_angle"); }
+        }
+    }
+    Rectangle {
+        height: motion_box.preferred-height;
+        Tooltip { text: @markdown("Reciprocating: the tool is stroked back and\nforth. Unticked, it is plunged straight in."); }
+        // On the field column like the inputs above (a lone child of a Rectangle is centred).
+        motion_box := CheckBox {
+            x: FormRowMetrics.field_start;
+            width: parent.width - FormRowMetrics.field_start;
+            enabled: root.unlocked;
+            text: "Reciprocating (Stroked Back and Forth)";
+            checked <=> root.c_reciprocating;
+        }
+    }
+
+    // The same inline message the flat form shows, beside the corner toast.
+    if EditorModel.tier_form_error != "": WrapNote {
+        text: EditorModel.tier_form_error;
+        font_size: 10px;
+        font_weight: 700;
+        ink: Theme.accent-ruby;
+    }
+
+    // --- Read-only: the tool line the cutting sheet prints, and any warning, for a
+    // saved tier. Not shown for an "Add" draft, which has nothing resolved yet.
+    if root.loaded_tier_index >= 0 && root.loaded_tier_index < EditorModel.tiers.length: VerticalLayout {
+        property <EditorTierItem> tier_row: EditorModel.tiers[root.loaded_tier_index];
+        spacing: 4px;
+        Rectangle { height: 1px; background: Theme.border-subtle; }
+        Text { text: "Sheet Line"; font-size: 11px; font-weight: 700; color: Theme.text-primary; accessible-role: AccessibleRole.text; }
+        WrapNote {
+            text: tier_row.tool_line;
+            font_size: 10px;
+            ink: Theme.text-secondary;
+        }
+        if tier_row.orbit_status != "": Text {
+            text: "Orbit: " + tier_row.orbit_status;
+            font-size: 10px;
+            color: tier_row.orbit_incomplete ? Theme.accent-amber : Theme.accent-emerald;
+            accessible-role: AccessibleRole.text;
+        }
+        if tier_row.warning_text != "": WrapWarning {
+            text: tier_row.warning_text;
+        }
+    }
+    // The Save Concave Tier button is pinned under the scroll area: this room keeps the last row
+    // (the Sheet Line and its warning) clear of it when the form is scrolled to the end.
+    Rectangle { height: 40px; }
+}

@@ -1,0 +1,122 @@
+name: Build macOS desktop app
+
+on:
+  workflow_dispatch:
+  # A release published on the GitHub website (not a draft) builds both apps and attaches them
+  # to that release. A manual run only uploads them as workflow artifacts.
+  release:
+    types: [published]
+
+permissions:
+  # Write is needed to attach the archives to the release; checkout keeps no credentials.
+  contents: write
+
+# Serialize separate manual/tag runs as well as the two matrix entries below.
+concurrency:
+  group: pleochroma-cut-macos-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            arch: arm64
+            cpu: generic
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            arch: x86_64
+            cpu: x86-64
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUST_TARGET: ${{ matrix.target }}
+      # rust-version is a compatibility floor, not a compiler pin.
+      RUSTUP_TOOLCHAIN: stable
+      CARGO_BUILD_JOBS: '1'
+      CARGO_TARGET_DIR: target
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '1'
+      # The workspace enables fat LTO; avoid its extra link-time memory in CI.
+      CARGO_PROFILE_RELEASE_LTO: 'off'
+      CARGO_PROFILE_RELEASE_DEBUG: '0'
+      RUSTC_WRAPPER: ''
+      RUSTC_WORKSPACE_WRAPPER: ''
+      # Replaces .cargo/config.toml's x86-64-v3 baseline on Intel Macs.
+      RUSTFLAGS: -C target-cpu=${{ matrix.cpu }}
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+      # Use the bundled winit renderer, without a runner-local Qt dependency.
+      SLINT_NO_QT: '1'
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read application version
+        run: |
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import tomllib
+          import sys
+          from pathlib import Path
+
+          package = tomllib.loads(Path("Cargo.toml").read_text())["workspace"]["package"]
+          print(f"APP_VERSION={package['version']}")
+          print(f"Declared minimum Rust: {package['rust-version']}", file=sys.stderr)
+          PY
+
+      - name: Check the release tag against the application version
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ "${TAG#v}" != "$APP_VERSION" ]; then
+            echo "::error::Release tag $TAG does not match the workspace version $APP_VERSION"
+            exit 1
+          fi
+
+      - name: Install Rust toolchain and inspect native SDK
+        run: |
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --target "$RUST_TARGET"
+          rustc --version
+          xcrun --find clang
+          xcrun --sdk macosx --show-sdk-path
+
+      - name: Build only the desktop app with one Cargo worker
+        run: |
+          # Encoded flags take precedence over RUSTFLAGS if a runner defines them.
+          unset CARGO_ENCODED_RUSTFLAGS
+          cargo build --locked --release --jobs 1 \
+            -p pleochroma-cut --bin pleochroma-cut --features gpu \
+            --target "$RUST_TARGET"
+
+      - name: Package unsigned application
+        id: bundle
+        run: bash scripts/package-macos.sh "$RUST_TARGET" "$APP_VERSION"
+
+      - name: Upload architecture-specific app archive
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          path: ${{ steps.bundle.outputs.archive }}
+          # Upload the app zip directly; its filename includes version and architecture.
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Attach the app archive to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+          ARCHIVE: ${{ steps.bundle.outputs.archive }}
+        # --clobber replaces an archive of the same name when a run is repeated.
+        run: gh release upload "$TAG" "$ARCHIVE" --clobber --repo "$GITHUB_REPOSITORY"

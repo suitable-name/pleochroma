@@ -1,0 +1,21 @@
+//! Synthetic validation of the rough-colour-from-photos feature (plan 2026-10-09, section 10.1;
+//! lane V1):
+//!
+//! ```text
+//! cargo test -p pleochroma-cut-core --test zoning_validation
+//! ```
+//!
+//! Every test runs by default (the full matrix included; there are no `#[ignore]`d tests).
+
+#![allow(
+    clippy::needless_range_loop,
+    clippy::many_single_char_names,
+    clippy::too_many_lines,
+    reason = "test code"
+)]
+
+mod boundary;
+mod cross_check;
+mod determinism;
+mod recovery;
+mod synth;

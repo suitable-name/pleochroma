@@ -1,0 +1,226 @@
+use super::Database;
+use anyhow::Result;
+use rusqlite::params;
+
+/// A stored custom-material value (SQLite REAL, `f64`) as the `f32` the material model holds.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "the material model is f32; stored refractive indices and absorptions are small values in the normal float range"
+)]
+const fn to_f32(value: f64) -> f32 {
+    value as f32
+}
+
+/// Bundled parameters for [`Database::save_custom_material`].
+///
+/// See `crates/pleochroma/src/optics/raytracer/refraction.rs`'s `RayMaterialContext` for the
+/// established pattern this follows. Borrowed rather than reusing
+/// [`crate::model::material::CustomMaterialRow`] outright: that type owns its strings
+/// (it's what a *read* hands back), while a caller about to save a material usually
+/// already holds `&str`s -- forcing an allocation just to call this would be worse than
+/// the extra parameters it replaces.
+pub struct CustomMaterialParams<'a> {
+    /// Material name.
+    pub name: &'a str,
+    /// Refractive index.
+    pub refractive_index: f32,
+    /// Dispersion value.
+    pub dispersion: f32,
+    /// Birefringence value.
+    pub birefringence: f32,
+    /// Per-channel absorption coefficients.
+    pub absorption_rgb: [f32; 3],
+    /// Crystal system of the material.
+    pub crystal_system: Option<&'a str>,
+    /// Optical character of the material.
+    pub optical_character: Option<&'a str>,
+    /// Biaxial beta-alpha offset, if any.
+    pub biaxial_delta_beta_alpha: Option<f32>,
+    /// See `crate::model::material::CustomMaterialRow::per_axis_dispersion_json`'s doc
+    /// comment. Borrowed (`&str`) for the same reason every other field here is, per
+    /// this struct's own doc comment.
+    pub per_axis_dispersion_json: Option<&'a str>,
+    /// See `crate::model::material::CustomMaterialRow::specific_gravity`'s doc
+    /// comment.
+    pub specific_gravity: Option<f32>,
+    /// Optional serialized `ColorRecipe` (as JSON) for physically based chromophore colors.
+    pub color_recipe_json: Option<&'a str>,
+    /// See `crate::model::material::CustomMaterialRow::dispersion_model_json`'s doc
+    /// comment. `None` clears the column (the plain refractive-index path).
+    pub dispersion_model_json: Option<&'a str>,
+    /// See `crate::model::material::CustomMaterialRow::absorption_bands_json`'s doc
+    /// comment. `None` clears the column (the legacy triple colours the material).
+    pub absorption_bands_json: Option<&'a str>,
+    /// See `crate::model::material::CustomMaterialRow::c_axis_tilt_deg`'s doc comment.
+    /// `None` clears the column (the material's built-in axis).
+    pub c_axis_tilt_deg: Option<f32>,
+    /// See `crate::model::material::CustomMaterialRow::c_axis_azimuth_deg`'s doc comment.
+    pub c_axis_azimuth_deg: Option<f32>,
+    /// See `crate::model::material::CustomMaterialRow::c_axis_second_azimuth_deg`'s doc
+    /// comment.
+    pub c_axis_second_azimuth_deg: Option<f32>,
+    /// See `crate::model::material::CustomMaterialRow::inclusion_families_json`'s doc comment.
+    /// `None` clears the column (no inclusions).
+    pub inclusion_families_json: Option<&'a str>,
+    /// See `crate::model::material::CustomMaterialRow::structure_json`'s doc comment. `None`
+    /// clears the column (no structure).
+    pub structure_json: Option<&'a str>,
+}
+
+impl Database {
+    /// Retrieves all user-defined custom gemstone materials
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if preparing or running the underlying `SELECT` query fails.
+    /// A row that fails to decode is silently skipped (via `.flatten()`) rather than
+    /// failing the whole call.
+    pub fn get_custom_materials(&self) -> Result<Vec<crate::model::material::CustomMaterialRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT name, refractive_index, dispersion, birefringence, absorption_r, absorption_g, absorption_b,
+                    crystal_system, optical_character, biaxial_delta_beta_alpha, per_axis_dispersion_json,
+                    specific_gravity, color_recipe_json, dispersion_model_json, absorption_bands_json,
+                    c_axis_tilt_deg, c_axis_azimuth_deg, c_axis_second_azimuth_deg,
+                    inclusion_families_json, structure_json
+             FROM custom_gem_materials
+             ORDER BY name ASC"
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            let name: String = row.get(0)?;
+            let ri: f64 = row.get(1)?;
+            let disp: f64 = row.get(2)?;
+            let biref: f64 = row.get(3)?;
+            let abs_r: f64 = row.get(4)?;
+            let abs_g: f64 = row.get(5)?;
+            let abs_b: f64 = row.get(6)?;
+            let crystal_system: Option<String> = row.get(7)?;
+            let optical_character: Option<String> = row.get(8)?;
+            let biaxial_delta_beta_alpha: Option<f64> = row.get(9)?;
+            let per_axis_dispersion_json: Option<String> = row.get(10)?;
+            let specific_gravity: Option<f64> = row.get(11)?;
+            let color_recipe_json: Option<String> = row.get(12)?;
+            let dispersion_model_json: Option<String> = row.get(13)?;
+            let absorption_bands_json: Option<String> = row.get(14)?;
+            let c_axis_tilt_deg: Option<f64> = row.get(15)?;
+            let c_axis_azimuth_deg: Option<f64> = row.get(16)?;
+            let c_axis_second_azimuth_deg: Option<f64> = row.get(17)?;
+            let inclusion_families_json: Option<String> = row.get(18)?;
+            let structure_json: Option<String> = row.get(19)?;
+
+            Ok(crate::model::material::CustomMaterialRow {
+                name,
+                refractive_index: to_f32(ri),
+                dispersion: to_f32(disp),
+                birefringence: to_f32(biref),
+                absorption_rgb: [to_f32(abs_r), to_f32(abs_g), to_f32(abs_b)],
+                crystal_system,
+                optical_character,
+                biaxial_delta_beta_alpha: biaxial_delta_beta_alpha.map(to_f32),
+                per_axis_dispersion_json,
+                specific_gravity: specific_gravity.map(to_f32),
+                color_recipe_json,
+                dispersion_model_json,
+                absorption_bands_json,
+                c_axis_tilt_deg: c_axis_tilt_deg.map(to_f32),
+                c_axis_azimuth_deg: c_axis_azimuth_deg.map(to_f32),
+                c_axis_second_azimuth_deg: c_axis_second_azimuth_deg.map(to_f32),
+                inclusion_families_json,
+                structure_json,
+            })
+        })?;
+
+        let mut materials = Vec::new();
+        for m in rows.flatten() {
+            materials.push(m);
+        }
+        Ok(materials)
+    }
+
+    /// Saves or updates a custom gemstone material.
+    ///
+    /// `crystal_system`/`optical_character` are a `pleochroma` enum variant name (e.g.
+    /// `"Trigonal"`) or `None`; `biaxial_delta_beta_alpha` is `None` for every
+    /// isotropic/uniaxial material; `per_axis_dispersion_json` is `None` unless
+    /// the caller authored genuine per-axis dispersion data (and
+    /// `inclusion_families_json`/`structure_json` unless it authored inclusions or a
+    /// play-of-color structure). All of them round-trip
+    /// through [`Self::get_custom_materials`] as the matching `Option` fields on
+    /// `CustomMaterialRow` -- see that struct's doc comments for why plain text/`f32`/
+    /// JSON rather than the `pleochroma` enums (this crate must not depend on `pleochroma`)
+    /// and for what `None` means to a caller that does (fall back to whatever
+    /// `GemMaterial::new_custom` infers).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if preparing the upsert statement or executing it (`INSERT
+    /// ... ON CONFLICT(name) DO UPDATE`) fails.
+    pub fn save_custom_material(&self, material: &CustomMaterialParams<'_>) -> Result<()> {
+        let mut stmt = self.conn.prepare(
+            "INSERT INTO custom_gem_materials (name, refractive_index, dispersion, birefringence, absorption_r, absorption_g, absorption_b,
+                crystal_system, optical_character, biaxial_delta_beta_alpha, per_axis_dispersion_json, specific_gravity, color_recipe_json,
+                dispersion_model_json, absorption_bands_json, c_axis_tilt_deg, c_axis_azimuth_deg,
+                c_axis_second_azimuth_deg, inclusion_families_json, structure_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
+             ON CONFLICT(name) DO UPDATE SET
+                refractive_index = excluded.refractive_index,
+                dispersion = excluded.dispersion,
+                birefringence = excluded.birefringence,
+                absorption_r = excluded.absorption_r,
+                absorption_g = excluded.absorption_g,
+                absorption_b = excluded.absorption_b,
+                crystal_system = excluded.crystal_system,
+                optical_character = excluded.optical_character,
+                biaxial_delta_beta_alpha = excluded.biaxial_delta_beta_alpha,
+                per_axis_dispersion_json = excluded.per_axis_dispersion_json,
+                specific_gravity = excluded.specific_gravity,
+                color_recipe_json = excluded.color_recipe_json,
+                dispersion_model_json = excluded.dispersion_model_json,
+                absorption_bands_json = excluded.absorption_bands_json,
+                c_axis_tilt_deg = excluded.c_axis_tilt_deg,
+                c_axis_azimuth_deg = excluded.c_axis_azimuth_deg,
+                c_axis_second_azimuth_deg = excluded.c_axis_second_azimuth_deg,
+                inclusion_families_json = excluded.inclusion_families_json,
+                structure_json = excluded.structure_json"
+        )?;
+
+        stmt.execute(params![
+            material.name,
+            f64::from(material.refractive_index),
+            f64::from(material.dispersion),
+            f64::from(material.birefringence),
+            f64::from(material.absorption_rgb[0]),
+            f64::from(material.absorption_rgb[1]),
+            f64::from(material.absorption_rgb[2]),
+            material.crystal_system,
+            material.optical_character,
+            material.biaxial_delta_beta_alpha.map(f64::from),
+            material.per_axis_dispersion_json,
+            material.specific_gravity.map(f64::from),
+            material.color_recipe_json,
+            material.dispersion_model_json,
+            material.absorption_bands_json,
+            material.c_axis_tilt_deg.map(f64::from),
+            material.c_axis_azimuth_deg.map(f64::from),
+            material.c_axis_second_azimuth_deg.map(f64::from),
+            material.inclusion_families_json,
+            material.structure_json,
+        ])?;
+        Ok(())
+    }
+
+    /// Deletes a user-defined custom gemstone material
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if preparing or executing the underlying `DELETE` statement
+    /// fails. Deleting a `name` that doesn't exist is not an error -- it simply
+    /// affects zero rows.
+    pub fn delete_custom_material(&self, name: &str) -> Result<()> {
+        let mut stmt = self
+            .conn
+            .prepare("DELETE FROM custom_gem_materials WHERE name = ?1")?;
+        stmt.execute(params![name])?;
+        Ok(())
+    }
+}

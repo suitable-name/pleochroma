@@ -4,6 +4,14 @@ Status of this revision (2026-10-03): merged with the user-supplied report "Gem 
 Verification" (48 pp., cited below as "Report p.N"; page numbers are PDF pages). Prior content came from
 web-search digests and abstracts only; no primary paper was read.
 
+Corrections of 2026-10-27 (measured polarized spectra, source: `docs/color_variants/R2_beryl_topaz_tourmaline_andalusite.md`
+section 0.2, itself from the Caltech Mineral Spectroscopy Server files saved under `crates/pleochroma/data/reference_spectra/variant_*`):
+four statements of this file were contradicted by the measurements and are corrected below, each marked "Correction 2026-10-27".
+They are (1) blue topaz absorbs most along alpha (E parallel a), not beta; (2) andalusite alpha is E parallel c, beta is E parallel b,
+gamma is E parallel a, and the Fe2+-Ti4+ color is entirely in alpha; (3) the 720 nm Fe2+ band of elbaite is not polarized (o:e about 1:1);
+(4) the Mn2+-Ti4+ charge transfer of tourmaline is at 325 nm, not 450 nm. The shipped catalogue `data/chromophores.toml` is NOT changed by
+these corrections (data files are outside the docs lane); the corrections are the specification for the next data revision.
+
 Confidence levels in this file:
 - `secondary`: value taken from the report (the report does not attribute single numbers to single references,
   so it is not `verified`), or from an authoritative abstract/digest in the prior revision where the report is silent.
@@ -347,6 +355,7 @@ irradiation O- hole centre (blue, 620 nm band; irradiation then 200-300 C anneal
 Non-additive: Cr3+ pink and O- blue combine to violet; heating bleaches brown centres but not Cr3+.
 Fe/Mn/Cr impurity attribution of the 620 nm band is disputed in some papers (see digest).
 Report pages: prose p.22-23, table p.23, directory rows p.42.
+Correction 2026-10-27 (source: R2 doc sections 0.2 item 2, 3.1 and 3.5): the axes are alpha = E parallel a, beta = E parallel b, gamma = E parallel c (Caltech file headers; optic plane (010)). The 620-660 nm blue-topaz band is strongest along alpha, about 5 times gamma, with beta near zero (GRR 1632, A/mm above baseline at the peak: alpha 0.631, gamma 0.121, beta 0.026; the naturally blue GIA 3828 and GRR 825c agree in direction). The Report's "maximum along beta" is not supported. The Cr3+ pink bands are measured on a Ural crystal (R2 section 3.4): 533 nm strongest in beta, gamma next, alpha weak at 562 nm with a strong 390 nm band, which agrees with the weights below.
 
 ```toml
 [[host]]
@@ -413,13 +422,13 @@ confidence = "secondary"
 sources = ["Report p.23 (Topaz bullets; Topaz table, [O-] polaron row; directory p.42); Report p.31 (thermal bleaching table)", "Springer https://link.springer.com/doi/10.1007/s00269-005-0042-1 (digest: O- polaron, 620 nm; linear correlation of centre concentration with 620 nm absorbance); RSC Adv. 2025"]
 # peak_coeff unit: report says "cm-1/unit", "unit" undefined; taken as per relative centre density
 [[host.chromophore.band]]
-centre_nm = 620.0   # 16,129 cm-1
+centre_nm = 620.0   # 16,129 cm-1. Note 2026-10-27 (R2 doc 3.5): measured centres are 630-660 nm (alpha 660 nm, FWHM 5489 cm-1 in GRR 1632; 629 nm, FWHM 3207 cm-1 in GRR 825c), left as given
 fwhm_cm1 = 3500.0
 shape = "gaussian_energy"
 peak_coeff = 5.0    # cm-1 per unit of relative centre density
-pol = { a = 0.5, b = 1.0, g = 0.5 }   # prior estimate identical; report: maximum along beta
+pol = { a = 1.0, b = 0.04, g = 0.19 }   # Correction 2026-10-27: was { 0.5, 1.0, 0.5 } ("report: maximum along beta"). Measured, GRR 1632 neutron-irradiated blue topaz: alpha 0.631, beta 0.026, gamma 0.121 A/mm at the band (R2 doc 3.5); relative weights 1.0 / 0.04 / 0.19
 confidence = "secondary"
-source = "Report p.23 (Topaz table, [O-] Polaron row, 620 nm)"
+source = "Report p.23 (Topaz table, [O-] Polaron row, 620 nm); polarization corrected 2026-10-27 from docs/color_variants/R2_beryl_topaz_tourmaline_andalusite.md section 3.5 (Caltech GRR 1632, GIA 3828, GRR 825c)"
 [[host.chromophore.fluorescence]]
 # excitation_nm: unknown
 # emission_nm: unknown
@@ -465,6 +474,7 @@ source = "Report p.23 (Topaz table, Brown Centre row, luminescence 'Inert (bleac
 
 Overview. Pleochroism strong (o much stronger than e for Fe and Mn species; the reverse E||c for Cu2+).
 Report p.30: IVCT dipoles lie in the basal plane, so Fe2+-Fe3+ and Mn2+-Ti4+ have w_o = 1.0, w_e <= 0.1; Cu2+ reverses (w_e = 1.0, w_o = 0.2).
+Correction 2026-10-27 (source: R2 doc section 0.2 items 1 and 4, sections 4.3, 4.4 and 4.8): (a) the Fe2+ band at 720 nm of blue and green elbaite is NOT polarized. Three crystals give o:e of about 1:1 (GRR 1935 blue: o 0.905, e 0.994 mm-1; GRR 3770: 1.00 and 0.95; GRR 1935 green: 0.540 and 0.475). The w_e = 0.1 rule belongs to the paired Fe2+-Fe3+ bands of dravite and schorl (Caltech GRR 787 page text), not to low-iron elbaite. The pleochroism of elbaite comes from the short-wavelength absorption edge (o about twice e), from Mn3+ (rubellite: o 537 nm 0.65 mm-1 against e 0.25) and from Cu2+. (b) The Mn2+-Ti4+ intervalence charge transfer sits at 325 nm with a tail into the visible (Rossman and Mattson 1986, Am. Mineral. 71:599, abstract); a 450 nm band is not that transition. The measured yellow elbaite (GRR 1935) has a polarized band at 397 nm (o) and 375 nm (e) whose assignment Caltech does not give.
 - Cu2+ (Paraiba): bands 700 and 920 nm, E||c stronger; Mn3+ at 520 nm shifts hue to violet; heating at 500 C reduces Mn3+ to Mn2+ and restores neon blue (Report p.23-24).
 - Fe2+/Fe3+: IVCT at 720 nm and Fe2+ at 1100 nm (the report also lists "Fe2+ at 430 nm", which is a doubtful assignment); Fe2+ intensity enhanced ~200x when paired with Fe3+ (Mattson & Rossman 1987 digest, not in report).
 - Mn: rubellite Mn3+ 520 nm from radiation oxidation of Mn2+; report says Fe2+ "quenches" it so rubellites must be Fe-poor. Canary/brown elbaite by Mn2+-Ti4+ and Fe2+-Ti4+ IVCT near 450 nm.
@@ -570,17 +580,17 @@ centre_nm = 720.0   # 13,889 cm-1
 fwhm_cm1 = 3200.0
 shape = "gaussian_energy"
 peak_coeff = 35.0   # cm-1 per wt% FeO
-pol = { o = 1.0, e = 0.1 }   # prior estimate identical
+pol = { o = 1.0, e = 1.0 }   # Correction 2026-10-27: was { 1.0, 0.1 } (prior estimate identical to the report). Measured o:e about 1:1 in three elbaite crystals (R2 doc 0.2 item 1, 4.3, 4.4); keep 0.1 only for the paired Fe2+-Fe3+ bands of dravite and schorl
 confidence = "secondary"
-source = "Report p.24 (Tourmaline table, Indicolite row, 720 nm)"
+source = "Report p.24 (Tourmaline table, Indicolite row, 720 nm); polarization corrected 2026-10-27 from docs/color_variants/R2_beryl_topaz_tourmaline_andalusite.md sections 0.2, 4.3, 4.4 (Caltech GRR 1935, GRR 3770)"
 [[host.chromophore.band]]
 centre_nm = 1100.0   # 9,091 cm-1 (report prints 9090); NIR, outside render range anyway
 fwhm_cm1 = 3800.0
 shape = "gaussian_energy"
 peak_coeff = 25.0    # cm-1 per wt% FeO
-pol = { o = 1.0, e = 0.1 }
+pol = { o = 1.0, e = 1.0 }   # Correction 2026-10-27: was { 1.0, 0.1 }. R2 doc 4.3 models the NIR band equal in both rays (estimate; the Caltech data of GRR 1935 end at 1104 nm, alpha 0.31 mm-1 at 1100 nm)
 confidence = "secondary"
-source = "Report p.24 (Tourmaline table, Indicolite row, 1100 nm); prior revision had 1100 as a mid-range placeholder of 918-1220 nm"
+source = "Report p.24 (Tourmaline table, Indicolite row, 1100 nm); prior revision had 1100 as a mid-range placeholder of 918-1220 nm; polarization per docs/color_variants/R2_beryl_topaz_tourmaline_andalusite.md section 4.3 (2026-10-27)"
 [[host.chromophore.band]]
 centre_nm = 430.0   # 23,256 cm-1; report prose only, called "isolated octahedral Fe2+", assignment doubtful
 # fwhm_cm1: unknown
@@ -612,7 +622,15 @@ confidence = "secondary"
 sources = ["Report p.24 (Canary/brown elbaite bullet; Tourmaline table, Canary Mn2+-Ti4+ IVCT row; directory p.42)", "Mattson & Rossman (Caltech thesis https://thesis.caltech.edu/1307/) digest"]
 # report gives "cm-1/wt%" without naming the oxide; IVCT scales with the product of both partners (Report p.30), so a per-wt% TiO2 coefficient is only an approximation
 [[host.chromophore.band]]
-centre_nm = 450.0   # 22,222 cm-1; prose gives a 415-450 nm range, table 450
+centre_nm = 325.0   # Correction 2026-10-27: the Mn2+-Ti4+ IVCT itself, with a tail into the visible (Rossman and Mattson 1986, Am. Mineral. 71:599; R2 doc 0.2 item 4). Width, strength and polarization of this band are unknown (no measured value for the pure transition), so none is entered
+# fwhm_cm1: unknown
+shape = "gaussian_energy"   # estimate
+# peak_coeff: unknown
+# pol: unknown
+confidence = "estimate"
+source = "docs/color_variants/R2_beryl_topaz_tourmaline_andalusite.md section 0.2 item 4 and 4.8 (centre only)"
+[[host.chromophore.band]]
+centre_nm = 450.0   # 22,222 cm-1; prose gives a 415-450 nm range, table 450. Note 2026-10-27: this is the visible tail / canary absorption, not the IVCT band itself (325 nm, above); the measured yellow elbaite shows polarized bands at 397 nm (o) and 375 nm (e), R2 doc 4.8
 fwhm_cm1 = 4000.0
 shape = "gaussian_energy"
 peak_coeff = 30.0   # cm-1 per wt%
@@ -670,7 +688,8 @@ source = "Report p.24 (Tourmaline table, Chrome row, luminescence 'Inert')"
 ## 4. Andalusite (Al2SiO5, orthorhombic, biaxial negative)
 
 Overview. Strong pleochroism (green/brown/red), from Mn3+ (viridine variety) on the octahedral Al1 site and Fe3+ on Al1/Al2;
-V3+ and Cr3+ give yellow-to-colorless pleochroism. Indicatrix: X || c (alpha), Y || a (beta), Z || b (gamma).
+V3+ and Cr3+ give yellow-to-colorless pleochroism. Optical indicatrix: X || c (alpha), Y || b (beta), Z || a (gamma).
+Correction 2026-10-27 (source: R2 doc sections 0.2 item 3 and 5.1): this line read "Y || a (beta), Z || b (gamma)". The optic plane of andalusite is (010), so Y = b; the Caltech files (Llano GRR 3467, Brazil Fe-Ti crystals) label alpha = E parallel c, beta = E parallel b, gamma = E parallel a. All of the Fe2+-Ti4+ color is in alpha: in the color-zoned Brazil crystal the alpha ray carries a band at 486 nm (2.31 mm-1 in the light zone, FWHM 6124 cm-1) and the beta and gamma rays show only the short-wavelength absorption edge (a "red-brown along c" stone, pale yellow-green across). The Fe2+-Ti4+ chromophore was missing from this file and is added below. The polarization weights of the Mn3+, V3+/Cr3+ and Fe3+ bands below are by ray (alpha, beta, gamma), so they do not change with the axis correction, but the viridine (Mn3+) polarization could not be checked against the Caltech file GRR 305 (404 on the server).
 Report p.25: Mn3+ bands 702, 455, 426 nm (14,250, 22,000, 23,500 cm-1) give green along beta and gamma and yellow-red along alpha; Fe3+ 440 nm plus UV edge; V3+/Cr3+ 565 and 420 nm along alpha.
 RI: alpha 1.629-1.640, beta 1.634-1.645, gamma 1.638-1.650 (Smith College digest, non-authoritative).
 Report pages: prose and table p.25, directory rows p.43.
@@ -768,6 +787,30 @@ confidence = "secondary"
 source = "Report p.25 (Andalusite table, luminescence 'Inert')"
 
 [[host.chromophore]]
+id = "Fe2+-Ti4+ IVCT (andalusite)"   # added 2026-10-27, source: docs/color_variants/R2_beryl_topaz_tourmaline_andalusite.md section 5.2
+kind = "ivct_pair"
+elements = ["Fe", "Ti"]
+site = "edge-sharing Al octahedra along c"
+conc_unit = "wt% FeO"   # approximation: the band scales with the Fe2+ x Ti4+ pair product, Ti is not tracked
+# conc_typical: unknown
+# conc_max: unknown
+color = "Brownish red along c (alpha); beta and gamma almost colorless to pale yellow-green. All of the Fe2+-Ti4+ color is in alpha."
+requires = ["Fe", "Ti"]
+excludes = []
+quenched_by = []
+confidence = "estimate"
+sources = ["docs/color_variants/R2_beryl_topaz_tourmaline_andalusite.md section 5.2 (Caltech Brazil color-zoned crystal, FeO 0.35 wt%, three rays; Caltech page: strong absorption from Fe2+-Ti4+ IVCT centred near 480 nm for light polarized in the c direction)"]
+# 2.31 mm-1 = 23.1 cm-1 at 0.35 wt% FeO (light zone) gives about 66 cm-1 per wt% FeO; the dark zone alpha is saturated (about 4x the light zone, lower bound)
+[[host.chromophore.band]]
+centre_nm = 486.0   # 20,576 cm-1
+fwhm_cm1 = 6124.0
+shape = "gaussian_energy"
+peak_coeff = 66.0   # cm-1 per wt% FeO, light zone, alpha ray; estimate (see above)
+pol = { a = 1.0, b = 0.0, g = 0.0 }   # no band in beta or gamma in the measured spectra (only the short-wavelength absorption edge)
+confidence = "estimate"
+source = "docs/color_variants/R2_beryl_topaz_tourmaline_andalusite.md section 5.2 (alpha 486 nm, FWHM 6124 cm-1 read from the CSV)"
+
+[[host.chromophore]]
 id = "Fe3+"
 kind = "ion"
 elements = ["Fe"]
@@ -844,6 +887,12 @@ Part A: prior file versus report (differ by more than 10 % or in kind). "Prior" 
 | 11 | Andalusite Mn3+ 702 nm pol | { 0.5, 0.5, 1.0 } | { 0.3, 0.8, 1.0 } | Report (more consistent with its own color statement: green along beta and gamma). |
 | 12 | Andalusite Mn3+ 455 and 426 nm pol | { 0.5, 0.5, 1.0 } | { 0.4, 1.0, 0.8 } | Report, same reason. |
 | 13 | Andalusite Fe3+ pol a | 0.3 | 0.4 | Report used. |
+| 14 | Blue topaz O- 620 nm pol | { 0.5, 1.0, 0.5 }, "maximum along beta" | measured 2026-10-27: alpha 1.0, beta 0.04, gamma 0.19 | Measurement (three polarized crystals, R2 doc 3.5). Corrected. |
+| 15 | Andalusite axes | beta || a, gamma || b | measured 2026-10-27: beta || b, gamma || a, alpha || c; the Fe2+-Ti4+ color is all in alpha | Measurement and the (010) optic plane (R2 doc 5.1). Corrected, Fe2+-Ti4+ chromophore added. |
+| 16 | Elbaite Fe2+ 720 nm pol | { o 1.0, e 0.1 } | measured 2026-10-27: o:e about 1:1 in three crystals | Measurement (R2 doc 4.3, 4.4). Corrected. The 0.1 weight stays for dravite and schorl Fe2+-Fe3+ pairs. |
+| 17 | Tourmaline Mn2+-Ti4+ IVCT | 450 nm, { o 1.0, e 0.2 } | 325 nm (Rossman and Mattson 1986), tail into the visible | Literature plus the measured yellow elbaite (R2 doc 4.8). 325 nm band entered without width, strength or polarization. |
+
+Rows 14 to 17 are the corrections of 2026-10-27 (source for all four: `docs/color_variants/R2_beryl_topaz_tourmaline_andalusite.md`); the comparison is prior file versus measured spectra, not versus the report. Part B item 6 (the 100:1 statement for iron species and the 10:1 table weight) is likewise superseded for elbaite by row 16.
 
 Differences of exactly 10 % or less are not listed (for example Beryl Cr3+ 600 nm pol e 0.5 versus 0.55).
 Not a discrepancy but new: report supplies FWHM and peak coefficients for every band (all `-1.0` before), 380 nm Fe3+ (andalusite), 420 nm chrome tourmaline, 426 nm heliodor, 430 nm tourmaline Fe2+ band (partial).
@@ -892,8 +941,9 @@ Part B: report values that look physically implausible or internally inconsisten
 | Tourmaline | Cu2+ | secondary (2) | secondary | secondary | unknown | secondary |
 | Tourmaline | Mn3+ | secondary (1) | secondary | secondary | unknown | secondary (wavelengths estimate) |
 | Tourmaline | Fe2+/Fe3+ IVCT | secondary (3; 430 nm lacks FWHM and coeff) | secondary | secondary (2 of 3) | unknown | secondary |
-| Tourmaline | Fe/Mn-Ti IVCT | secondary (1) | secondary | secondary | unknown | secondary |
+| Tourmaline | Fe/Mn-Ti IVCT | secondary (1); 325 nm centre added 2026-10-27 (estimate, centre only) | secondary | secondary | unknown | secondary |
 | Tourmaline | Cr/V | secondary (2) | secondary | secondary | unknown | secondary |
+| Andalusite | Fe2+-Ti4+ IVCT | estimate (1), added 2026-10-27 | estimate (alpha only) | estimate | unknown | none |
 | Andalusite | V3+/Cr3+ | secondary (2) | secondary | secondary | unknown | secondary |
 | Andalusite | Mn3+ | secondary (3) | secondary | secondary | unknown | secondary |
 | Andalusite | Fe3+ | secondary (2) | secondary | secondary | estimate | secondary |

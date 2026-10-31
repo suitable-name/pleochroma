@@ -1,0 +1,672 @@
+# Built-in color variants: corundum, spinel, chrysoberyl, alexandrite (Sapphire, Ruby, Spinel,
+# Chrysoberyl (Yellow), Alexandrite). Schema: see ../color_variants.toml. Research:
+# docs/color_variants/R1_corundum_spinel_chrysoberyl.md. Fit records:
+# docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md (one section per entry).
+#
+# Every entry is PerMm at reference_path_mm = 7.0 (the stone width). The peaks are the face-up optical
+# depth of the fitted spectrum divided by the face-up path of a 7 mm stone, MODEL_UNIT_FACE_UP_PATH x
+# 7 / 2.0 = 9.905 mm (variants::face_up_swatch_path), so a peak times 9.905 is the face-up optical depth
+# the Sapphire / Ruby / Spinel Material Defaults carry as a model-unit peak. Widths are sigma in cm^-1
+# (FWHM / 2.35482); all bands are energy Gaussians. Biaxial entries: o_ray = alpha (E||c), beta_ray =
+# beta (E||a), e_ray = gamma (E||b). Spinel is cubic: o_ray and e_ray carry the same set, not pleochroic.
+#
+# Estimated flag (one rule for every data file): `estimated = true` when the spectrum shape is NOT a measured
+# spectrum of that variety, OR the strength is NOT anchored (no concentration, no published color value, a factor
+# chosen for how the variety looks). `estimated = false` only for a measured spectrum at a strength that a published
+# number fixes. The FIRST line of `sources` is one short plain sentence saying which part is estimated: the UI shows it
+# as the "Estimated" tooltip. The full citations follow on the later lines.
+
+data_version = 1
+
+[[variant]]
+material = "Sapphire"
+key = "sapphire.pink"
+label = "Pink"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = false
+sources = [
+  "Dubinsky, Stone-Sundberg & Emmett 2020, G&G 56(1) 2-28, absorption cross-section supplement (data/reference_spectra/gia_dubinsky2020_corundum_six_chromophores_sigma_1nm.csv): Cr3+ cross sections, E perp c and E par c, summed at 100 ppma*cm",
+  "GIA Appendix 2 calculated color of Cr3+ at 100 ppma*cm (target anchor)",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#sapphire-pink"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 408.3, width_nm = 1227.4, peak = 0.2125, shape = "energy" },
+    { center_nm = 563.1, width_nm = 705.0, peak = 0.1487, shape = "energy" },
+    { center_nm = 531.2, width_nm = 1077.9, peak = 0.08228, shape = "energy" },
+    { center_nm = 674.1, width_nm = 598.9, peak = 0.003499, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 401.2, width_nm = 1364.8, peak = 0.3155, shape = "energy" },
+    { center_nm = 550.1, width_nm = 804.5, peak = 0.0505, shape = "energy" },
+    { center_nm = 519.4, width_nm = 1116.5, peak = 0.02394, shape = "energy" },
+    { center_nm = 667.3, width_nm = 857.3, peak = 0.001997, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Sapphire"
+key = "sapphire.yellow"
+label = "Yellow"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = false
+sources = [
+  "Dubinsky, Stone-Sundberg & Emmett 2020, G&G 56(1) 2-28, absorption cross-section supplement (data/reference_spectra/gia_dubinsky2020_corundum_six_chromophores_sigma_1nm.csv): h.-Fe3+ pair cross sections at 1.7 ppma*cm",
+  "GIA Appendix 2 calculated color of h.-Fe3+ at 1.7 ppma*cm (target anchor)",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#sapphire-yellow"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 250.0, width_nm = 6778.6, peak = 1.972, shape = "energy" },
+    { center_nm = 449.8, width_nm = 2245.8, peak = 0.1221, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 418.3, width_nm = 2808.6, peak = 0.161, shape = "energy" },
+    { center_nm = 389.5, width_nm = 869.0, peak = 0.1517, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Sapphire"
+key = "sapphire.padparadscha"
+label = "Padparadscha"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Measured Cr3+ and h.-Cr3+ pair cross sections combined at chosen amounts; no stone measured.",
+  "Dubinsky, Stone-Sundberg & Emmett 2020, G&G 56(1) 2-28, absorption cross-section supplement (data/reference_spectra/gia_dubinsky2020_corundum_six_chromophores_sigma_1nm.csv): Cr3+ at 50 ppma*cm plus h.-Cr3+ pair at 0.6 ppma*cm; the combination and the amounts are chosen, not measured on a stone",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#sapphire-padparadscha"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 404.4, width_nm = 1986.2, peak = 0.1631, shape = "energy" },
+    { center_nm = 494.8, width_nm = 1572.5, peak = 0.08291, shape = "energy" },
+    { center_nm = 548.5, width_nm = 825.2, peak = 0.06654, shape = "energy" },
+    { center_nm = 574.0, width_nm = 542.8, peak = 0.03513, shape = "energy" },
+    { center_nm = 421.2, width_nm = 702.8, peak = 0.01949, shape = "energy" },
+    { center_nm = 678.5, width_nm = 1074.7, peak = 0.002619, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 395.6, width_nm = 1238.2, peak = 0.2277, shape = "energy" },
+    { center_nm = 461.2, width_nm = 1640.3, peak = 0.06218, shape = "energy" },
+    { center_nm = 527.6, width_nm = 1011.1, peak = 0.03578, shape = "energy" },
+    { center_nm = 430.0, width_nm = 687.0, peak = 0.0316, shape = "energy" },
+    { center_nm = 557.6, width_nm = 695.4, peak = 0.01663, shape = "energy" },
+    { center_nm = 644.2, width_nm = 2249.5, peak = 0.002512, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Sapphire"
+key = "sapphire.orange"
+label = "Orange"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Measured h.-Cr3+ and h.-Fe3+ pair cross sections combined at chosen amounts; no stone measured.",
+  "Dubinsky, Stone-Sundberg & Emmett 2020, G&G 56(1) 2-28, absorption cross-section supplement (data/reference_spectra/gia_dubinsky2020_corundum_six_chromophores_sigma_1nm.csv): h.-Cr3+ pair at 1.2 ppma*cm plus h.-Fe3+ pair at 0.5 ppma*cm; the amounts are chosen",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#sapphire-orange"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 377.0, width_nm = 2838.1, peak = 0.248, shape = "energy" },
+    { center_nm = 463.6, width_nm = 1712.0, peak = 0.1589, shape = "energy" },
+    { center_nm = 505.4, width_nm = 1421.1, peak = 0.06217, shape = "energy" },
+    { center_nm = 704.7, width_nm = 1193.8, peak = 0.002609, shape = "energy" },
+    { center_nm = 634.9, width_nm = 743.7, peak = 0.001747, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 352.9, width_nm = 3999.2, peak = 0.2501, shape = "energy" },
+    { center_nm = 471.7, width_nm = 1779.2, peak = 0.09122, shape = "energy" },
+    { center_nm = 521.6, width_nm = 1168.3, peak = 0.01314, shape = "energy" },
+    { center_nm = 737.4, width_nm = 445.0, peak = 0.002268, shape = "energy" },
+    { center_nm = 661.9, width_nm = 941.7, peak = 0.002098, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Sapphire"
+key = "sapphire.cornflower"
+label = "Cornflower"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Measured Fe2+-Ti4+ pair cross sections at a chosen lighter density; no published color target.",
+  "Dubinsky, Stone-Sundberg & Emmett 2020, G&G 56(1) 2-28, absorption cross-section supplement (data/reference_spectra/gia_dubinsky2020_corundum_six_chromophores_sigma_1nm.csv): Fe2+-Ti4+ pair at 6 ppma*cm (0.6 of the Sapphire default density); the strength is chosen",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#sapphire-cornflower"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 590.9, width_nm = 2261.6, peak = 0.1042, shape = "energy" },
+    { center_nm = 741.4, width_nm = 1272.5, peak = 0.0384, shape = "energy" },
+    { center_nm = 484.8, width_nm = 6794.6, peak = 0.02639, shape = "energy" },
+    { center_nm = 563.8, width_nm = 1080.3, peak = 0.01588, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 719.2, width_nm = 2465.9, peak = 0.08279, shape = "energy" },
+    { center_nm = 459.4, width_nm = 4349.1, peak = 0.03259, shape = "energy" },
+    { center_nm = 557.6, width_nm = 1096.3, peak = 0.008701, shape = "energy" },
+    { center_nm = 488.9, width_nm = 1141.9, peak = 0.007648, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Sapphire"
+key = "sapphire.deep_blue"
+label = "Deep Blue"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Measured Fe2+-Ti4+ pair cross sections at a chosen deeper density; no published color target.",
+  "Dubinsky, Stone-Sundberg & Emmett 2020, G&G 56(1) 2-28, absorption cross-section supplement (data/reference_spectra/gia_dubinsky2020_corundum_six_chromophores_sigma_1nm.csv): Fe2+-Ti4+ pair at 15 ppma*cm (1.5 of the Sapphire default density); the strength is chosen",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#sapphire-deep-blue"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 634.4, width_nm = 3858.6, peak = 0.2643, shape = "energy" },
+    { center_nm = 566.2, width_nm = 1369.6, peak = 0.1118, shape = "energy" },
+    { center_nm = 394.5, width_nm = 2280.2, peak = 0.03977, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 869.5, width_nm = 4734.8, peak = 0.2698, shape = "energy" },
+    { center_nm = 434.1, width_nm = 3687.1, peak = 0.06561, shape = "energy" },
+    { center_nm = 478.8, width_nm = 847.1, peak = 0.008812, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Sapphire"
+key = "sapphire.purple"
+label = "Purple"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Measured Cr3+ and Fe2+-Ti4+ cross sections combined at chosen amounts; no analysed stone.",
+  "Dubinsky, Stone-Sundberg & Emmett 2020, G&G 56(1) 2-28, absorption cross-section supplement (data/reference_spectra/gia_dubinsky2020_corundum_six_chromophores_sigma_1nm.csv): Cr3+ at 80 ppma*cm plus Fe2+-Ti4+ at 3 ppma*cm; the amounts are chosen",
+  "Caltech Mineral Spectroscopy Server, G. R. Rossman, CC BY-NC 4.0: GRR 3614 violet sapphire, both rays, qualitative check only (baseline over-corrected) (data/reference_spectra/variant_sapphire_purple_grr3614_eperpc_6p26mm.csv)",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#sapphire-purple"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 404.5, width_nm = 1243.3, peak = 0.1564, shape = "energy" },
+    { center_nm = 545.5, width_nm = 922.5, peak = 0.1118, shape = "energy" },
+    { center_nm = 571.0, width_nm = 607.4, peak = 0.07334, shape = "energy" },
+    { center_nm = 613.5, width_nm = 3551.7, peak = 0.06189, shape = "energy" },
+    { center_nm = 426.8, width_nm = 681.4, peak = 0.03316, shape = "energy" },
+    { center_nm = 513.0, width_nm = 1604.3, peak = 0.01112, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 396.7, width_nm = 1436.3, peak = 0.2837, shape = "energy" },
+    { center_nm = 550.7, width_nm = 1054.1, peak = 0.06325, shape = "energy" },
+    { center_nm = 703.1, width_nm = 1260.2, peak = 0.0464, shape = "energy" },
+    { center_nm = 489.7, width_nm = 1982.4, peak = 0.02589, shape = "energy" },
+    { center_nm = 433.1, width_nm = 473.2, peak = 0.01423, shape = "energy" },
+    { center_nm = 628.1, width_nm = 638.8, peak = 0.01185, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Sapphire"
+key = "sapphire.green"
+label = "Green"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Measured Fe2+-Ti4+ and Fe3+ cross sections combined at typical basalt-type amounts; no analysed stone.",
+  "Dubinsky, Stone-Sundberg & Emmett 2020, G&G 56(1) 2-28, absorption cross-section supplement (data/reference_spectra/gia_dubinsky2020_corundum_six_chromophores_sigma_1nm.csv): Fe2+-Ti4+ at 7 ppma*cm plus Fe3+ at 1800 ppma*cm (basalt-type amounts, chosen)",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#sapphire-green"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 312.0, width_nm = 2316.9, peak = 29.48, shape = "energy" },
+    { center_nm = 452.9, width_nm = 632.0, peak = 0.4429, shape = "energy" },
+    { center_nm = 529.8, width_nm = 2012.5, peak = 0.1348, shape = "energy" },
+    { center_nm = 704.1, width_nm = 1568.5, peak = 0.1338, shape = "energy" },
+    { center_nm = 580.0, width_nm = 1342.6, peak = 0.09358, shape = "energy" },
+    { center_nm = 424.0, width_nm = 555.2, peak = 0.0882, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 383.6, width_nm = 507.3, peak = 0.6011, shape = "energy" },
+    { center_nm = 453.8, width_nm = 578.0, peak = 0.3247, shape = "energy" },
+    { center_nm = 310.9, width_nm = 6794.2, peak = 0.2821, shape = "energy" },
+    { center_nm = 710.5, width_nm = 2030.6, peak = 0.1078, shape = "energy" },
+    { center_nm = 545.3, width_nm = 1508.9, peak = 0.04012, shape = "energy" },
+    { center_nm = 428.3, width_nm = 301.4, peak = 0.01917, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Sapphire"
+key = "sapphire.colorless"
+label = "Colorless"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "No chromophore: empty band sets, estimated; trace Fe3+ (C* about 2 at 7 mm) is not modelled.",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#sapphire-colorless"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = []
+  e_ray = []
+
+[[variant]]
+material = "Ruby"
+key = "ruby.pinkish_red"
+label = "Pinkish Red"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = false
+sources = [
+  "Dubinsky, Stone-Sundberg & Emmett 2020, G&G 56(1) 2-28, absorption cross-section supplement (data/reference_spectra/gia_dubinsky2020_corundum_six_chromophores_sigma_1nm.csv): Cr3+ at 300 ppma*cm",
+  "GIA Appendix 2 Cr3+ colors at 200 and 375 ppma*cm bracket the target",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#ruby-pinkish-red"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 317.3, width_nm = 4491.4, peak = 0.5035, shape = "energy" },
+    { center_nm = 409.3, width_nm = 847.5, peak = 0.4484, shape = "energy" },
+    { center_nm = 542.8, width_nm = 1021.7, peak = 0.3626, shape = "energy" },
+    { center_nm = 558.2, width_nm = 575.9, peak = 0.2042, shape = "energy" },
+    { center_nm = 579.9, width_nm = 455.1, peak = 0.1424, shape = "energy" },
+    { center_nm = 431.5, width_nm = 581.2, peak = 0.1342, shape = "energy" },
+    { center_nm = 704.8, width_nm = 972.6, peak = 0.007504, shape = "energy" },
+    { center_nm = 665.0, width_nm = 212.3, peak = 0.004003, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 397.2, width_nm = 1067.8, peak = 1.048, shape = "energy" },
+    { center_nm = 534.3, width_nm = 989.3, peak = 0.148, shape = "energy" },
+    { center_nm = 426.8, width_nm = 496.3, peak = 0.1424, shape = "energy" },
+    { center_nm = 435.6, width_nm = 1231.2, peak = 0.09456, shape = "energy" },
+    { center_nm = 558.1, width_nm = 654.3, peak = 0.07263, shape = "energy" },
+    { center_nm = 439.4, width_nm = 341.7, peak = 0.04465, shape = "energy" },
+    { center_nm = 449.2, width_nm = 236.0, peak = 0.009, shape = "energy" },
+    { center_nm = 672.2, width_nm = 1207.6, peak = 0.005697, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Ruby"
+key = "ruby.thai"
+label = "Thai"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Measured o-ray of one Thai ruby; the e-ray is estimated from the GIA Cr3+ cross section.",
+  "Caltech Mineral Spectroscopy Server, G. R. Rossman, CC BY-NC 4.0: GRR 1843 Thai ruby, E perp c, measured o-ray scaled by one factor (data/reference_spectra/variant_ruby_thai_grr1843_eperpc_0p758mm_27c.csv)",
+  "Dubinsky, Stone-Sundberg & Emmett 2020, G&G 56(1) 2-28, absorption cross-section supplement (data/reference_spectra/gia_dubinsky2020_corundum_six_chromophores_sigma_1nm.csv): Cr3+ E par c cross section builds the e-ray (not measured on any Thai ruby; estimated)",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#ruby-thai"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 410.7, width_nm = 1460.2, peak = 1.686, shape = "energy" },
+    { center_nm = 542.0, width_nm = 910.9, peak = 0.934, shape = "energy" },
+    { center_nm = 572.4, width_nm = 584.9, peak = 0.9076, shape = "energy" },
+    { center_nm = 426.5, width_nm = 335.5, peak = 0.1202, shape = "energy" },
+    { center_nm = 542.6, width_nm = 1651.8, peak = 0.06178, shape = "energy" },
+    { center_nm = 667.6, width_nm = 212.3, peak = 0.01563, shape = "energy" },
+    { center_nm = 701.6, width_nm = 212.3, peak = 0.0149, shape = "energy" },
+    { center_nm = 781.7, width_nm = 1185.1, peak = 0.002465, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 398.7, width_nm = 1250.0, peak = 2.81, shape = "energy" },
+    { center_nm = 542.8, width_nm = 938.3, peak = 0.5229, shape = "energy" },
+    { center_nm = 444.8, width_nm = 850.9, peak = 0.4454, shape = "energy" },
+    { center_nm = 429.2, width_nm = 408.2, peak = 0.2636, shape = "energy" },
+    { center_nm = 586.4, width_nm = 461.3, peak = 0.1198, shape = "energy" },
+    { center_nm = 498.9, width_nm = 425.3, peak = 0.0557, shape = "energy" },
+    { center_nm = 706.5, width_nm = 808.6, peak = 0.01399, shape = "energy" },
+    { center_nm = 655.1, width_nm = 355.3, peak = 0.009055, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Ruby"
+key = "ruby.pigeons_blood"
+label = "Pigeon's Blood"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "GIA Cr3+ cross sections at 1.25x the Ruby default density; the pure-red look is estimated.",
+  "Dubinsky, Stone-Sundberg & Emmett 2020, G&G 56(1) 2-28, absorption cross-section supplement (data/reference_spectra/gia_dubinsky2020_corundum_six_chromophores_sigma_1nm.csv): Cr3+ at 1000 ppma*cm (Cr only, Fe-poor Mogok type); estimated deeper pure red, 1.25x the Ruby default density",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#ruby-pigeons-blood"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 411.3, width_nm = 1111.1, peak = 2.071, shape = "energy" },
+    { center_nm = 541.3, width_nm = 985.2, peak = 1.334, shape = "energy" },
+    { center_nm = 569.5, width_nm = 576.3, peak = 0.9801, shape = "energy" },
+    { center_nm = 475.8, width_nm = 638.2, peak = 0.08711, shape = "energy" },
+    { center_nm = 698.4, width_nm = 1499.3, peak = 0.02547, shape = "energy" },
+    { center_nm = 665.6, width_nm = 212.3, peak = 0.01141, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 402.1, width_nm = 1334.0, peak = 3.126, shape = "energy" },
+    { center_nm = 533.1, width_nm = 1030.4, peak = 0.4709, shape = "energy" },
+    { center_nm = 556.7, width_nm = 645.6, peak = 0.2631, shape = "energy" },
+    { center_nm = 471.5, width_nm = 451.8, peak = 0.03936, shape = "energy" },
+    { center_nm = 700.9, width_nm = 2055.7, peak = 0.01558, shape = "energy" },
+    { center_nm = 660.1, width_nm = 362.0, peak = 0.004892, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Spinel"
+key = "spinel.pink"
+label = "Pink"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (Caltech JQ-13).",
+  "Caltech Mineral Spectroscopy Server, G. R. Rossman, CC BY-NC 4.0: JQ-13 red spinel, Sri Lanka, baseline corrected, one strength factor 0.13 (data/reference_spectra/variant_spinel_red_jq13_1p52mm.csv)",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#spinel-pink"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 401.8, width_nm = 1695.9, peak = 0.2094, shape = "energy" },
+    { center_nm = 542.0, width_nm = 987.3, peak = 0.1184, shape = "energy" },
+    { center_nm = 492.3, width_nm = 1273.0, peak = 0.03991, shape = "energy" },
+    { center_nm = 628.0, width_nm = 1073.2, peak = 0.008379, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 401.8, width_nm = 1695.9, peak = 0.2094, shape = "energy" },
+    { center_nm = 542.0, width_nm = 987.3, peak = 0.1184, shape = "energy" },
+    { center_nm = 492.3, width_nm = 1273.0, peak = 0.03991, shape = "energy" },
+    { center_nm = 628.0, width_nm = 1073.2, peak = 0.008379, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Spinel"
+key = "spinel.cobalt_blue"
+label = "Cobalt Blue"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 3017).",
+  "Caltech Mineral Spectroscopy Server, G. R. Rossman, CC BY-NC 4.0: GRR 3017 cobalt-blue spinel, Vietnam, one strength factor 0.31 (data/reference_spectra/variant_spinel_cobalt_blue_grr3017_1p435mm.csv)",
+  "GRR 2381 (variant_spinel_cobalt_blue_grr2381_0p849mm.csv) is a second cobalt-blue stone, not fitted",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#spinel-cobalt-blue"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 594.7, width_nm = 553.7, peak = 0.3046, shape = "energy" },
+    { center_nm = 630.1, width_nm = 324.2, peak = 0.2412, shape = "energy" },
+    { center_nm = 556.1, width_nm = 778.3, peak = 0.2294, shape = "energy" },
+    { center_nm = 376.1, width_nm = 2214.9, peak = 0.0472, shape = "energy" },
+    { center_nm = 606.3, width_nm = 1156.7, peak = 0.02016, shape = "energy" },
+    { center_nm = 463.4, width_nm = 1218.8, peak = 0.01326, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 594.7, width_nm = 553.7, peak = 0.3046, shape = "energy" },
+    { center_nm = 630.1, width_nm = 324.2, peak = 0.2412, shape = "energy" },
+    { center_nm = 556.1, width_nm = 778.3, peak = 0.2294, shape = "energy" },
+    { center_nm = 376.1, width_nm = 2214.9, peak = 0.0472, shape = "energy" },
+    { center_nm = 606.3, width_nm = 1156.7, peak = 0.02016, shape = "energy" },
+    { center_nm = 463.4, width_nm = 1218.8, peak = 0.01326, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Spinel"
+key = "spinel.lavender"
+label = "Lavender"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = false
+sources = [
+  "Caltech Mineral Spectroscopy Server, G. R. Rossman, CC BY-NC 4.0: JQ-7 pale lavender spinel (Fe2+ with minor Cr3+), one path factor of 1.0 cm over the measured 0.0711 cm (data/reference_spectra/variant_spinel_lavender_jq7_0p711mm.csv)",
+  "Belley & Palke, G&G 57(3) 2021 (chemistry of grey-violet and purple spinels)",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#spinel-lavender"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 366.8, width_nm = 2154.8, peak = 0.3621, shape = "energy" },
+    { center_nm = 557.5, width_nm = 2001.8, peak = 0.0979, shape = "energy" },
+    { center_nm = 461.0, width_nm = 663.0, peak = 0.05714, shape = "energy" },
+    { center_nm = 657.6, width_nm = 673.6, peak = 0.02364, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 366.8, width_nm = 2154.8, peak = 0.3621, shape = "energy" },
+    { center_nm = 557.5, width_nm = 2001.8, peak = 0.0979, shape = "energy" },
+    { center_nm = 461.0, width_nm = 663.0, peak = 0.05714, shape = "energy" },
+    { center_nm = 657.6, width_nm = 673.6, peak = 0.02364, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Spinel"
+key = "spinel.purple"
+label = "Purple"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Measured Cr3+ (JQ-13) and Co2+ (GRR 3017) spectra combined at chosen strengths; no purple spinel measured.",
+  "Caltech Mineral Spectroscopy Server, G. R. Rossman, CC BY-NC 4.0: JQ-13 Cr3+ spectrum, one factor (data/reference_spectra/variant_spinel_red_jq13_1p52mm.csv)",
+  "Caltech Mineral Spectroscopy Server, G. R. Rossman, CC BY-NC 4.0: GRR 3017 Co2+ spectrum, one factor (data/reference_spectra/variant_spinel_cobalt_blue_grr3017_1p435mm.csv)",
+  "Belley & Palke, G&G 57(3) 2021 (Cr + Co purple spinel); the two factors are chosen (equal peak heights, 1.2 cm^-1 each over 0.88 cm)",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#spinel-purple"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 395.0, width_nm = 2023.1, peak = 0.178, shape = "energy" },
+    { center_nm = 547.3, width_nm = 809.8, peak = 0.09218, shape = "energy" },
+    { center_nm = 594.5, width_nm = 661.0, peak = 0.08101, shape = "energy" },
+    { center_nm = 534.2, width_nm = 1755.0, peak = 0.06544, shape = "energy" },
+    { center_nm = 631.0, width_nm = 296.1, peak = 0.05245, shape = "energy" },
+    { center_nm = 424.7, width_nm = 316.8, peak = 0.01055, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 395.0, width_nm = 2023.1, peak = 0.178, shape = "energy" },
+    { center_nm = 547.3, width_nm = 809.8, peak = 0.09218, shape = "energy" },
+    { center_nm = 594.5, width_nm = 661.0, peak = 0.08101, shape = "energy" },
+    { center_nm = 534.2, width_nm = 1755.0, peak = 0.06544, shape = "energy" },
+    { center_nm = 631.0, width_nm = 296.1, peak = 0.05245, shape = "energy" },
+    { center_nm = 424.7, width_nm = 316.8, peak = 0.01055, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Chrysoberyl (Yellow)"
+key = "chrysoberyl__yellow_.greenish_yellow"
+label = "Greenish Yellow"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; beta and gamma rays measured (GRR 171), alpha ray estimated.",
+  "Measured beta and gamma rays of one stone; the alpha ray is estimated",
+  "Caltech Mineral Spectroscopy Server, G. R. Rossman, CC BY-NC 4.0: GRR 171 beta ray (E||a) (data/reference_spectra/variant_chrysoberyl_yellow_grr171_beta_1p193mm.csv)",
+  "Caltech Mineral Spectroscopy Server, G. R. Rossman, CC BY-NC 4.0: GRR 171 gamma ray (E||b) (data/reference_spectra/variant_chrysoberyl_yellow_grr171_gamma_1p193mm.csv)",
+  "alpha ray (E||c) is estimated as the mean of beta and gamma (no alpha spectrum exists); one factor 0.3 for all three rays",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#chrysoberyl-greenish-yellow"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 261.8, width_nm = 4265.3, peak = 8.45, shape = "energy" },
+    { center_nm = 442.6, width_nm = 439.0, peak = 0.1003, shape = "energy" },
+    { center_nm = 449.3, width_nm = 3161.0, peak = 0.05931, shape = "energy" },
+    { center_nm = 433.7, width_nm = 727.4, peak = 0.04217, shape = "energy" },
+    { center_nm = 440.9, width_nm = 212.3, peak = 0.0201, shape = "energy" },
+    { center_nm = 635.2, width_nm = 1353.1, peak = 0.008478, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 255.6, width_nm = 5483.0, peak = 4.058, shape = "energy" },
+    { center_nm = 442.7, width_nm = 388.4, peak = 0.1686, shape = "energy" },
+    { center_nm = 436.9, width_nm = 851.9, peak = 0.114, shape = "energy" },
+    { center_nm = 482.3, width_nm = 1148.0, peak = 0.04689, shape = "energy" },
+    { center_nm = 539.5, width_nm = 1293.5, peak = 0.02565, shape = "energy" },
+    { center_nm = 627.4, width_nm = 1320.5, peak = 0.01259, shape = "energy" },
+  ]
+  beta_ray = [
+    { center_nm = 354.7, width_nm = 768.6, peak = 2.846, shape = "energy" },
+    { center_nm = 384.1, width_nm = 3889.0, peak = 0.07223, shape = "energy" },
+    { center_nm = 440.0, width_nm = 547.3, peak = 0.04355, shape = "energy" },
+    { center_nm = 439.0, width_nm = 283.8, peak = 0.01741, shape = "energy" },
+    { center_nm = 629.0, width_nm = 1465.5, peak = 0.01332, shape = "energy" },
+    { center_nm = 511.0, width_nm = 1505.3, peak = 0.01171, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Alexandrite"
+key = "alexandrite.strong_change"
+label = "Strong Change"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Beta and gamma rays measured (GRR 874) with Fe3+ from GRR 171; alpha ray and strengths estimated.",
+  "Measured beta and gamma rays of one stone; the alpha ray and the strengths are estimated",
+  "Caltech Mineral Spectroscopy Server, G. R. Rossman, CC BY-NC 4.0: GRR 874 alexandrite beta ray (data/reference_spectra/caltech_chrysoberyl_grr874_beta_ch874a_0p717mm.csv)",
+  "Caltech Mineral Spectroscopy Server, G. R. Rossman, CC BY-NC 4.0: GRR 874 alexandrite gamma ray (data/reference_spectra/variant_alexandrite_grr874_gamma_0p717mm.csv)",
+  "Farrell & Newnham 1965, Am. Mineral. 50, 1972 (axes and the alpha-ray ratios, figure-read); Fe3+ from GRR 171 (variant_chrysoberyl_yellow_grr171_*.csv); strengths Cr 0.15, Fe3+ 0.10 chosen from the D65 / 3200 K target colors",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#alexandrite-strong-change"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 401.1, width_nm = 1443.5, peak = 0.3566, shape = "energy" },
+    { center_nm = 578.0, width_nm = 831.8, peak = 0.346, shape = "energy" },
+    { center_nm = 435.0, width_nm = 1073.4, peak = 0.3285, shape = "energy" },
+    { center_nm = 537.9, width_nm = 1026.3, peak = 0.2167, shape = "energy" },
+    { center_nm = 444.2, width_nm = 313.6, peak = 0.08322, shape = "energy" },
+    { center_nm = 683.2, width_nm = 419.6, peak = 0.00363, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 410.4, width_nm = 1556.7, peak = 0.5064, shape = "energy" },
+    { center_nm = 585.0, width_nm = 832.8, peak = 0.425, shape = "energy" },
+    { center_nm = 615.3, width_nm = 653.7, peak = 0.3268, shape = "energy" },
+    { center_nm = 441.0, width_nm = 584.1, peak = 0.2138, shape = "energy" },
+    { center_nm = 565.6, width_nm = 1286.7, peak = 0.1555, shape = "energy" },
+    { center_nm = 469.7, width_nm = 212.3, peak = 0.0215, shape = "energy" },
+  ]
+  beta_ray = [
+    { center_nm = 414.5, width_nm = 1469.9, peak = 0.7029, shape = "energy" },
+    { center_nm = 437.7, width_nm = 700.3, peak = 0.3035, shape = "energy" },
+    { center_nm = 570.6, width_nm = 836.3, peak = 0.1146, shape = "energy" },
+    { center_nm = 534.9, width_nm = 1101.0, peak = 0.06328, shape = "energy" },
+    { center_nm = 467.6, width_nm = 224.4, peak = 0.04698, shape = "energy" },
+    { center_nm = 641.5, width_nm = 867.3, peak = 0.01217, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Alexandrite"
+key = "alexandrite.brazilian"
+label = "Brazilian"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Beta and gamma rays measured (GRR 874) with Fe3+ from GRR 171; alpha ray and strengths estimated.",
+  "Measured beta and gamma rays of one stone; the alpha ray and the strengths are estimated",
+  "Caltech Mineral Spectroscopy Server, G. R. Rossman, CC BY-NC 4.0: GRR 874 alexandrite beta ray (data/reference_spectra/caltech_chrysoberyl_grr874_beta_ch874a_0p717mm.csv)",
+  "Caltech Mineral Spectroscopy Server, G. R. Rossman, CC BY-NC 4.0: GRR 874 alexandrite gamma ray (data/reference_spectra/variant_alexandrite_grr874_gamma_0p717mm.csv)",
+  "Farrell & Newnham 1965, Am. Mineral. 50, 1972 (axes and the alpha-ray ratios, figure-read); GIA W2019 alexandrite origin table (Brazil: more Fe than Russia); Fe3+ from GRR 171; strengths Cr 0.15, Fe3+ 0.25 chosen",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#alexandrite-brazilian"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 431.8, width_nm = 1186.1, peak = 0.4283, shape = "energy" },
+    { center_nm = 576.3, width_nm = 870.8, peak = 0.3739, shape = "energy" },
+    { center_nm = 390.2, width_nm = 1670.9, peak = 0.3566, shape = "energy" },
+    { center_nm = 533.5, width_nm = 1061.9, peak = 0.203, shape = "energy" },
+    { center_nm = 443.3, width_nm = 352.8, peak = 0.1446, shape = "energy" },
+    { center_nm = 681.8, width_nm = 483.4, peak = 0.007961, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 431.2, width_nm = 1130.6, peak = 0.528, shape = "energy" },
+    { center_nm = 612.4, width_nm = 688.3, peak = 0.445, shape = "energy" },
+    { center_nm = 391.6, width_nm = 1152.8, peak = 0.4279, shape = "energy" },
+    { center_nm = 578.2, width_nm = 812.5, peak = 0.3968, shape = "energy" },
+    { center_nm = 442.4, width_nm = 329.9, peak = 0.1835, shape = "energy" },
+    { center_nm = 551.2, width_nm = 1611.0, peak = 0.117, shape = "energy" },
+  ]
+  beta_ray = [
+    { center_nm = 430.3, width_nm = 1019.2, peak = 0.8755, shape = "energy" },
+    { center_nm = 394.7, width_nm = 868.7, peak = 0.4685, shape = "energy" },
+    { center_nm = 567.9, width_nm = 889.8, peak = 0.1183, shape = "energy" },
+    { center_nm = 524.8, width_nm = 1685.8, peak = 0.06418, shape = "energy" },
+    { center_nm = 468.1, width_nm = 212.3, peak = 0.03668, shape = "energy" },
+    { center_nm = 655.8, width_nm = 816.1, peak = 0.01311, shape = "energy" },
+  ]
+
+[[variant]]
+material = "Alexandrite"
+key = "alexandrite.sri_lankan"
+label = "Sri Lankan"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Beta and gamma rays measured (GRR 874) with Fe3+ from GRR 171; alpha ray and strengths estimated.",
+  "Measured beta and gamma rays of one stone; the alpha ray and the strengths are estimated",
+  "Caltech Mineral Spectroscopy Server, G. R. Rossman, CC BY-NC 4.0: GRR 874 alexandrite beta ray (data/reference_spectra/caltech_chrysoberyl_grr874_beta_ch874a_0p717mm.csv)",
+  "Caltech Mineral Spectroscopy Server, G. R. Rossman, CC BY-NC 4.0: GRR 874 alexandrite gamma ray (data/reference_spectra/variant_alexandrite_grr874_gamma_0p717mm.csv)",
+  "Farrell & Newnham 1965, Am. Mineral. 50, 1972 (axes and the alpha-ray ratios, figure-read); GIA W2019 alexandrite origin table (Sri Lanka: low Cr, high Fe); Fe3+ from GRR 171; strengths Cr 0.06, Fe3+ 0.35 chosen",
+]
+fit_record = "docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#alexandrite-sri-lankan"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 295.7, width_nm = 2793.8, peak = 11.76, shape = "energy" },
+    { center_nm = 424.7, width_nm = 1512.2, peak = 0.2992, shape = "energy" },
+    { center_nm = 573.9, width_nm = 943.6, peak = 0.1803, shape = "energy" },
+    { center_nm = 442.2, width_nm = 412.5, peak = 0.1707, shape = "energy" },
+    { center_nm = 522.5, width_nm = 1084.6, peak = 0.08626, shape = "energy" },
+    { center_nm = 677.5, width_nm = 867.4, peak = 0.008234, shape = "energy" },
+    { center_nm = 668.1, width_nm = 222.2, peak = 0.002864, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 311.6, width_nm = 4338.1, peak = 1.024, shape = "energy" },
+    { center_nm = 442.4, width_nm = 392.1, peak = 0.2418, shape = "energy" },
+    { center_nm = 431.3, width_nm = 1119.3, peak = 0.2231, shape = "energy" },
+    { center_nm = 588.3, width_nm = 967.3, peak = 0.22, shape = "energy" },
+    { center_nm = 612.0, width_nm = 650.7, peak = 0.09475, shape = "energy" },
+    { center_nm = 528.7, width_nm = 2039.3, peak = 0.05897, shape = "energy" },
+    { center_nm = 504.3, width_nm = 212.3, peak = 0.003617, shape = "energy" },
+  ]
+  beta_ray = [
+    { center_nm = 343.7, width_nm = 1026.9, peak = 9.046, shape = "energy" },
+    { center_nm = 417.0, width_nm = 1558.4, peak = 0.37, shape = "energy" },
+    { center_nm = 439.1, width_nm = 543.2, peak = 0.1453, shape = "energy" },
+    { center_nm = 566.9, width_nm = 986.5, peak = 0.07404, shape = "energy" },
+    { center_nm = 509.7, width_nm = 1033.8, peak = 0.03698, shape = "energy" },
+    { center_nm = 466.8, width_nm = 255.9, peak = 0.0211, shape = "energy" },
+    { center_nm = 653.6, width_nm = 966.8, peak = 0.01639, shape = "energy" },
+  ]

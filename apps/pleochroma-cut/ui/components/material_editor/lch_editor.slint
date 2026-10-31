@@ -1,0 +1,269 @@
+import { Slider, LineEdit } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { BodyColorEditorModel } from "../../models/body_color_editor.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { ColorPicker } from "color_picker.slint";
+import { TipButton } from "../compact_controls.slint";
+import { TipBox, FieldCaption } from "../tip_box.slint";
+import { ChipToggle } from "../chip_toggle.slint";
+
+// One labelled slider with a readout: Tone, Saturation or Hue.
+component LchRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> hint;
+    in property <string> value_text;
+    in property <float> minimum;
+    in property <float> maximum;
+    in property <bool> enabled: true;
+    in-out property <float> value;
+    callback moved();
+
+    spacing: 6px;
+    FieldCaption {
+        width: 64px;
+        text: root.label;
+        hint: root.hint;
+    }
+    TipBox {
+        horizontal-stretch: 1;
+        hint: root.hint;
+        Slider {
+            enabled: root.enabled;
+            minimum: root.minimum;
+            maximum: root.maximum;
+            value <=> root.value;
+            accessible-label: root.label;
+            accessible-description: root.hint;
+            changed(v) => { root.moved(); }
+        }
+    }
+    Text {
+        width: 34px;
+        text: root.value_text;
+        font-size: 10px;
+        color: Theme.text-secondary;
+        vertical-alignment: center;
+        horizontal-alignment: right;
+        accessible-role: AccessibleRole.text;
+    }
+}
+
+// The path-aware body-colour editor: Tone (L*), Saturation (C*) and Hue (h) sliders, the
+// existing hue/saturation/brightness picker as an alternative input ("Use picker..."), a
+// reachability badge and swatches of the solved colour at 3 mm, 5 mm, 10 mm and the open
+// stone's own path -- the colour of a gem depends on its size, so the same pick is deeper in
+// a larger stone. All state is `BodyColorEditorModel` (solved by Rust on a background thread);
+// `applied` fires after "Apply colour" asked Rust to store the colour, `cancelled` closes the
+// editor without a change. The caller opens it and calls `BodyColorEditorModel.open_requested()`.
+export component LchEditor inherits Rectangle {
+    in property <bool> enabled: true;
+    // The tooltip of "Apply colour": what the colour is applied to depends on the caller.
+    in property <string> apply_hint: "Use this color for the design. It is one step you can undo.";
+    callback applied();
+    callback cancelled();
+
+    property <bool> picker_open: false;
+    // The "Save as Variant..." name row is open, and the name typed in it.
+    property <bool> naming: false;
+    property <string> variant_name: "";
+
+    // Saves the colors under the typed name; the name row closes and the editor is done only when
+    // Rust saved them (otherwise the reason is a toast and the row stays for another name).
+    function save_variant() {
+        if (root.variant_name != "" && BodyColorEditorModel.save_variant_requested(root.variant_name)) {
+            root.naming = false;
+            root.applied();
+        }
+    }
+
+    background: Theme.surface-sunken;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    border-color: Theme.border-dialog;
+    height: content.preferred-height;
+
+    content := VerticalLayout {
+        padding: 8px;
+        spacing: 6px;
+
+        // A stone whose color depends on the direction (a two- or three-color crystal) has one
+        // row per direction: its swatch, its name and its coarse color. The sliders below edit the
+        // chosen row, so a pleochroic stone is never made one flat color by accident.
+        if BodyColorEditorModel.axis_labels.length > 1: VerticalLayout {
+            spacing: 4px;
+            Text {
+                text: "This stone shows a different color in each direction. Choose a direction, then set its tone, saturation and hue.";
+                font-size: 10px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+                accessible-role: AccessibleRole.text;
+            }
+            for axis_label[row] in BodyColorEditorModel.axis_labels: HorizontalLayout {
+                spacing: 6px;
+                Rectangle {
+                    width: 24px;
+                    border-radius: 3px;
+                    background: BodyColorEditorModel.axis_swatches[row];
+                    border-width: 1px;
+                    border-color: Theme.border-dialog;
+                    accessible-role: AccessibleRole.image;
+                    accessible-label: axis_label + " color";
+                    Tooltip { text: @markdown("\{BodyColorEditorModel.axis_hints[row]}"); }
+                }
+                ChipToggle {
+                    horizontal-stretch: 1;
+                    text: axis_label + ": " + BodyColorEditorModel.axis_families[row];
+                    hint: BodyColorEditorModel.axis_hints[row];
+                    active: BodyColorEditorModel.axis_active == row;
+                    enabled: root.enabled;
+                    toggled => { BodyColorEditorModel.axis_selected(row); }
+                }
+            }
+        }
+
+        LchRow {
+            enabled: root.enabled;
+            label: "Tone";
+            hint: "How light or dark the color is (CIE L*, 0 black to 100 white). A darker tone means more absorption.";
+            minimum: 0.0;
+            maximum: 100.0;
+            value <=> BodyColorEditorModel.tone;
+            value_text: "" + Math.round(BodyColorEditorModel.tone);
+            moved => { BodyColorEditorModel.lch_edited(BodyColorEditorModel.tone, BodyColorEditorModel.chroma, BodyColorEditorModel.hue); }
+        }
+        LchRow {
+            enabled: root.enabled;
+            label: "Saturation";
+            hint: "How rich the color is (CIE C*, 0 grey). Very rich colors are not all reachable at every size; the badge says so.";
+            minimum: 0.0;
+            maximum: 130.0;
+            value <=> BodyColorEditorModel.chroma;
+            value_text: "" + Math.round(BodyColorEditorModel.chroma);
+            moved => { BodyColorEditorModel.lch_edited(BodyColorEditorModel.tone, BodyColorEditorModel.chroma, BodyColorEditorModel.hue); }
+        }
+        LchRow {
+            enabled: root.enabled;
+            label: "Hue";
+            hint: "The basic color in degrees around the color wheel (CIE h): about 30 red, 90 yellow, 140 green, 260 blue.";
+            minimum: 0.0;
+            maximum: 360.0;
+            value <=> BodyColorEditorModel.hue;
+            value_text: "" + Math.round(BodyColorEditorModel.hue) + "\u{b0}";
+            moved => { BodyColorEditorModel.lch_edited(BodyColorEditorModel.tone, BodyColorEditorModel.chroma, BodyColorEditorModel.hue); }
+        }
+
+        // The solved colour at each reference path.
+        HorizontalLayout {
+            spacing: 6px;
+            for swatch[index] in BodyColorEditorModel.swatches: VerticalLayout {
+                spacing: 2px;
+                width: 58px;
+                Rectangle {
+                    height: 24px;
+                    border-radius: 3px;
+                    background: swatch;
+                    border-width: 1px;
+                    border-color: Theme.border-dialog;
+                    accessible-role: AccessibleRole.image;
+                    accessible-label: "Color at "+ BodyColorEditorModel.swatch_labels[index];
+                }
+                Text {
+                    text: BodyColorEditorModel.swatch_labels[index];
+                    font-size: 9px;
+                    color: Theme.text-muted;
+                    horizontal-alignment: center;
+                    overflow: elide;
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        Text {
+            text: BodyColorEditorModel.busy ? "Matching..." : BodyColorEditorModel.badge_text;
+            font-size: 10px;
+            color: BodyColorEditorModel.reachable ? Theme.text-secondary : Theme.accent-amber;
+            wrap: word-wrap;
+            accessible-role: AccessibleRole.text;
+        }
+
+        if root.picker_open: ColorPicker {
+            apply_label: "Use";
+            applied(c) => {
+                root.picker_open = false;
+                BodyColorEditorModel.picker_picked(c);
+            }
+            cancelled => { root.picker_open = false; }
+        }
+
+        // "Save as Variant...": name the colors being edited and keep them as a variant of this
+        // material, listed under My Variants for every design of it.
+        if root.naming && BodyColorEditorModel.can_save_variant: HorizontalLayout {
+            spacing: 6px;
+            TipBox {
+                horizontal-stretch: 1;
+                hint: "The name of the variant, for example Padparadscha. Enter saves it.";
+                LineEdit {
+                    min-width: 0px;
+                    text <=> root.variant_name;
+                    placeholder-text: "Variant Name";
+                    accessible-label: "Variant Name";
+                    init => { self.focus(); self.select-all(); }
+                    changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                    accepted => { root.save_variant(); }
+                }
+            }
+            TipButton {
+                enabled: root.enabled && root.variant_name != "";
+                text: "Save";
+                hint: root.variant_name == "" ? "Type a name first." : "Save these colors as a variant of this material and use it on this design. It is one step you can undo.";
+                primary: true;
+                clicked => { root.save_variant(); }
+            }
+            TipButton {
+                text: "Cancel";
+                hint: "Do not save a variant.";
+                clicked => { root.naming = false; }
+            }
+        }
+
+        // Two rows of buttons: all four in one row (Use Picker..., Save as Variant..., Cancel and
+        // Apply Color) need about 400 px, more than the Stone tab's column, and the whole panel
+        // then grew past the window's right edge.
+        HorizontalLayout {
+            spacing: 6px;
+            tip-button-picker-open := TipButton {
+                text: root.picker_open ? "Hide Picker" : "Use Picker...";
+                hint: "Choose the color with the hue, saturation and brightness picker instead; the sliders then show its tone, saturation and hue.";
+                clicked => { root.picker_open = !root.picker_open; }
+            }
+            if BodyColorEditorModel.can_save_variant: TipButton {
+                enabled: root.enabled && BodyColorEditorModel.has_solution && !BodyColorEditorModel.busy && !root.naming;
+                text: "Save as Variant...";
+                hint: "Keep these colors under a name as a variant of this material, to pick again for any design of it. The material itself and its other designs do not change.";
+                clicked => {
+                    root.variant_name = BodyColorEditorModel.suggest_variant_name();
+                    root.naming = true;
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            Rectangle { horizontal-stretch: 1; }
+            TipButton {
+                text: "Cancel";
+                hint: "Close the editor without applying a color.";
+                clicked => { root.cancelled(); }
+            }
+            TipButton {
+                enabled: root.enabled && BodyColorEditorModel.has_solution && !BodyColorEditorModel.busy;
+                text: "Apply Color";
+                hint: root.apply_hint;
+                primary: true;
+                clicked => {
+                    BodyColorEditorModel.apply_requested();
+                    root.applied();
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,60 @@
+import { Theme } from "../../theme.slint";
+
+// A word-wrapped note that is as tall as its wrapped text.
+//
+// Slint has no height-for-width: a `Text` with `wrap: word-wrap` that is a layout child reports
+// the height of ONE line, so the scrolled height of an inspector tab fell short by the extra
+// lines of every note and the last rows stayed under the end of the scroll area. Here the text
+// has an explicit width (this component's own), and its preferred height then is the wrapped
+// one, which the component takes as its height.
+export component WrapNote inherits Rectangle {
+    in property <string> text;
+    in property <length> font_size: 10px;
+    in property <int> font_weight: 400;
+    in property <brush> ink: Theme.text-muted;
+
+    height: note_text.preferred-height;
+
+    note_text := Text {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        text: root.text;
+        font-size: root.font_size;
+        font-weight: root.font_weight;
+        color: root.ink;
+        wrap: word-wrap;
+        accessible-role: AccessibleRole.text;
+    }
+}
+
+// `WarningLine` (the warning triangle and a wrapped text) with the same fix as `WrapNote`: the
+// row is as tall as the wrapped warning, so the end of a long warning is reachable by scrolling
+// and never ends under the pinned Save button.
+export component WrapWarning inherits Rectangle {
+    in property <string> text;
+    in property <color> tint: Theme.accent-amber;
+    in property <length> font_size: 10px;
+    in property <int> font_weight: 700;
+
+    height: max(warning_note.height, root.font_size + 4px);
+
+    Image {
+        x: 0px;
+        y: 1px;
+        source: @image-url("../../icons/warning.svg");
+        colorize: root.tint;
+        width: root.font_size + 3px;
+        height: root.font_size + 3px;
+        image-fit: contain;
+    }
+    warning_note := WrapNote {
+        x: root.font_size + 7px;
+        y: 0px;
+        width: root.width - self.x;
+        text: root.text;
+        font_size: root.font_size;
+        font_weight: root.font_weight;
+        ink: root.tint;
+    }
+}

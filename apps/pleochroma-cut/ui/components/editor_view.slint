@@ -1,0 +1,361 @@
+import { ScrollView } from "std-widgets.slint";
+import { EditorCommandBar } from "editor_command_bar.slint";
+import { EditorDesignSettings } from "editor_design_settings.slint";
+import { EditorTierTable } from "editor_tier_table.slint";
+import { EditorInspector } from "editor_inspector.slint";
+import { SplitHandle } from "split_handle.slint";
+import { Theme } from "../theme.slint";
+import { EditorModel } from "../models/editor.slint";
+import { GuideModel } from "../models/guide.slint";
+
+// The Edit sub-tab's resizable-width dock (see `app.slint`'s Edit-mode layout doc
+// comment for the split from the old single-file `EditorView`/why the dock sits
+// beside `SolidViewportView` instead of stacked under it): a one-row command bar,
+// the schedule-wide design settings, the tier table (the only element in the dock
+// that always stretches vertically), a resizable `SplitHandle`, and a tabbed
+// Tier/Preform/Optimize inspector below it. Kept as the exported name `EditorView`
+// since `app.slint` still imports and instantiates it under that name.
+//
+// Whole-dock scrolling: the column sits in one `ScrollView` (`dock_scroll`) whose
+// content is exactly as tall as the viewport, or as its own minimum when that is
+// taller (`max(visible-height, min-height)`), so `tier_table` keeps its
+// `vertical-stretch` against a height-constrained parent while a window too short
+// for the minimum content (768px and the 480px minimum) scrolls instead of
+// clipping. `EditorTierTable`'s `tier_scroll` and `EditorInspector`'s own
+// `ScrollView` still scroll their bodies.
+//
+// Guide-driven reveal: while the worked-example guide highlights the inspector's Tier
+// tab (`GuideModel.highlight_target == "inspector_tier"`), `reveal_tier_form` below
+// un-collapses the inspector, selects the Tier tab and grows it to at least
+// `tier_form_inspector_height` (capped by the dock), so the Angle/Meets/Name/Indices
+// rows are on screen without scrolling.
+export component EditorView inherits Rectangle {
+    background: Theme.bg-card;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+    clip: true;
+
+    // Selection mirror: a global's own callback/property can only be given a
+    // handler body from Rust or from within the file that declares it (never from
+    // another `.slint` file, unlike a CHILD element's callback, which this file sets
+    // handlers on freely below) -- so this is what lets `EditorView` react when
+    // something OTHER than this file's own `tier_table`/`inspector` wiring moves the
+    // selection: the Solid/Diagram viewport's click and "Duplicate" (both set
+    // `EditorModel.selected_tier_index` straight from Rust), and New/Load Selected/
+    // Open/Remove Tier/an out-of-range Undo/Redo (which instead bump
+    // `form_reset_pulse` -- see that property's own doc comment -- whenever the
+    // right reaction is "blank the form," not "seed it from a real row"; an
+    // edit that leaves the selected tier selected bumps `form_reset_pulse`'s sibling
+    // `form_reseed_pulse` below instead, since the selection itself did not move). `tier_table.
+    // tier_selected` below feeds the very same property for an ordinary in-list
+    // click, EXCEPT when the row clicked is already selected -- see that
+    // handler's own comment for why that one case needs more than the property
+    // write.
+    property <int> tracked_selected_tier_index: EditorModel.selected_tier_index;
+    changed tracked_selected_tier_index => {
+        inspector.load_tier_into_form(root.tracked_selected_tier_index);
+        tier_table.focus_row(root.tracked_selected_tier_index);
+    }
+    property <int> tracked_form_reset_pulse: EditorModel.form_reset_pulse;
+    changed tracked_form_reset_pulse => {
+        inspector.clear_form();
+        tier_table.focus_row(-1);
+    }
+    // Any edit that left the selected tier selected but may have changed its data
+    // (a handle drag, nudge, pin, adopt, facet edit, gear remap, retarget/optimize
+    // apply, symmetry change, in-range Undo/Redo). Bumped by the Rust no-solve panel
+    // refresh (`gui::editor::view::panel_stale::sync_tier_form_with_design`) once per
+    // design generation; `EditorInspector.reseed_after_external_change` has the
+    // per-form contract (clean form follows, dirty draft is kept and flagged).
+    // `form_reseed_tier_count_changed` is read here, not passed as an argument,
+    // since a plain `int` pulse carries no payload of its own (same idiom
+    // `filter_focus_pulse`/`form_reset_pulse` already use).
+    property <int> tracked_form_reseed_pulse: EditorModel.form_reseed_pulse;
+    changed tracked_form_reseed_pulse => {
+        inspector.reseed_after_external_change(EditorModel.form_reseed_tier_count_changed);
+    }
+
+    // Re-clamps a persisted `EditorModel.inspector_height` against THIS dock's
+    // actual height, not only against the delta the table|inspector `SplitHandle`
+    // below sees on a drag. Without this, a height restored
+    // from settings on a tall monitor is pushed back unclamped on a shorter one (or
+    // after moving a saved layout to a smaller screen) and can clip the inspector's
+    // Save/Add Tier row. Mirrors the drag handler's own clamp formula exactly:
+    // `cmd`/`settings` are this file's own `EditorCommandBar`/`EditorDesignSettings`
+    // instances below, `tier_table.min-height` is its natural content minimum, `6px` is the
+    // `SplitHandle`'s fixed thickness, and `56px` is this layout's own 12px top/
+    // bottom padding plus its four 8px gaps (cmd, settings, table, handle, inspector).
+    function reclamp_inspector_height() {
+        EditorModel.inspector_height = clamp(
+            EditorModel.inspector_height,
+            root.inspector_floor,
+            root.inspector_height_ceiling()
+        );
+    }
+    // The least the inspector can be: its OWN minimum height (`EditorInspector.min-height`: the
+    // header, the "vs Baseline" strip, a form area and, on the Tier tab, the pinned Save/Add Tier
+    // row -- about 280px there, far more than the old fixed 96px/160px). It follows the open tab
+    // and the strip's rows. While the inspector is collapsed the stored height is not applied, so
+    // the old 160px floor keeps the persisted value sane until it opens again.
+    // `base_floor`, not `min-height`: the Optimize tab makes the inspector taller than that (the dock
+    // then scrolls, `EditorInspector.grow`), and the stored height must not be clamped up to it.
+    property <length> inspector_floor: EditorModel.inspector_collapsed ? 160px : inspector.base_floor;
+    // What is left of the dock for the inspector after the command bar, the design settings, the
+    // table's current minimum (>= 4 rows of tiers), the 6px `SplitHandle`, and the dock padding
+    // plus gaps (`56px`, the same total the drag handler's `24px + 32px` spells out). May be
+    // below the inspector's floor on a short dock: the dock then scrolls (see `dock_scroll`).
+    // While the table is collapsed it needs only its 40px header row.
+    function dock_room_for_inspector() -> length {
+        return root.height - cmd.height - settings.height - tier_table.min-height - 6px - 56px;
+    }
+    // The tallest the inspector may be: `dock_room_for_inspector`, never below the floor.
+    function inspector_height_ceiling() -> length {
+        return max(root.inspector_floor, root.dock_room_for_inspector());
+    }
+    // The table minimum changes with its actual toolbar content (for example when
+    // Steps / Mirror opens). Keep the inspector within the space that remains.
+    property <length> tracked_tier_table_min_height: tier_table.min-height;
+    changed tracked_tier_table_min_height => {
+        root.fold_design_when_short();
+        root.reclamp_inspector_height();
+    }
+    // The inspector minimum changes with its tab (the Tier tab adds the Save/Add Tier row), the
+    // Baseline strip's rows and the collapsed state: re-clamp the stored height against it.
+    property <length> tracked_inspector_floor: root.inspector_floor;
+    changed tracked_inspector_floor => {
+        root.fold_design_when_short();
+        root.reclamp_inspector_height();
+    }
+
+    // DOCK HEIGHT BUDGET (1920x1080: the dock is ~870 px tall): the command bar takes ~66 px (two
+    // 32 px rows; its hover hint is an overlay and takes none), the tier table needs ~250 px for its
+    // toolbar, header and 4 rows, the inspector ~340 px (header, the 123 px Baseline strip, a form
+    // area and the pinned Save row), plus ~60 px of padding and gaps. That leaves ~150 px for
+    // DESIGN: its header only. Expanded (~330 px) it pushes the inspector below the dock's edge, so DESIGN is
+    // FOLDED whenever the dock cannot hold all of that, and the inspector then takes the freed room
+    // (`make_room_for_inspector`).
+    //
+    // This is checked again every time a size it depends on changes (the dock's height, the table's
+    // minimum, which only reaches 4 rows once the tiers have loaded, the inspector's floor), not once
+    // at mount: the first sizes after a mount are those of an empty design, for which nothing is too
+    // tall, and a one-shot check settled on "fits" and never ran again.
+    //
+    // It never fights the user: the moment DESIGN is opened (by a click, or by a guide step that
+    // points at it) the check stops for this mount (`design_fold_locked`). Only DESIGN being open
+    // after an automatic fold counts; the check itself notices that too, in case it runs before the
+    // `changed` below.
+    property <bool> design_fold_locked: false;
+    property <bool> design_auto_folded: false;
+    property <bool> tracked_settings_collapsed: EditorModel.settings_collapsed;
+    changed tracked_settings_collapsed => {
+        if !root.tracked_settings_collapsed {
+            root.design_fold_locked = true;
+        }
+    }
+    function fold_design_when_short() {
+        if root.design_fold_locked || root.height <= 0px {
+            return;
+        }
+        if root.design_auto_folded && !EditorModel.settings_collapsed {
+            root.design_fold_locked = true;
+            return;
+        }
+        if !EditorModel.settings_collapsed && !EditorModel.inspector_collapsed
+            && !EditorModel.tier_table_collapsed
+            && root.dock_room_for_inspector() < root.inspector_floor {
+            root.design_auto_folded = true;
+            EditorModel.settings_collapsed = true;
+            root.make_room_for_inspector();
+            // Once more after the layout has settled around the folded DESIGN, in case the room
+            // was measured before it had shrunk.
+            fold_settle.running = true;
+        }
+    }
+    fold_settle := Timer {
+        interval: 150ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            if root.design_auto_folded && !root.design_fold_locked && EditorModel.settings_collapsed {
+                root.make_room_for_inspector();
+            }
+        }
+    }
+    // Height the Tier tab needs to show its title, the four authored rows
+    // (Angle/Meets/Name/Indices), the pinned Save/Add row and the header/metrics
+    // strip, with ~40px of slack.
+    // The "vs Baseline" strip and its Trial buttons above the form take about 120px more.
+    property <length> tier_form_inspector_height: 460px;
+    // Brings the Tier form fully into view for the guide: un-collapses the
+    // inspector, selects the Tier tab and grows (never shrinks) the inspector to
+    // `tier_form_inspector_height`, clamped to what the dock can afford. Writing
+    // `inspector_height` fires `EditorModel.layout_changed`, so the new height
+    // persists like a manual drag would.
+    function reveal_tier_form() {
+        EditorModel.inspector_tab = 0;
+        root.make_room_for_inspector();
+    }
+    // Un-collapses the inspector and grows (never shrinks) it to
+    // `tier_form_inspector_height`, clamped to what the dock can afford. On a short window the
+    // DESIGN fields leave the inspector no room for its tab: they are folded (one click on DESIGN
+    // unfolds them again) and the inspector takes that room. Writing `inspector_height` fires
+    // `EditorModel.layout_changed`, so the new height persists like a manual drag would.
+    function make_room_for_inspector() {
+        EditorModel.inspector_collapsed = false;
+        if root.inspector_height_ceiling() < root.tier_form_inspector_height
+            && !EditorModel.settings_collapsed {
+            EditorModel.settings_collapsed = true;
+            EditorModel.inspector_height = max(EditorModel.inspector_height,
+                min(root.tier_form_inspector_height,
+                    root.inspector_height_ceiling() + settings.height - 40px));
+            return;
+        }
+        EditorModel.inspector_height = clamp(
+            max(EditorModel.inspector_height, root.tier_form_inspector_height),
+            root.inspector_floor,
+            root.inspector_height_ceiling()
+        );
+    }
+    property <string> tracked_guide_target: GuideModel.highlight_target;
+    changed tracked_guide_target => {
+        if root.tracked_guide_target == "inspector_tier" {
+            root.reveal_tier_form();
+        }
+        // A step that outlines the Preform, Optimize (Tune) or History tab works in its form or
+        // list: with DESIGN open on a 1080 px window the inspector sat below the dock's lower
+        // edge (only its header showed), so the Preform fields could not be reached.
+        if root.tracked_guide_target == "preform_tab" || root.tracked_guide_target == "optimize_tab"
+            || root.tracked_guide_target == "history_tab" {
+            root.make_room_for_inspector();
+        }
+        // A step that outlines the tier table needs it open.
+        if root.tracked_guide_target == "tier_table" {
+            EditorModel.tier_table_collapsed = false;
+        }
+        // A step that outlines DESIGN needs it open and left open: no automatic fold.
+        if root.tracked_guide_target == "design_settings" {
+            root.design_fold_locked = true;
+        }
+    }
+    // A single `init` -- Slint refuses a second one on the same element
+    // ("Duplicated callback") -- covers both the pre-existing dock reclamp AND
+    // the remount re-seed below: `EditorView` itself sits inside an `if`
+    // branch elsewhere (`app.slint`'s Edit-mode row), so a tab switch away and
+    // back destroys and recreates this whole component, including
+    // `inspector`'s own scratch state. A fresh instance's `tracked_selected_
+    // tier_index` above is bound directly to `EditorModel.selected_tier_index`
+    // from construction, so it starts already equal to it -- no `changed`
+    // fires on mount purely from that binding, and the freshly (re)created
+    // `inspector` would otherwise sit on its compiled "Add Tier" defaults
+    // instead of whatever tier was actually selected before the remount.
+    init => {
+        if GuideModel.highlight_target == "design_settings" {
+            root.design_fold_locked = true;
+        }
+        root.fold_design_when_short();
+        root.reclamp_inspector_height();
+        // Re-created on every Edit-tab remount, so a guide step already sitting on
+        // the Tier tab must reveal it here too (no `changed` fires for a binding
+        // that starts at its final value).
+        if GuideModel.highlight_target == "inspector_tier" {
+            root.reveal_tier_form();
+        }
+        if GuideModel.highlight_target == "preform_tab" || GuideModel.highlight_target == "optimize_tab"
+            || GuideModel.highlight_target == "history_tab" {
+            root.make_room_for_inspector();
+        }
+        if GuideModel.highlight_target == "tier_table" {
+            EditorModel.tier_table_collapsed = false;
+        }
+        // A fresh inspector holds its literal defaults: snapshot them so the blank form compares
+        // clean. The Edit view mounts on first use, which is after a design loaded now that the
+        // app starts on Live Render; without this the blank concave signature differed from the
+        // default "" snapshot, the form read dirty, and the first tier click put up the
+        // "unsaved changes to the new tier draft" warning.
+        inspector.snapshot_form();
+        inspector.load_tier_into_form(EditorModel.selected_tier_index);
+    }
+    changed height => {
+        root.fold_design_when_short();
+        root.reclamp_inspector_height();
+    }
+
+    // The whole dock scrolls when the window is too short for its minimum content
+    // (command bar + design settings + the table's natural minimum + handle + the inspector's
+    // own minimum, `inspector_floor`, + padding: more than the body of a 768px window and far more
+    // than that of the 480px minimum window). With room to spare the column is exactly
+    // as tall as the viewport, so the table's `vertical-stretch` still has a real,
+    // height-constrained parent to stretch into.
+    //
+    // The same goes sideways: the column is never narrower than its own minimum width (the
+    // widest child's minimum, and 560px at least: the two-row command bar and the DESIGN fields
+    // are laid out for a 600px dock). A dock squeezed below that scrolls horizontally instead of
+    // clipping "Deep Solve", Apply Symmetry or the inspector's tab pills at the dock's edge.
+    dock_scroll := ScrollView {
+        VerticalLayout {
+        width: max(dock_scroll.visible-width, max(self.min-width, 560px));
+        height: max(dock_scroll.visible-height, self.min-height);
+        padding: 12px;
+        spacing: 8px;
+
+        // Keep the inline File menu above later dock sections while it is open.
+        cmd := EditorCommandBar { z: 1; }
+        settings := EditorDesignSettings {}
+
+        // `vertical-stretch`/`min-height`/`max-height` follow
+        // `EditorModel.tier_table_collapsed` inside `EditorTierTable` itself.
+        tier_table := EditorTierTable {
+            // A plain click/Enter/"Add Anchor" selecting the row ALREADY selected
+            // (`idx == EditorModel.selected_tier_index`) makes the assignment below
+            // a no-op write: Slint's queued `changed` never fires when a property
+            // lands on the value it already had, so neither `tracked_selected_tier_index` above nor
+            // Rust's own `on_selected_tier_changed` (`solid_picking.rs`, which also
+            // clears a stale multi-select group) would run. Both are poked directly
+            // here instead for exactly that one case -- invoking a callback is an
+            // ordinary synchronous call, unlike a `changed` handler, so this is safe
+            // to do unconditionally without double-firing anything.
+            tier_selected(idx) => {
+                if idx == EditorModel.selected_tier_index {
+                    EditorModel.selected_tier_changed(idx);
+                    inspector.load_tier_into_form(idx);
+                    tier_table.focus_row(idx);
+                } else {
+                    EditorModel.selected_tier_index = idx;
+                }
+            }
+        }
+
+        // Table|inspector split -- hidden while the inspector is collapsed
+        // (its header-only row needs no handle above it; the table simply
+        // takes the freed space via its own `vertical-stretch` above) and while
+        // the table is collapsed (the inspector then stretches to fill the dock).
+        if !EditorModel.inspector_collapsed && !EditorModel.tier_table_collapsed: SplitHandle {
+            vertical: true;
+            dragged(d) => {
+                // Dragging the bar down shrinks the inspector (and hands the
+                // freed room to the table); dragging up grows it. The upper
+                // bound is what is left of the dock after the command bar,
+                // the design settings, the table's current minimum, this
+                // handle, the dock padding and the four 8px gaps -- so the
+                // inspector can never push the dock taller than its column
+                // (which the window does not follow; it would just clip).
+                EditorModel.inspector_height = clamp(
+                    EditorModel.inspector_height - d,
+                    root.inspector_floor,
+                    root.inspector_height_ceiling()
+                );
+                EditorModel.layout_changed();
+            }
+        }
+
+        inspector := EditorInspector {}
+
+        // Both table and inspector collapsed: nothing else stretches, so this
+        // keeps the two header rows at the top instead of spread over the dock.
+        if EditorModel.tier_table_collapsed && EditorModel.inspector_collapsed: Rectangle {
+            vertical-stretch: 1;
+        }
+        }
+    }
+}

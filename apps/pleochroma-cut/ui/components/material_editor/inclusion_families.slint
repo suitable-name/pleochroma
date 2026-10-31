@@ -1,0 +1,257 @@
+import { ComboBox, Slider, SpinBox } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { FormRow } from "../editor_inspector/form_row.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { ActionButton } from "../chip_toggle.slint";
+
+// One family of oriented scatterers (needles, plates or random needles) of a custom material, as
+// the editor shows it. Rust owns the conversion to and from `Family`
+// (`gui::optics::custom_materials::inclusions`).
+export struct FamilyRow {
+    // 0 = Needles, 1 = Plates, 2 = Random Needles.
+    kind: int,
+    // 0 = Along the Crystal Axis, 1 = In the Basal Plane, 2 = Along the Alpha Axis, 3 = Tilted.
+    dir: int,
+    // Turn about the crystal axis in degrees (Basal Plane and Tilted).
+    turn: float,
+    // Angle from the crystal axis in degrees (Tilted).
+    tilt: float,
+    // The density of the family: its extinction per model unit.
+    strength: float,
+    // 0 = Grey, 1 = Slightly Blue, 2 = Blue, 3 = Strong Blue.
+    color: int,
+    // The cone width of needles, or the gloss width of plates.
+    cone: float,
+    // How far the light of needles is thrown forward (0 = evenly around the cone).
+    forward: float,
+}
+
+// The state of the Inclusion Families section. It lives in this global: Rust fills `rows` when
+// the dialog's pre-fill is pushed and reads them when Save runs, and Rust owns every edit (the
+// callbacks below), so the same rules apply to the screen and to a test.
+export global InclusionFamiliesModel {
+    in-out property <[FamilyRow]> rows: [];
+    // The most families a stone carries.
+    out property <int> max_families: 4;
+    callback add_family();
+    callback remove_family(int);
+    // index, field (0 kind, 1 direction, 2 color, 3 turn, 4 tilt, 5 density, 6 cone, 7 forward), value.
+    callback edit_family(int, int, float);
+    // Plain-sentence notes for the families (character index of the dialog's combo).
+    pure callback notes([FamilyRow], int) -> string;
+    // A text that changes whenever the rows do, for the dialog's unsaved-changes check.
+    pure callback signature([FamilyRow]) -> string;
+}
+
+// The Inclusion Families section of the Gem Material Editor: up to four families of silk, growth
+// tubes or plates, each with a kind, a direction, a density, a color and a cone. They render in
+// the Live Render when a design turns Inclusions on for this material.
+export component MaterialInclusionFamilies inherits VerticalLayout {
+    // The dialog's optical character combo: 0 = Isotropic, 1/2 = Uniaxial, 3/4 = Biaxial.
+    in property <int> character_idx: 0;
+
+    spacing: 8px;
+
+    property <bool> shown: GuideModel.shows_advanced() || InclusionFamiliesModel.rows.length > 0;
+    property <string> baseline_signature;
+    out property <bool> dirty: InclusionFamiliesModel.signature(InclusionFamiliesModel.rows) != root.baseline_signature;
+
+    init => {
+        root.baseline_signature = InclusionFamiliesModel.signature(InclusionFamiliesModel.rows);
+    }
+
+    if root.shown : VerticalLayout {
+        spacing: 8px;
+
+        HorizontalLayout {
+            spacing: 10px;
+            Text {
+                text: "Inclusion Families:";
+                font-size: 11px;
+                font-weight: 600;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            ActionButton {
+                width: 100px;
+                height: 24px;
+                text: "Add Family";
+                hint: "Add a family of needles, plates or random needles. A stone holds up to four.";
+                fill: Theme.surface-raised;
+                hover_fill: Theme.surface-control-hover;
+                font_size: 10px;
+                enabled: InclusionFamiliesModel.rows.length < InclusionFamiliesModel.max_families;
+                clicked => { InclusionFamiliesModel.add_family(); }
+            }
+        }
+
+        if InclusionFamiliesModel.rows.length == 0 : Text {
+            text: "No families yet. Add one to give this material its own silk, growth tubes or plates.";
+            font-size: 9px;
+            color: Theme.text-muted;
+            wrap: word-wrap;
+        }
+
+        for row[i] in InclusionFamiliesModel.rows : Rectangle {
+            background: Theme.surface-raised;
+            border-radius: Theme.radius-sm;
+            VerticalLayout {
+                padding: 8px;
+                spacing: 6px;
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Family \{i + 1}";
+                        font-size: 11px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    ActionButton {
+                        width: 70px;
+                        height: 22px;
+                        text: "Remove";
+                        hint: "Remove this family from the material.";
+                        font_size: 10px;
+                        ink: Theme.danger;
+                        clicked => { InclusionFamiliesModel.remove_family(i); }
+                    }
+                }
+
+                FormRow {
+                    label: "Kind";
+                    tooltip: "Needles scatter light into a cone around their axis. Plates reflect like tiny mirrors. Random needles point every way, like the rutile in rutilated quartz.";
+                    label_width: 70px;
+                    ComboBox {
+                        model: ["Needles", "Plates", "Random Needles"];
+                        current-index: row.kind;
+                        accessible-label: "Inclusion Family Kind";
+                        selected(value) => { InclusionFamiliesModel.edit_family(i, 0, self.current-index); }
+                    }
+                }
+
+                if row.kind != 2 : FormRow {
+                    label: row.kind == 1 ? "Plate Normal" : "Needle Axis";
+                    tooltip: "The direction of the needles, or the direction a plate faces, measured in the crystal. The crystal axis is the one set in the Crystal Axis row above.";
+                    label_width: 70px;
+                    ComboBox {
+                        model: ["Along the Crystal Axis", "In the Basal Plane", "Along the Alpha Axis", "Tilted"];
+                        current-index: row.dir;
+                        accessible-label: "Inclusion Family Direction";
+                        selected(value) => { InclusionFamiliesModel.edit_family(i, 1, self.current-index); }
+                    }
+                }
+
+                if row.kind != 2 && (row.dir == 1 || row.dir == 3) : FormRow {
+                    label: "Turn (°)";
+                    tooltip: "Turn around the crystal axis, from the reference direction, in degrees.";
+                    label_width: 70px;
+                    SpinBox {
+                        minimum: 0;
+                        maximum: 360;
+                        value: Math.round(row.turn);
+                        accessible-label: "Inclusion Family Turn in Degrees";
+                        edited(v) => { InclusionFamiliesModel.edit_family(i, 3, v); }
+                    }
+                }
+
+                if row.kind != 2 && row.dir == 3 : FormRow {
+                    label: "Tilt (°)";
+                    tooltip: "Angle from the crystal axis, in degrees.";
+                    label_width: 70px;
+                    SpinBox {
+                        minimum: 0;
+                        maximum: 90;
+                        value: Math.round(row.tilt);
+                        accessible-label: "Inclusion Family Tilt in Degrees";
+                        edited(v) => { InclusionFamiliesModel.edit_family(i, 4, v); }
+                    }
+                }
+
+                FormRow {
+                    label: "Density";
+                    tooltip: "How strongly this family scatters light. The design's Density slider scales it further.";
+                    label_width: 70px;
+                    Slider {
+                        minimum: 0.01;
+                        maximum: 1.0;
+                        value: row.strength;
+                        accessible-label: "Inclusion Family Density";
+                        changed(v) => { InclusionFamiliesModel.edit_family(i, 5, v); }
+                    }
+                    Text {
+                        width: 34px;
+                        text: "\{Math.round(row.strength * 100) / 100}";
+                        font-size: 10px;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                    }
+                }
+
+                FormRow {
+                    label: "Color";
+                    tooltip: "The color of the scattered light. Fine silk looks bluish; coarse silk looks grey.";
+                    label_width: 70px;
+                    ComboBox {
+                        model: ["Grey", "Slightly Blue", "Blue", "Strong Blue"];
+                        current-index: row.color;
+                        accessible-label: "Inclusion Family Color";
+                        selected(value) => { InclusionFamiliesModel.edit_family(i, 2, self.current-index); }
+                    }
+                }
+
+                FormRow {
+                    label: row.kind == 1 ? "Gloss Width" : "Cone Width";
+                    tooltip: row.kind == 1
+                        ? "How wide the mirror-like flash of the plates is."
+                        : "How wide the cone of scattered light is. A small value gives a sharp streak, a large one a soft glow.";
+                    label_width: 70px;
+                    Slider {
+                        minimum: 0.005;
+                        maximum: 0.8;
+                        value: row.cone;
+                        accessible-label: "Inclusion Family Cone Width";
+                        changed(v) => { InclusionFamiliesModel.edit_family(i, 6, v); }
+                    }
+                    Text {
+                        width: 34px;
+                        text: "\{Math.round(row.cone * 1000) / 1000}";
+                        font-size: 10px;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                    }
+                }
+
+                if row.kind != 1 : FormRow {
+                    label: "Forwardness";
+                    tooltip: "How far the scattered light is thrown forward along the needle's cone. 0 spreads it evenly around the cone.";
+                    label_width: 70px;
+                    Slider {
+                        minimum: 0.0;
+                        maximum: 0.95;
+                        value: row.forward;
+                        accessible-label: "Inclusion Family Forwardness";
+                        changed(v) => { InclusionFamiliesModel.edit_family(i, 7, v); }
+                    }
+                    Text {
+                        width: 34px;
+                        text: "\{Math.round(row.forward * 100) / 100}";
+                        font-size: 10px;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        if InclusionFamiliesModel.notes(InclusionFamiliesModel.rows, root.character_idx) != "" : Text {
+            text: InclusionFamiliesModel.notes(InclusionFamiliesModel.rows, root.character_idx);
+            font-size: 9px;
+            color: Theme.text-muted;
+            wrap: word-wrap;
+        }
+    }
+}

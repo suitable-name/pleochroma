@@ -1,0 +1,435 @@
+import { Theme } from "../theme.slint";
+import { LineEdit, ComboBox, ScrollView } from "std-widgets.slint";
+import { LibraryModel } from "../models/library.slint";
+import { HelpTopics } from "../models/help.slint";
+import { ConfirmActionDialog } from "confirm_action_dialog.slint";
+import { HelpButton } from "help_button.slint";
+import { IconButton } from "icon_button.slint";
+import { ActionButton } from "chip_toggle.slint";
+
+// A captioned field of the metadata form: the caption (with the field's tooltip), the framed
+// text box, and the red line under it that says why a value will be ignored.
+component MetaField inherits VerticalLayout {
+    in property <string> label;
+    in property <string> hint;
+    in property <string> placeholder;
+    in property <string> error;
+    in-out property <string> value;
+
+    horizontal-stretch: 1;
+    spacing: 4px;
+
+    Rectangle {
+        height: caption.preferred-height;
+        Tooltip { text: @markdown("\{root.hint}"); }
+        caption := Text {
+            text: root.label;
+            font-size: 11px;
+            font-weight: 600;
+            color: Theme.text-secondary;
+            accessible-role: AccessibleRole.text;
+        }
+    }
+    Rectangle {
+        height: 30px;
+        background: Theme.surface-raised;
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: Theme.border-dialog;
+        Tooltip { text: @markdown("\{root.hint}"); }
+        LineEdit {
+            width: 100%;
+            height: 100%;
+            text <=> root.value;
+            placeholder-text: root.placeholder;
+            accessible-label: root.label;
+        }
+    }
+    if root.error != "": Text {
+        text: root.error;
+        font-size: 9px;
+        color: Theme.danger;
+        accessible-role: AccessibleRole.text;
+    }
+}
+
+// Metadata editor: title, designer, shape, refractive index, index gear, facet
+// count, symmetry order, mirror symmetry, and the five geometry-derived proportion
+// ratios -- every field a user might legitimately hand-correct on their own local
+// design (see `apps/pleochroma-cut`'s `gui::detail::setup_save_metadata_callback` and
+// `pleochroma_vault::db::sqlite::Database::update_diagram_metadata`, which is what
+// actually persists this without zeroing anything else).
+//
+// A MODAL, not more inline pencils like the existing title/shape editors in
+// `detail_header.slint`: thirteen fields is too many to fit as inline chips without
+// the header turning into an editing form by default, so this follows this app's
+// established modal convention (`material_editor_dialog.slint`'s full-viewport
+// backdrop + centered content-sized card) rather than inventing a new one.
+export component MetadataEditorDialog inherits Rectangle {
+    in-out property <string> title_draft: LibraryModel.current_detail.title;
+    in-out property <string> designer_draft: LibraryModel.current_detail.designer;
+    in property <[string]> shape_options: LibraryModel.shape_picker_options;
+    in-out property <int> shape_index: LibraryModel.shape_picker_current_index;
+    // The design's current shape verbatim -- used as `selected_shape`'s fallback when
+    // `shape_index` doesn't land inside `shape_options` (e.g. a design's shape isn't
+    // in the current vocabulary, mirroring `detail_header.slint`'s own shape chip,
+    // which shows `detail.shape` regardless of whether the picker's own option list
+    // happens to contain it).
+    in-out property <string> shape_draft: LibraryModel.current_detail.shape;
+    in-out property <string> ri_draft: LibraryModel.current_detail.ri;
+    in-out property <string> gear_draft: LibraryModel.current_detail.gear;
+    in-out property <string> facets_draft: LibraryModel.current_detail.facets;
+    in-out property <string> symmetry_order_draft: LibraryModel.current_detail.symmetry_order;
+    in-out property <bool> mirror_symmetry_draft: LibraryModel.current_detail.mirror_symmetry;
+    in-out property <string> lw_ratio_draft: LibraryModel.current_detail.lw_ratio;
+    in-out property <string> hw_ratio_draft: LibraryModel.current_detail.hw_ratio;
+    in-out property <string> cw_ratio_draft: LibraryModel.current_detail.cw_ratio;
+    in-out property <string> pw_ratio_draft: LibraryModel.current_detail.pw_ratio;
+    in-out property <string> volume_draft: LibraryModel.current_detail.volume;
+
+    callback close();
+    close => { LibraryModel.metadata_editor_open = false; }
+    // title, designer, shape, refractive_index, index_gear, facets_count,
+    // symmetry_order, mirror_symmetry, lw_ratio, hw_ratio, cw_ratio, pw_ratio, volume
+    callback save(string, string, string, string, string, string, string, bool, string, string, string, string, string);
+    save(title, designer, shape, ri, gear, facets, symmetry_order, mirror_symmetry, lw_ratio, hw_ratio, cw_ratio, pw_ratio, volume) => {
+        LibraryModel.save_metadata(title, designer, shape, ri, gear, facets, symmetry_order, mirror_symmetry, lw_ratio, hw_ratio, cw_ratio, pw_ratio, volume);
+        LibraryModel.metadata_editor_open = false;
+    }
+
+    property <string> selected_shape: (root.shape_index >= 0 && root.shape_index < root.shape_options.length)
+        ? root.shape_options[root.shape_index] : root.shape_draft;
+
+    // A stray click on the backdrop would otherwise discard all thirteen typed
+    // values with no confirmation, so `is_dirty` compares every field this dialog can
+    // still actually edit (gear/RI/symmetry/mirror are read-only here, so they can
+    // never diverge from `current_detail` and are left out) against
+    // the record the dialog opened with; `request_close` asks first when any of them
+    // differ, and only `Discard`/an explicit Save proceed to the real `close()`.
+    property <bool> is_dirty: root.title_draft != LibraryModel.current_detail.title
+        || root.designer_draft != LibraryModel.current_detail.designer
+        || root.selected_shape != LibraryModel.current_detail.shape
+        || root.facets_draft != LibraryModel.current_detail.facets
+        || root.lw_ratio_draft != LibraryModel.current_detail.lw_ratio
+        || root.hw_ratio_draft != LibraryModel.current_detail.hw_ratio
+        || root.cw_ratio_draft != LibraryModel.current_detail.cw_ratio
+        || root.pw_ratio_draft != LibraryModel.current_detail.pw_ratio
+        || root.volume_draft != LibraryModel.current_detail.volume;
+    property <bool> discard_confirm_open: false;
+
+    function request_close() {
+        if root.is_dirty {
+            root.discard_confirm_open = true;
+        } else {
+            root.close();
+        }
+    }
+
+    // A ratio field is valid when left blank (Rust treats an empty string as "not
+    // recorded", not zero -- `library::detail::setup_save_metadata_callback`'s own
+    // `non_empty` filter) or parses as a positive, finite number -- the same rule
+    // `gui::editor::loading::external_proportions_from_full_record` applies when it
+    // later reads these very fields back for Deep Solve.
+    property <bool> lw_ratio_valid: root.lw_ratio_draft == "" || root.lw_ratio_draft.to-float() > 0;
+    property <bool> hw_ratio_valid: root.hw_ratio_draft == "" || root.hw_ratio_draft.to-float() > 0;
+    property <bool> cw_ratio_valid: root.cw_ratio_draft == "" || root.cw_ratio_draft.to-float() > 0;
+    property <bool> pw_ratio_valid: root.pw_ratio_draft == "" || root.pw_ratio_draft.to-float() > 0;
+    property <bool> volume_valid: root.volume_draft == "" || root.volume_draft.to-float() > 0;
+    property <bool> form_valid: root.lw_ratio_valid && root.hw_ratio_valid && root.cw_ratio_valid
+        && root.pw_ratio_valid && root.volume_valid;
+
+    // Full viewport modal backdrop -- same idiom as `material_editor_dialog.slint`.
+    background: Theme.overlay-backdrop;
+
+    TouchArea {
+        clicked => { root.request_close(); }
+    }
+
+    // Escape = ask-then-cancel, matching `new_design_dialog.slint`'s own
+    // `init => { self.focus(); }` + `key-pressed` idiom.
+    //
+    // `accept` (not `reject`) for every other key -- otherwise
+    // an unhandled key bubbles past this dialog to `global_shortcuts` and fires a
+    // shortcut on the design underneath it.
+    key_scope := FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.request_close();
+                return accept;
+            }
+            accept
+        }
+    }
+
+
+    Rectangle {
+        width: min(460px, max(240px, root.width - 24px));
+        // Content-driven height -- see `material_editor_dialog.slint`'s own doc
+        // comment on this exact line for why (`import_dialog.slint` shares the same idiom).
+        // Capped at the window less a 12px margin top and bottom: the body scrolls.
+        height: min(content.preferred-height, root.height - 24px);
+        background: Theme.surface-dialog;
+        border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.border-dialog;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: Theme.modal-shadow;
+        clip: true;
+
+        TouchArea {}
+
+        content := VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            // 1. Header Bar
+            HorizontalLayout {
+                alignment: space-between;
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    // Centred by a layout of its own: a fixed-size Image in the row sits at the
+                    // top of its cell.
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("../icons/pencil.svg"); colorize: Theme.text-primary; width: 15px; height: 15px; }
+                    }
+                    Text {
+                        text: "Edit Design Metadata";
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                        accessible-role: AccessibleRole.text;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    VerticalLayout {
+                        alignment: center;
+                        HelpButton {
+                            topic: HelpTopics.library-details;
+                            hint: "Open the manual page on a design's details";
+                        }
+                    }
+                    IconButton {
+                        icon: @image-url("../icons/close.svg");
+                        hint: "Close without saving";
+                        hover_fill: Theme.surface-control-hover;
+                        clicked => { root.request_close(); }
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.surface-raised; }
+
+            // The fields scroll between the fixed header above and the fixed Cancel / Save
+            // footer below, so at the minimum window (480px tall) both buttons stay visible.
+            ScrollView {
+            vertical-stretch: 1;
+            content-width: self.visible-width;
+            preferred-height: body_col.preferred-height;
+
+            body_col := VerticalLayout {
+            spacing: 12px;
+            padding-right: 12px;
+
+            // Title / Designer
+            HorizontalLayout {
+                spacing: 10px;
+                MetaField {
+                    label: "Title:";
+                    hint: "The name the library shows for this design.";
+                    placeholder: "Design title...";
+                    value <=> root.title_draft;
+                }
+                MetaField {
+                    label: "Designer:";
+                    hint: "Who designed this stone. Shown in the library and searchable.";
+                    placeholder: "Designer name...";
+                    value <=> root.designer_draft;
+                }
+            }
+
+            // Shape / Facet Count -- catalogue-only descriptive fields. Index Gear,
+            // Refractive Index, Symmetry Order and Mirror Symmetry are edited from the
+            // Edit tab's own Design Settings panel (`editor_design_settings.slint`)
+            // instead of here, so a correction always lands in the one place that can
+            // never disagree with another copy of itself -- see the note below. Their
+            // draft properties stay declared (still round-tripped verbatim through
+            // `save()` below) since removing them from `LibraryModel.save_metadata`'s
+            // signature would require editing `ui/models/library.slint`.
+            HorizontalLayout {
+                spacing: 10px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 4px;
+                    Rectangle {
+                        height: shape_caption.preferred-height;
+                        Tooltip { text: @markdown("The outline of the stone: round, oval, cushion and so on. Used to group and filter designs in the library."); }
+                        shape_caption := Text {
+                            text: "Shape:";
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: Theme.text-secondary;
+                            accessible-role: AccessibleRole.text;
+                        }
+                    }
+                    Rectangle {
+                        height: 30px;
+                        background: Theme.surface-raised;
+                        border-radius: Theme.radius-sm;
+                        border-width: 1px;
+                        border-color: Theme.border-dialog;
+                        Tooltip { text: @markdown("The outline of the stone. Pick one from the list."); }
+                        ComboBox {
+                            width: 100%;
+                            height: 100%;
+                            accessible-label: "Shape";
+                            model: root.shape_options;
+                            current-index <=> root.shape_index;
+                        }
+                    }
+                }
+                MetaField {
+                    label: "Facet Count:";
+                    hint: "How many facets the finished stone has, as the designer counts them (for example 57+8, the 8 being the culet facets).";
+                    placeholder: "57+8...";
+                    value <=> root.facets_draft;
+                }
+            }
+
+            Text {
+                text: "Index gear, refractive index, symmetry order and mirror symmetry are edited from the Edit tab's Design Settings panel when this design is open, so the two never disagree.";
+                font-size: 10px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+                accessible-role: AccessibleRole.text;
+            }
+
+            Rectangle { height: 1px; background: Theme.surface-raised; }
+
+            Text {
+                text: "Proportions (as measured or as printed on the design sheet):";
+                font-size: 11px;
+                font-weight: 600;
+                color: Theme.text-secondary;
+                accessible-role: AccessibleRole.text;
+            }
+
+            // L/W / H/W
+            HorizontalLayout {
+                spacing: 10px;
+                MetaField {
+                    label: "L/W Ratio:";
+                    hint: "Length divided by width. 1.0 is round or square; a higher number is a longer stone.";
+                    placeholder: "1.052...";
+                    error: root.lw_ratio_valid ? "" : "Not a positive number, so it is ignored.";
+                    value <=> root.lw_ratio_draft;
+                }
+                MetaField {
+                    label: "H/W Ratio:";
+                    hint: "Total height divided by width.";
+                    placeholder: "0.612...";
+                    error: root.hw_ratio_valid ? "" : "Not a positive number, so it is ignored.";
+                    value <=> root.hw_ratio_draft;
+                }
+            }
+
+            // C/W / P/W
+            HorizontalLayout {
+                spacing: 10px;
+                MetaField {
+                    label: "C/W Ratio:";
+                    hint: "Crown height divided by width.";
+                    placeholder: "0.172...";
+                    error: root.cw_ratio_valid ? "" : "Not a positive number, so it is ignored.";
+                    value <=> root.cw_ratio_draft;
+                }
+                MetaField {
+                    label: "P/W Ratio:";
+                    hint: "Pavilion depth divided by width.";
+                    placeholder: "0.440...";
+                    error: root.pw_ratio_valid ? "" : "Not a positive number, so it is ignored.";
+                    value <=> root.pw_ratio_draft;
+                }
+            }
+
+            // Volume
+            MetaField {
+                label: "Volume (Vol/W\u{b3}):";
+                hint: "The stone's volume divided by its width cubed. A rough guide to how much it weighs for its size.";
+                placeholder: "0.420...";
+                error: root.volume_valid ? "" : "Not a positive number, so it is ignored.";
+                value <=> root.volume_draft;
+            }
+            } // end body_col
+            } // end body ScrollView
+
+            Rectangle { height: 1px; background: Theme.surface-raised; }
+
+            // Action Buttons Bar
+            HorizontalLayout {
+                spacing: 8px;
+
+                ActionButton {
+                    width: 90px;
+                    height: 32px;
+                    text: "Cancel";
+                    hint: "Close without saving. If you changed anything you are asked first.";
+                    ink: Theme.text-secondary;
+                    clicked => { root.request_close(); }
+                }
+
+                ActionButton {
+                    horizontal-stretch: 1;
+                    height: 32px;
+                    text: "Save Metadata";
+                    hint: root.form_valid
+                        ? "Save these details to the library."
+                        : "Fix the fields marked in red to save.";
+                    icon: @image-url("../icons/check.svg");
+                    weight: 700;
+                    font_size: 12px;
+                    enabled: root.form_valid;
+                    fill: Theme.accent-cyan;
+                    hover_fill: Theme.accent-cyan-hover;
+                    ink: Theme.text-on-accent;
+                    edge: Theme.accent-cyan;
+                    clicked => {
+                        root.save(
+                            root.title_draft,
+                            root.designer_draft,
+                            root.selected_shape,
+                            root.ri_draft,
+                            root.gear_draft,
+                            root.facets_draft,
+                            root.symmetry_order_draft,
+                            root.mirror_symmetry_draft,
+                            root.lw_ratio_draft,
+                            root.hw_ratio_draft,
+                            root.cw_ratio_draft,
+                            root.pw_ratio_draft,
+                            root.volume_draft
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    if root.discard_confirm_open: ConfirmActionDialog {
+        heading: "Discard Changes?";
+        message: "This design's metadata has unsaved edits. Discard them?";
+        primary_label: "";
+        secondary_label: "Discard";
+        secondary_hint: "Throw the edits away and close the editor.";
+        cancel => { root.discard_confirm_open = false; }
+        secondary => {
+            root.discard_confirm_open = false;
+            root.close();
+        }
+    }
+}

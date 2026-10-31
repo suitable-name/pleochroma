@@ -1,0 +1,103 @@
+# sample: Caltech GRR 226, beryl yellow (heliodor), locality unknown (probably New Mexico); o-ray (E perp c)
+# host: beryl (Be3Al2Si6O18, hexagonal, uniaxial negative); o-ray = E perp c, e-ray = E parallel c
+# composition: none published (Caltech page: color mainly Fe3+, secondarily Fe2+ near 800 nm)
+# units: lambda_nm; A = decadic absorbance as recorded (T = 10^-A); Napierian alpha = 2.303 A / path_cm; reflection loss and baseline offset are NOT removed
+# path_cm: 0.3948
+# source: Caltech Mineral Spectroscopy Server (G. R. Rossman), http://minerals.gps.caltech.edu/FILES/Visible/Beryl/beryl_226.a; downloaded 2026-10-27; wavelengths sorted ascending, duplicate wavelengths dropped, rows above 1300 nm dropped, values unchanged
+# caltech_header: Beryl, GRR226, yellow crystal from Caltech working collection, loc. unknown | 3.948 mm, E perp c
+# license: Caltech Mineral Spectroscopy Server, CC BY-NC 4.0 (home page https://minerals.gps.caltech.edu/, DOI 10.7907/jywr-qq57); attribution: G. R. Rossman, Caltech
+# note: sparse digitised trace (72 and 101 rows between 380 and 1300 nm); the two files start at different wavelengths (o-ray 358.7 nm, e-ray 387.5 nm); written by research lane R2 of the color variants campaign (docs/color_variants/R2_beryl_topaz_tourmaline_andalusite.md)
+lambda_nm,A
+358.70,1.21850
+365.40,1.11270
+371.80,0.99730
+376.00,0.93420
+378.30,0.89340
+382.90,0.82060
+386.90,0.75910
+392.60,0.68360
+398.80,0.59390
+405.00,0.52110
+409.90,0.46490
+417.60,0.39380
+424.30,0.33050
+430.60,0.28300
+436.00,0.24690
+443.20,0.21220
+449.80,0.18330
+460.80,0.15110
+469.20,0.13320
+480.90,0.11430
+492.80,0.10200
+507.50,0.08660
+524.70,0.07030
+534.70,0.06240
+539.50,0.05650
+543.00,0.05480
+550.40,0.05260
+557.10,0.04760
+563.60,0.04350
+567.20,0.04080
+573.80,0.03700
+582.10,0.03540
+588.20,0.03520
+596.50,0.03530
+600.80,0.03520
+607.30,0.03350
+617.50,0.03300
+630.30,0.03750
+645.30,0.05020
+658.80,0.06780
+676.40,0.10420
+689.90,0.14590
+704.00,0.20920
+718.70,0.30120
+733.20,0.40470
+746.20,0.52450
+760.30,0.65190
+770.30,0.75350
+780.20,0.83670
+795.20,0.92500
+798.80,0.94260
+804.80,0.95790
+809.00,0.96830
+813.10,0.97670
+818.50,0.98190
+827.10,0.97260
+831.00,0.96070
+833.40,0.94880
+843.50,0.90420
+846.90,0.87770
+854.90,0.82290
+863.60,0.75190
+870.70,0.67900
+881.30,0.58020
+891.60,0.49110
+903.10,0.39870
+913.90,0.30480
+926.60,0.23100
+939.40,0.17280
+952.60,0.12260
+967.80,0.08410
+992.40,0.04750
+1009.40,0.03410
+1027.30,0.02530
+1052.80,0.01730
+1074.70,0.01400
+1092.20,0.01270
+1106.30,0.01140
+1112.60,0.01120
+1116.20,0.01500
+1120.10,0.01950
+1122.90,0.02330
+1126.80,0.02540
+1130.80,0.02140
+1136.30,0.01890
+1142.50,0.02070
+1145.90,0.02560
+1148.50,0.02870
+1155.50,0.02130
+1159.30,0.01520
+1179.60,0.00940
+1209.60,0.00490
+1228.80,0.00520

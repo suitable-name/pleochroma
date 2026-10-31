@@ -1,0 +1,70 @@
+// State of the path-aware L*C*h body-colour editor (`components/material_editor/lch_editor.slint`).
+//
+// Tone, Saturation and Hue are the sliders' values (CIE L*, C*, h at D65). Rust solves the
+// colour for the design's reference path on a background thread
+// (`gui::editor::render_color`, `gui::editor::lch_color`) and pushes the swatches of the
+// solved colour at 3 mm / 5 mm / 10 mm / "this stone", the reachability badge and `busy`.
+// Nothing is stored in the design until `apply_requested` (one undoable edit).
+export global BodyColorEditorModel {
+    in-out property <float> tone: 55.0;
+    in-out property <float> chroma: 40.0;
+    in-out property <float> hue: 260.0;
+    // The solved colour as it looks at each reference path, with its caption.
+    in property <[color]> swatches: [];
+    in property <[string]> swatch_labels: [];
+    // "Reachable (Delta E 0.8)" or the distance of the closest reachable colour.
+    in property <string> badge_text: "";
+    in property <bool> reachable: true;
+    // A solve is running.
+    in property <bool> busy: false;
+    // At least one solve has finished since the editor opened, so "Apply colour" has something.
+    in property <bool> has_solution: false;
+
+    // Where "Apply colour" stores the solve: 0 = the open design's material (Design settings and
+    // the Live Render popup of a linked design), 1 = the material editor dialog's colour (kept
+    // in the dialog until Save). The caller sets it just before `open_requested()`.
+    in-out property <int> target: 0;
+
+    // The design target (0) has one colour row per direction of the stone: one for a material that
+    // looks the same in every direction, "Along the Axis" and "Across the Axis" for a uniaxial one,
+    // "Alpha", "Beta" and "Gamma" for a biaxial one (`pleochroma_editor::lch_color::axis_rows`).
+    // The three sliders above edit the ACTIVE row; the rows keep their own colours. Empty for every
+    // other target and while the editor is closed; one row means a plain single colour (no row
+    // list is shown). Rust fills them when the editor opens.
+    in property <[string]> axis_labels: [];
+    // The tooltip of each row (which direction it colours).
+    in property <[string]> axis_hints: [];
+    // The solved colour of each row at the stone's size, and its coarse name ("Blue").
+    in property <[color]> axis_swatches: [];
+    in property <[string]> axis_families: [];
+    // The row the sliders edit.
+    in-out property <int> axis_active: 0;
+
+    // "Save as Variant..." is offered: the editor edits the open design's color and its material is
+    // known. Rust sets it when the editor opens (false for the dialog, the view-only color and a
+    // zone color).
+    in property <bool> can_save_variant: false;
+    // The optical character of the material editor dialog's material (the combo index of
+    // `gui::optics::crystal_optics::optical_character_from_index`). The dialog sets it just before
+    // `open_requested()` with `target` 1, so the editor shows one color row per direction of the
+    // material being edited (one, two or three).
+    in-out property <int> dialog_character_idx: 0;
+    // The name "Save as Variant..." starts with (the coarse color of the first direction, made
+    // unique among the material's variants).
+    callback suggest_variant_name() -> string;
+    // Save the editor's colors as a variant of the design's material under the given name, then
+    // use it on the design as one undoable edit. Returns false when nothing was saved (the reason
+    // is shown as a toast), so the name field stays open.
+    callback save_variant_requested(string) -> bool;
+
+    // The editor opened: seed the sliders from the `target`'s stored colour and solve.
+    callback open_requested();
+    // A colour row was chosen: the sliders now show and edit that direction's colour.
+    callback axis_selected(int);
+    // A slider moved (tone, chroma, hue): solve again (the newest request wins).
+    callback lch_edited(float, float, float);
+    // The hue/saturation/brightness picker's colour: converted to L*C*h, set on the sliders, solved.
+    callback picker_picked(color);
+    // Apply colour: store the last solved colour in the design as ONE undoable edit.
+    callback apply_requested();
+}

@@ -1,0 +1,109 @@
+import { Theme } from "../../theme.slint";
+import { Slider } from "std-widgets.slint";
+import { TipBox, FieldCaption } from "../tip_box.slint";
+
+// Small controls of the Color Pattern window.
+
+// A color chip; with `split` the left half shows `color_a` and the right half `color_b` (a
+// Two-Color zone: Along and Across).
+export component PatternSwatch inherits Rectangle {
+    in property <color> color_a: #888888;
+    in property <color> color_b: #888888;
+    in property <bool> split: false;
+    width: 20px;
+    height: 14px;
+    border-radius: 2px;
+    border-width: 1px;
+    border-color: Theme.border-control;
+    clip: true;
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: root.split ? root.width / 2 : root.width;
+        height: root.height;
+        background: root.color_a;
+    }
+    if root.split: Rectangle {
+        x: root.width / 2;
+        y: 0px;
+        width: root.width / 2;
+        height: root.height;
+        background: root.color_b;
+    }
+}
+
+// A section caption.
+export component PatternTitle inherits Rectangle {
+    in property <string> text;
+    height: 18px;
+    Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        font-size: 11px;
+        font-weight: 700;
+        color: Theme.text-muted;
+        vertical-alignment: center;
+        accessible-role: AccessibleRole.text;
+    }
+}
+
+// A wrapped note line.
+export component PatternNote inherits Rectangle {
+    in property <string> text;
+    in property <color> text_color: Theme.text-muted;
+    preferred-height: note_text.preferred-height;
+    note_text := Text {
+        width: parent.width;
+        text: root.text;
+        font-size: 10px;
+        color: root.text_color;
+        wrap: word-wrap;
+    }
+}
+
+// A caption, a slider and a readout on one line.
+export component PatternSlider inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> hint;
+    in property <string> value_text;
+    in property <float> minimum: 0;
+    in property <float> maximum: 1;
+    in property <float> step: 0.01;
+    in property <bool> enabled: true;
+    in property <length> caption_width: 64px;
+    in property <length> readout_width: 80px;
+    in-out property <float> value;
+    callback moved(float);
+
+    spacing: 6px;
+    FieldCaption {
+        width: root.caption_width;
+        text: root.label;
+        hint: root.hint;
+    }
+    TipBox {
+        horizontal-stretch: 1;
+        hint: root.hint;
+        Slider {
+            enabled: root.enabled;
+            minimum: root.minimum;
+            maximum: root.maximum;
+            step: root.step;
+            value <=> root.value;
+            accessible-label: root.label;
+            accessible-description: root.hint;
+            changed(v) => { root.moved(v); }
+        }
+    }
+    Text {
+        width: root.readout_width;
+        text: root.value_text;
+        font-size: 10px;
+        color: root.enabled ? Theme.text-secondary : Theme.text-muted;
+        vertical-alignment: center;
+        horizontal-alignment: right;
+        overflow: elide;
+        accessible-role: AccessibleRole.text;
+    }
+}

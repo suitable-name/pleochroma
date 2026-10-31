@@ -1,0 +1,92 @@
+// The design library's window state (pushed by `src/library`) and every library action.
+// Named in `app.slint`'s export block, which is what makes it a Rust type.
+
+// One row of the library list (`pleochroma_web_core::library_view::row_text`).
+export struct LibraryRow {
+    // The design id (a UUID); what `select` is called with.
+    id: string,
+    title: string,
+    // Shape, gear, refractive index, length/width and facet count, as far as known.
+    subtitle: string,
+    tags: string,
+    // The cached Solid raster; meaningful only while `has-thumb`.
+    thumb: image,
+    has-thumb: bool,
+    ignored: bool,
+    selected: bool,
+}
+
+export global LibraryModel {
+    in-out property <bool> open: false;
+    // Bumped by `app.slint` when the last dialog above the screen closes (the delete
+    // confirmation, a dialog opened from the menu bar), so the screen takes the keyboard back.
+    in-out property <int> focus-pulse: 0;
+    // False where the browser cannot keep a library (private browsing, blocked site data);
+    // `unavailable-text` then says so.
+    in property <bool> available: true;
+    in property <string> unavailable-text: "";
+    // An import, save or load is running; `busy-text` names the step.
+    in property <bool> busy: false;
+    in property <string> busy-text: "";
+    // "12 designs - 3.4 MB of 2.0 GB used".
+    in property <string> storage-text: "";
+    // "Showing 120 of 340 designs."
+    in property <string> list-text: "";
+    in property <[LibraryRow]> rows: [];
+    // More matches than rows drawn: the list ends with a "Show More" button.
+    in property <bool> more: false;
+    // The library holds no design at all (so the empty list explains how to add one).
+    in property <bool> is-empty: true;
+
+    // -- Search and filters (read back by `query-changed`) ----------------------------------
+    in-out property <string> search-text: "";
+    in property <[string]> sort-options: [];
+    in-out property <int> sort-index: 0;
+    in property <[string]> shape-options: ["All"];
+    in-out property <int> shape-index: 0;
+    in property <[string]> gear-options: ["All"];
+    in-out property <int> gear-index: 0;
+    in property <[string]> tag-options: ["All"];
+    in-out property <int> tag-index: 0;
+    in-out property <bool> concave-only: false;
+    in-out property <bool> show-ignored: false;
+
+    // -- The selected design's detail pane -------------------------------------------------
+    in property <bool> has-selection: false;
+    in property <image> detail-thumb;
+    in property <bool> detail-has-thumb: false;
+    in-out property <string> detail-title: "";
+    in-out property <string> detail-designer: "";
+    in-out property <string> detail-citation: "";
+    in-out property <string> detail-shape: "";
+    in-out property <string> detail-ri: "";
+    in-out property <string> detail-lw: "";
+    in-out property <string> detail-volume: "";
+    in-out property <string> detail-tags: "";
+    in-out property <bool> detail-ignored: false;
+    // Read-only facts: gear, facets, symmetry, proportions, dates.
+    in property <string> detail-info: "";
+    // A field edit waits for "Save Changes".
+    in-out property <bool> detail-dirty: false;
+    // Why "Save Changes" refused.
+    in property <string> detail-error: "";
+
+    // -- Actions ---------------------------------------------------------------------------
+    // Opens the library screen and reads the library (menu, shortcut).
+    callback open-library();
+    callback close();
+    // Picks design files and adds them to the library.
+    callback import-files();
+    // Adds the open design to the library (File > Save to Library).
+    callback save-current();
+    // Search text, a combo or a chip changed.
+    callback query-changed();
+    callback show-more();
+    // Selects a design by id; the empty id clears the selection.
+    callback select(string);
+    callback open-selected();
+    callback export-selected();
+    callback delete-selected();
+    callback apply-detail();
+    callback revert-detail();
+}

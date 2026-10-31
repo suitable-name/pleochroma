@@ -1,0 +1,124 @@
+import { Theme } from "../components/theme.slint";
+import { LibraryRow } from "../models/library_model.slint";
+
+// The guided lessons' outline around a control they point at: cyan while `on`, and the same two
+// pixels of transparent border otherwise, so the control never moves when the outline comes.
+export component GuideOutline inherits Rectangle {
+    in property <bool> on: false;
+
+    border-width: 2px;
+    border-radius: Theme.radius-sm;
+    border-color: root.on ? Theme.accent-cyan : transparent;
+
+    HorizontalLayout {
+        padding: 2px;
+        @children
+    }
+}
+
+// A toggle chip under the search box ("Concave Only", "Show Ignored").
+export component FilterChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> active: false;
+    callback clicked();
+
+    height: 24px;
+    width: chip-label.preferred-width + 20px;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: root.active ? Theme.accent-cyan : Theme.border-medium;
+    background: root.active ? Theme.accent-cyan-surface : (touch.has-hover ? Theme.bg-card-hover : Theme.bg-card);
+
+    chip-label := Text {
+        x: 10px;
+        y: 0px;
+        width: parent.width - 20px;
+        height: parent.height;
+        text: root.text;
+        font-size: 11px;
+        font-weight: root.active ? 700 : 400;
+        color: root.active ? Theme.text-primary : Theme.text-secondary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// One design in the list: the cached Solid raster, the title, the facts and the tags.
+export component LibraryRowItem inherits Rectangle {
+    in property <LibraryRow> data;
+    callback clicked();
+    callback double-clicked();
+
+    height: 70px;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    border-color: root.data.selected ? Theme.accent-cyan : Theme.border-subtle;
+    background: root.data.selected ? Theme.accent-cyan-surface : (touch.has-hover ? Theme.bg-card-hover : Theme.bg-card);
+
+    HorizontalLayout {
+        padding: 5px;
+        spacing: 10px;
+
+        Rectangle {
+            width: 96px;
+            background: Theme.bg-darkest;
+            border-radius: Theme.radius-sm;
+            clip: true;
+            if root.data.has-thumb: Image {
+                width: parent.width;
+                height: parent.height;
+                source: root.data.thumb;
+                image-fit: contain;
+            }
+            if !root.data.has-thumb: Text {
+                width: parent.width;
+                height: parent.height;
+                text: "No Preview";
+                font-size: 10px;
+                color: Theme.text-disabled;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 2px;
+            Text {
+                text: root.data.title;
+                font-size: 12px;
+                font-weight: 700;
+                color: root.data.ignored ? Theme.text-muted : Theme.text-primary;
+                overflow: elide;
+            }
+            Text {
+                text: root.data.subtitle;
+                font-size: 10px;
+                color: Theme.text-secondary;
+                overflow: elide;
+            }
+            if root.data.tags != "": Text {
+                text: root.data.tags;
+                font-size: 10px;
+                color: Theme.text-muted;
+                overflow: elide;
+            }
+        }
+
+        if root.data.ignored: Text {
+            text: "Ignored";
+            font-size: 10px;
+            color: Theme.accent-amber;
+            vertical-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+        double-clicked => { root.double-clicked(); }
+    }
+}

@@ -1,0 +1,178 @@
+//! Physically based chromophore absorption modeling, recipe compilation, and inverse solving.
+
+pub mod catalogue;
+pub mod fluorescence;
+pub mod recipe;
+pub mod resolve;
+pub mod solver;
+
+pub use catalogue::{
+    BandData, ChromophoreCatalogue, ChromophoreData, EDGE_DEFAULT_FWHM_CM1, EndMemberData,
+    FluorescenceData, HostData, QuenchData, SidebandData, TreatmentData, TreatmentEffectData,
+    garnet_optics, species_element, unit_is_valid,
+};
+pub use fluorescence::{
+    EmitterReport, FluorescenceReport, GlowStrength, UV365_NM, UV395_NM, UvGlow,
+    fluorescence_report, resolve_fluorescence, uv_glow,
+};
+pub use recipe::{ColorRecipe, RecipeEntry, ResolveError, ResolveWarning, ResolvedBands};
+pub use resolve::resolve;
+pub use solver::{
+    BodyColorSolution, BodyColorTarget, Cancelled, FantasySolution, MAX_EVALS, SolveRequest,
+    SolveResult, TreatmentPolicy, solve_body_color, solve_fantasy, solve_fantasy_lab,
+    solve_physics, solve_physics_with,
+};
+
+#[cfg(test)]
+pub mod acceptance_tests;
+#[cfg(test)]
+mod measured_color_tests;
+#[cfg(test)]
+mod primary_data_tests;
+#[cfg(test)]
+mod reference_validation;
+#[cfg(test)]
+mod state_and_bounds_tests;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        color::body_color::{Illuminant, body_colors},
+        render_setup::materials::effective_stone_width_mm,
+    };
+
+    #[test]
+    fn catalogue_loads_and_versions() {
+        let cat = ChromophoreCatalogue::global();
+        assert_eq!(cat.data_version, 5);
+        assert_ne!(cat.hosts.len(), 0, "the catalogue lists hosts");
+        assert!(cat.host("corundum").is_some());
+        assert!(cat.host("beryl").is_some());
+        assert!(cat.host("chrysoberyl").is_some());
+        assert!(cat.host("diamond").is_some());
+    }
+
+    #[test]
+    fn offer_rule_by_id() {
+        let cat = ChromophoreCatalogue::global();
+        let corundum = cat.host("corundum").expect("corundum host exists");
+        let corundum_ids: Vec<&str> = corundum
+            .chromophores
+            .iter()
+            .map(|c| c.id.as_str())
+            .collect();
+        assert!(corundum_ids.iter().any(|id| id.contains("Cr")));
+        assert!(corundum_ids.iter().any(|id| id.contains("Fe")));
+        assert!(corundum_ids.iter().any(|id| id.contains("Ti")));
+        assert!(corundum_ids.iter().any(|id| id.contains('V')));
+
+        let chrysoberyl = cat.host("chrysoberyl").expect("chrysoberyl host exists");
+        let chrysoberyl_ids: Vec<&str> = chrysoberyl
+            .chromophores
+            .iter()
+            .map(|c| c.id.as_str())
+            .collect();
+        assert!(chrysoberyl_ids.iter().any(|id| id.contains("Cr")));
+
+        let diamond = cat.host("diamond").expect("diamond host exists");
+        let diamond_ids: Vec<&str> = diamond.chromophores.iter().map(|c| c.id.as_str()).collect();
+        assert!(diamond_ids.iter().any(|id| id.contains('N')));
+    }
+
+    /// Every built-in material names a host, so the physics editor never falls back to the
+    /// alphabetically first host for a stone that has a real one (the yellow chrysoberyl and the
+    /// color-change garnet did until 2026-10-12), and every host offers something.
+    #[test]
+    fn every_built_in_material_has_a_host_and_every_host_offers_something() {
+        let cat = ChromophoreCatalogue::global();
+        let orphans: Vec<String> = crate::optics::materials::GemMaterial::all_materials()
+            .iter()
+            .filter(|m| cat.host_for_material(&m.name).is_none())
+            .map(|m| m.name.clone())
+            .collect();
+        assert!(orphans.is_empty(), "built-ins without a host: {orphans:?}");
+        let empty: Vec<&str> = cat
+            .hosts
+            .iter()
+            .filter(|h| cat.selectable_elements(&h.id).is_empty())
+            .map(|h| h.id.as_str())
+            .collect();
+        assert!(empty.is_empty(), "hosts with nothing selectable: {empty:?}");
+    }
+
+    /// The host list the physics editors show (Material Editor and the rough color wizard) is
+    /// alphabetical by the displayed name, case-insensitive. The catalogue keeps hosts sorted by
+    /// id; this pins that the id order and the name order agree, so a new host with a name that
+    /// sorts elsewhere is caught here instead of showing up out of place in a combo.
+    #[test]
+    fn the_host_names_are_alphabetical() {
+        let cat = ChromophoreCatalogue::global();
+        let names: Vec<String> = cat.hosts.iter().map(|h| h.name.to_lowercase()).collect();
+        assert!(
+            names.windows(2).all(|pair| pair[0] <= pair[1]),
+            "host names out of order: {names:?}"
+        );
+    }
+
+    #[test]
+    fn stone_size_defaults_acceptance_criterion() {
+        assert_eq!(effective_stone_width_mm(0.0), 7.0);
+        assert_eq!(effective_stone_width_mm(5.0), 5.0);
+    }
+
+    #[test]
+    fn corundum_cr_resolves_and_produces_red() {
+        let cat = ChromophoreCatalogue::global();
+        let mut recipe = ColorRecipe::new("corundum", cat.data_version);
+        recipe.set_amount("Cr", 0.3); // 0.3 wt% Cr2O3 ruby
+        let (tensor, _) = resolve(&recipe, cat).expect("resolves cleanly");
+        assert!(tensor.o_ray.len() <= 8);
+        assert!(tensor.e_ray.len() <= 8);
+        assert_ne!(tensor.o_ray.len(), 0, "the ordinary ray has bands");
+
+        let colors = body_colors(&tensor, 5.0, Illuminant::D65);
+        // Ruby should have positive a* (redness)
+        assert!(
+            colors.unpolarised.lab[1] > 10.0,
+            "Expected red ruby, got a* = {}",
+            colors.unpolarised.lab[1]
+        );
+    }
+
+    #[test]
+    fn blue_sapphire_recipe_resolves_with_pleochroism() {
+        let cat = ChromophoreCatalogue::global();
+        let mut recipe = ColorRecipe::new("corundum", cat.data_version);
+        recipe.set_amount("Fe", 1000.0); // 1000 ppm
+        recipe.set_amount("Ti", 100.0); // 100 ppm
+        let (tensor, _) = resolve(&recipe, cat).expect("resolves cleanly");
+        assert!(tensor.is_pleochroic);
+
+        let colors = body_colors(&tensor, 5.0, Illuminant::D65);
+        // Blue sapphire should have negative b* (blueness)
+        assert!(
+            colors.unpolarised.lab[2] < 0.0,
+            "Expected blue sapphire, got b* = {}",
+            colors.unpolarised.lab[2]
+        );
+    }
+
+    #[test]
+    fn solver_physics_ruby_roundtrip() {
+        let cat = ChromophoreCatalogue::global();
+        let mut initial_recipe = ColorRecipe::new("corundum", cat.data_version);
+        initial_recipe.set_amount("Cr", 0.3);
+        let (tensor, _) = resolve(&initial_recipe, cat).expect("resolves cleanly");
+        let target_col = body_colors(&tensor, 5.0, Illuminant::D65);
+
+        let res = solve_physics(cat, "corundum", target_col.unpolarised.lab, None, 5.0, &[]);
+        assert!(
+            res.delta_e <= 1.0,
+            "Expected roundtrip delta_e <= 1.0, got {}",
+            res.delta_e
+        );
+        assert!(res.reachable);
+        assert!(res.recipe.entries.iter().any(|e| e.id == "Cr"));
+    }
+}

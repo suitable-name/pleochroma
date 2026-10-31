@@ -1,0 +1,99 @@
+// Rough colour and colour zoning from rig photos (plan 2026-10-09). Always on: the elements that
+// show it read the properties below.
+//
+// A global is instantiated once per top-level window (the main window and the Rough Planner
+// window each have their own), so Rust sets it on each window it builds.
+
+// One zone of a zoned material, as the material dialog's read-only "Zones..." list shows it.
+export struct MaterialZoneRow {
+    // "Base zone" or "Zone 2: Cylinder".
+    title: string,
+    // The key numbers ("outer radius 3.2") or "Everywhere no zone covers".
+    params: string,
+    // The colour of the zone at the face-up path.
+    swatch: color,
+}
+
+export global Zoning {
+    // The Rough planner's "Rough colour..." button: opens the colour wizard.
+    callback open_rough_colour();
+
+    // --- Rough Planner window instance -----------------------------------------------------
+    // The shown plan has a stored rough colour: the previews are coloured by it and the
+    // orientation choice and "Use colour" are offered.
+    in property <bool> colour_available: false;
+    // "Stone orientation": 0 keep the planner's pose, 1 the pose with the most of the wanted
+    // zone face-up. Rust pushes it from the stored choices.
+    in property <int> pose_option: 0;
+    // The user picked an orientation (0 or 1); Rust stores it for every layout and redraws.
+    callback pose_option_changed(int);
+    // "Use colour" on a design row: result index, group index. Rust adopts the first stone of
+    // that design in the result as a coloured material, selects it in the editor and sets the
+    // editor's stone width to the stone's real width.
+    callback adopt_colour(int, int);
+
+    // --- Main window instance --------------------------------------------------------------
+    // Per-stone pattern controls, independent of the custom-material editor.
+    in property <bool> stone_pattern_enabled: false;
+    in property <bool> stone_pattern_overridden: false;
+    in property <string> stone_pattern_hint;
+    callback edit_stone_pattern();
+    callback reset_stone_pattern();
+    callback refresh_stone_pattern();
+    // Typical zoning of the stone's species ("Hexagonal Banding" for a sapphire): one entry per
+    // pattern, empty for a species that has none. Shown in the Color popup and the Stone tab.
+    in property <[string]> typical_pattern_labels;
+    // The entry the stone's pattern came from, -1 for none (a hand-made pattern, or no pattern).
+    in property <int> typical_pattern_index: -1;
+    // The species the entries are typical for ("Sapphire").
+    in property <string> typical_pattern_species;
+    // The colors of the picked entry are being matched on a background thread.
+    in property <bool> typical_pattern_busy: false;
+    // Apply entry `index` of `typical_pattern_labels` to the stone: the design (one undo step)
+    // while the view shows the open design, else this view only.
+    callback apply_typical_pattern(int);
+    // The stone's pattern follows the Crystal Axis and has layers across it (a tourmaline's
+    // Bicolor): while the axis runs through the table they lie parallel to it, and face up the
+    // colors blend. The Stone tab then offers to lay the axis in the table plane.
+    in property <bool> pattern_layers_across_axis: false;
+    // The tilt of the material's own Crystal Axis, degrees (the axis while "Set for This Stone" is
+    // off).
+    in property <float> material_axis_tilt_deg: 0.0;
+    // The zones of the custom material the material dialog shows; empty for a plain one.
+    in property <[MaterialZoneRow]> material_zone_rows;
+    // The material the zones above belong to ("" for a plain one). A save under another name
+    // copies its zones to the new name.
+    in property <string> material_zone_source;
+    // "Zone geometry relative to stone size": the zones scale with the stone width setting. Rust
+    // sets it from the stored zones when the dialog fills; the dialog's checkbox changes it and
+    // Rust reads it when the material is saved.
+    in-out property <bool> material_relative_to_stone;
+    // The checkbox above is offered: the material has zones made by the Rough Color wizard and no
+    // stored pattern (a pattern keeps its own size setting in the Color Pattern editor).
+    in property <bool> show_relative_to_stone: false;
+
+    // --- Color Pattern section of the material dialog (main window instance) --------------------
+    // 0 no pattern (Add Pattern is offered), 1 the material has a pattern or wizard zones (Edit
+    // and Remove), 2 a built-in pattern (read-only), 3 the material's color is not band rows yet
+    // (pick a color first), 4 not offered (the material has a stored recipe): the section is hidden.
+    in property <int> pattern_state: 0;
+    // "Watermelon \u{b7} 2 zones \u{b7} scales with stone size".
+    in property <string> pattern_summary;
+    // The zone colors for the strip, base zone first.
+    in property <[color]> pattern_swatches;
+    // The buttons: Add Pattern..., Edit Pattern... and Remove Pattern. Rust opens the Color
+    // Pattern window, or removes the pattern after the dialog's own confirmation.
+    callback add_pattern();
+    callback edit_pattern();
+    callback remove_pattern();
+    // The dialog's color controls are off because the base zone has two colors; they are edited in
+    // the pattern editor. `base_color_locked_note` says so ("Edit this color in the pattern editor.").
+    in property <bool> base_color_locked: false;
+    in property <string> base_color_locked_note;
+    // The Color Pattern window is open on this material: the dialog's Save, Delete and Cancel and
+    // the section's buttons are off until it closes.
+    in property <bool> pattern_editor_open: false;
+    // The color editor is open under the section for a zone color of the pattern window ("Pick..."
+    // there). Rust sets it; the editor's Apply and Cancel clear it.
+    in-out property <bool> pattern_pick_open: false;
+}

@@ -1,0 +1,558 @@
+import { ComboBox, LineEdit } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { BaselineModel } from "../../models/baseline.slint";
+import { TuneModel, TuneTierRow } from "../../models/tune.slint";
+import { CompactButton } from "../compact_controls.slint";
+import { StaleBadge } from "../stale_badge.slint";
+import { TuneMetricLegend } from "tune_metric_legend.slint";
+import { SweepStyle } from "../sweep_dialog/sweep_style.slint";
+import { WrapNote } from "wrap_note.slint";
+
+// One tier of the tuning list: a mark for "accepted", the code, the name, the angle, how it
+// differs from the Baseline's, and (Advanced) Up and Down to reorder. A tier whose angle follows a
+// relation, or a girdle tier, is greyed with its note and cannot be picked.
+component TuneTierRowView inherits Rectangle {
+    in property <TuneTierRow> item;
+    in property <bool> unlocked: true;
+    in property <bool> advanced: false;
+    callback picked();
+    callback moved(int);
+
+    height: 24px;
+    border-radius: Theme.radius-sm;
+    background: root.item.selected ? Theme.surface-selected : ((row_touch.has-hover && root.item.selectable && root.unlocked) ? Theme.bg-card-hover : transparent);
+    opacity: root.item.selectable ? 1.0 : 0.5;
+    accessible-role: AccessibleRole.list-item;
+    accessible-label: root.item.code + " " + root.item.name + ", " + root.item.angle
+        + (root.item.accepted ? ", accepted" : "")
+        + (root.item.note != "" ? ", " + root.item.note : "");
+    accessible-item-selectable: true;
+    accessible-item-selected: root.item.selected;
+    accessible-action-default => {
+        if root.item.selectable && root.unlocked {
+            root.picked();
+        }
+    }
+
+    row_touch := TouchArea {
+        enabled: root.item.selectable && root.unlocked;
+        mouse-cursor: pointer;
+        clicked => { root.picked(); }
+    }
+
+    HorizontalLayout {
+        padding-left: 4px;
+        padding-right: 4px;
+        spacing: 4px;
+        // The "accepted" mark: a filled dot once the tier is accepted.
+        Rectangle {
+            width: 10px;
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: 10px;
+                height: 10px;
+                border-radius: 5px;
+                border-width: 1px;
+                border-color: root.item.accepted ? Theme.success : Theme.border-subtle;
+                background: root.item.accepted ? Theme.success : transparent;
+            }
+        }
+        Text { width: 26px; text: root.item.code; font-size: 10px; font-weight: 700; color: Theme.text-primary; vertical-alignment: center; }
+        Text { horizontal-stretch: 1; text: root.item.name; font-size: 10px; color: Theme.text-secondary; vertical-alignment: center; overflow: elide; }
+        Text { width: 46px; text: root.item.angle; font-size: 10px; font-weight: 600; color: Theme.text-primary; horizontal-alignment: right; vertical-alignment: center; }
+        Text {
+            width: root.advanced ? 70px : 96px;
+            text: root.item.note != "" ? root.item.note : root.item.change;
+            font-size: 9px;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if root.advanced: CompactButton {
+            width: 26px;
+            text: "Up";
+            font_size: 10px;
+            hint: "Move this tier up the tuning order. The order is kept for this session.";
+            enabled: root.unlocked && root.item.can_up;
+            clicked => { root.moved(-1); }
+        }
+        if root.advanced: CompactButton {
+            width: 28px;
+            text: "Dn";
+            font_size: 10px;
+            hint: "Move this tier down the tuning order. The order is kept for this session.";
+            enabled: root.unlocked && root.item.can_down;
+            clicked => { root.moved(1); }
+        }
+    }
+}
+
+// The filled (main action) button of the Tune view: the Inspector's picked-tab blue, 11 px text,
+// the same height as the buttons beside it. It takes Tab, answers Space and Enter, shows a ring
+// while it has focus and is a button, with the tooltip read after it, to a screen reader.
+component PrimaryButton inherits Rectangle {
+    in property <string> text;
+    in property <string> hint;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 28px;
+    border-radius: 3px;
+    opacity: root.enabled ? 1.0 : 0.4;
+    background: (primary_touch.has-hover && root.enabled) ? Theme.primary-glow : Theme.primary;
+    border-width: primary_focus.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.text;
+    accessible-description: root.hint;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    Tooltip { text: @markdown("\{root.hint}"); }
+
+    primary_focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    Text {
+        text: root.text;
+        font-size: 11px;
+        font-weight: 700;
+        color: Theme.text-on-primary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    primary_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
+}
+
+// The mini sweep's chart: selectable curves over the same measured angles. The objective owns
+// the plateau, current-angle ring and best-angle star. Moving the pointer reads off all visible
+// metrics at one sampled angle; a click sets it as the tier's angle (one undo step).
+component TuneChart inherits Rectangle {
+    in property <bool> unlocked: true;
+    height: 110px;
+    background: Theme.chart-bg;
+    border-width: 1px;
+    border-color: Theme.chart-border;
+    border-radius: Theme.radius-sm;
+    clip: true;
+    accessible-role: AccessibleRole.image;
+    accessible-label: "Tune Metric Curves";
+    accessible-description: "Each curve uses its own range, listed below. "
+        + (TuneModel.no_metrics_shown ? "Select a metric below to show its curve." : TuneModel.readout_text);
+
+    // Reference lines at 25, 50 and 75 percent of the height.
+    Rectangle { y: root.height * 0.25; width: 100%; height: 1px; background: Theme.chart-grid; }
+    Rectangle { y: root.height * 0.5; width: 100%; height: 1px; background: Theme.chart-grid-mid; }
+    Rectangle { y: root.height * 0.75; width: 100%; height: 1px; background: Theme.chart-grid; }
+
+    // The angles as good as the best.
+    for band in TuneModel.plateau: Rectangle {
+        visible: TuneModel.objective_shown;
+        x: root.width * band.x / 100;
+        y: 0px;
+        width: root.width * band.w / 100;
+        height: root.height;
+        background: Theme.tint-cyan;
+    }
+
+    for metric in TuneModel.metrics: Path {
+        visible: metric.shown;
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        fit: fill;
+        commands: metric.commands;
+        viewbox-width: 100;
+        viewbox-height: 100;
+        stroke: SweepStyle.series_color(metric.index);
+        stroke-width: metric.index == TuneModel.figure_index ? 2px : 1.5px;
+        fill: transparent;
+    }
+
+    // The pointer.
+    if TuneModel.hover_x >= 0: Rectangle {
+        x: root.width * TuneModel.hover_x / 100 - 0.5px;
+        y: 0px;
+        width: 1px;
+        height: root.height;
+        background: Theme.chart-crosshair;
+    }
+
+    // The tier's own angle: a ring with a dark edge, so it shows on every color.
+    if TuneModel.objective_shown && TuneModel.current_x >= 0: Rectangle {
+        x: root.width * TuneModel.current_x / 100 - 6px;
+        y: root.height * TuneModel.current_y / 100 - 6px;
+        width: 12px;
+        height: 12px;
+        border-radius: 6px;
+        border-width: 3px;
+        border-color: Theme.chart-bg;
+        Rectangle {
+            x: 1px;
+            y: 1px;
+            width: parent.width - 2px;
+            height: parent.height - 2px;
+            border-radius: self.width / 2;
+            border-width: 1.5px;
+            border-color: Theme.text-primary;
+        }
+    }
+
+    // The best angle of the figure: a star.
+    if TuneModel.objective_shown && TuneModel.best_x >= 0: Path {
+        x: root.width * TuneModel.best_x / 100 - 6px;
+        y: root.height * TuneModel.best_y / 100 - 6px;
+        width: 12px;
+        height: 12px;
+        fit: fill;
+        commands: "M 50 4 L 62 37 L 97 38 L 69 59 L 79 93 L 50 73 L 21 93 L 31 59 L 3 38 L 38 37 Z";
+        viewbox-width: 100;
+        viewbox-height: 100;
+        fill: Theme.accent-amber;
+        stroke: Theme.chart-bg;
+        stroke-width: 1.5px;
+    }
+
+    if TuneModel.sweep_state == 1: Text {
+        text: "Drawing... " + Math.round(TuneModel.sweep_progress * 100) + " %";
+        font-size: 10px;
+        color: Theme.text-muted;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    if TuneModel.sweep_state == 3: Text {
+        text: "No angle in this range gives a stone.";
+        font-size: 10px;
+        color: Theme.text-muted;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    if TuneModel.no_metrics_shown && TuneModel.sweep_state == 2: Text {
+        text: "Select a metric below to show its curve.";
+        font-size: 10px;
+        color: Theme.text-muted;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    chart_touch := TouchArea {
+        enabled: root.unlocked && GuideModel.allows_advanced() && TuneModel.sweep_state == 2 && !TuneModel.no_metrics_shown;
+        mouse-cursor: pointer;
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.move {
+                TuneModel.chart_hover(self.mouse-x / self.width);
+            }
+        }
+        changed has-hover => {
+            if !self.has-hover {
+                TuneModel.chart_hover(-1.0);
+            }
+        }
+        clicked => { TuneModel.chart_clicked(self.mouse-x / self.width); }
+    }
+
+    Tooltip { text: @markdown("Move the pointer over the chart to read off an angle. A\nclick sets that angle on the tier, as one undo step."); }
+}
+
+// The Inspector's Optimize tab, Tune view: the tiers in tuning order and, for the picked tier, a
+// small sweep of its angle, the nudge buttons, Pair With, Accept, Revert This Tier and Next Tier.
+// State in `models/tune.slint`, Rust in `gui::editor::tune_panel`.
+//
+// Simple and Advanced (`GuideModel.shows_advanced()`): the Simple interface keeps the tier list,
+// the nudges and the angle box, Accept, Revert This Tier, Next Tier and Set as Baseline. It hides
+// the mini sweep with its figure choice, Jump to Best, Pair With and the Up and Down buttons that
+// reorder the list. They keep their values (the order, the figure); a line says so when either is
+// not at its default (`TuneModel.hidden_in_use`).
+export component TuneTab inherits VerticalLayout {
+    // `false` while the worked-example guide locks this tab's group (see `GuideAllow`,
+    // `models/guide.slint`); every input and button below ANDs it into its own `enabled:`.
+    in property <bool> unlocked: true;
+
+    property <bool> advanced: GuideModel.shows_advanced();
+    // The guide's Tune lesson waits for the view to open.
+    init => {
+        TuneModel.advanced = root.advanced;
+        GuideModel.event("tune_opened");
+    }
+    changed advanced => { TuneModel.advanced = root.advanced; }
+
+    spacing: 8px;
+    alignment: start;
+
+    // --- Header: what the figures are read against, and Set as Baseline ---
+    HorizontalLayout {
+        spacing: 6px;
+        height: 24px;
+        Text { text: "Tune"; font-size: 12px; font-weight: 700; color: Theme.text-primary; vertical-alignment: center; accessible-role: AccessibleRole.text; }
+        Text {
+            horizontal-stretch: 1;
+            text: BaselineModel.has_baseline ? BaselineModel.label : "No Baseline yet";
+            font-size: 9px;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        CompactButton {
+            width: 90px;
+            text: "Set as Baseline";
+            hint: "Keep the design as it is now as the Baseline. The\nfigures then show every change from here. The Baseline\nlives only in this session and is not saved to disk.";
+            enabled: root.unlocked && TuneModel.has_design;
+            clicked => { BaselineModel.set_baseline(); }
+        }
+    }
+
+    if TuneModel.status_text != "": Text {
+        text: TuneModel.status_text;
+        font-size: 10px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+
+    // --- The tiers, in tuning order ---
+    if TuneModel.tiers.length > 0: Text {
+        text: "Tiers (Tuning Order)";
+        font-size: 10px;
+        font-weight: 700;
+        color: Theme.text-secondary;
+        accessible-role: AccessibleRole.text;
+    }
+    if TuneModel.tiers.length > 0: VerticalLayout {
+        spacing: 1px;
+        for row in TuneModel.tiers: TuneTierRowView {
+            item: row;
+            unlocked: root.unlocked;
+            advanced: root.advanced;
+            picked => { TuneModel.select_tier(row.tier); }
+            moved(direction) => { TuneModel.move_tier(row.tier, direction); }
+        }
+    }
+    if !root.advanced && TuneModel.hidden_in_use: Text {
+        text: "Some advanced settings are in use. Switch to Advanced to see them.";
+        font-size: 9px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+
+    // --- The picked tier ---
+    if TuneModel.has_selection: WrapNote {
+        text: TuneModel.title;
+        font_size: 11px;
+        font_weight: 700;
+        ink: Theme.text-primary;
+    }
+
+    // What a step of the lesson uses comes first, right under the title: the nudges and the angle
+    // box, Pair With, then Accept, Revert This Tier and Next Tier. The mini sweep (a chart of
+    // about 250 px with its legend) follows them, so a short inspector shows the controls and
+    // the chart is a scroll away.
+    //
+    // The nudges and the angle box.
+    if TuneModel.has_selection: HorizontalLayout {
+        spacing: 4px;
+        height: 28px;
+        CompactButton {
+            width: 38px;
+            height: 28px;
+            font_size: 11px;
+            text: "-0.5";
+            hint: "Make the angle half a degree flatter. One undo step.";
+            enabled: root.unlocked;
+            clicked => { TuneModel.nudge(-0.5); }
+        }
+        CompactButton {
+            width: 38px;
+            height: 28px;
+            font_size: 11px;
+            text: "-0.1";
+            hint: "Make the angle a tenth of a degree flatter. One undo step.";
+            enabled: root.unlocked;
+            clicked => { TuneModel.nudge(-0.1); }
+        }
+        LineEdit {
+            width: 92px;
+            height: 28px;
+            enabled: root.unlocked;
+            font-size: 11px;
+            text <=> TuneModel.angle_text;
+            accessible-label: "Tune Angle";
+            accepted(typed) => { TuneModel.angle_edited(typed); }
+            changed has-focus => { EditorModel.text_focus = self.has-focus; }
+        }
+        CompactButton {
+            width: 38px;
+            height: 28px;
+            font_size: 11px;
+            text: "+0.1";
+            hint: "Make the angle a tenth of a degree steeper. One undo step.";
+            enabled: root.unlocked;
+            clicked => { TuneModel.nudge(0.1); }
+        }
+        CompactButton {
+            width: 38px;
+            height: 28px;
+            font_size: 11px;
+            text: "+0.5";
+            hint: "Make the angle half a degree steeper. One undo step.";
+            enabled: root.unlocked;
+            clicked => { TuneModel.nudge(0.5); }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        if root.advanced: CompactButton {
+            width: 96px;
+            height: 28px;
+            font_size: 11px;
+            text: "Jump to Best";
+            hint: "Set the best angle for the chosen objective, independently\nof which curves are visible. One undo step.";
+            enabled: root.unlocked && TuneModel.can_jump;
+            clicked => { TuneModel.jump_to_best(); }
+        }
+    }
+
+    // Pair With: Advanced only.
+    if TuneModel.has_selection && root.advanced: HorizontalLayout {
+        spacing: 6px;
+        height: 28px;
+        ComboBox {
+            width: 170px;
+            height: 28px;
+            enabled: root.unlocked && TuneModel.pair_names.length > 1;
+            accessible-label: "Pair With";
+            model: TuneModel.pair_names;
+            current-index <=> TuneModel.pair_index;
+            selected => {
+                if self.current-index > 0 {
+                    TuneModel.pair_chosen(self.current-index - 1);
+                }
+            }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: "Sweep this tier with another in Two Tiers.";
+            font-size: 10px;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+
+    // Accept (the main action of the view, so the filled one), Revert This Tier, Next Tier.
+    if TuneModel.has_selection: HorizontalLayout {
+        spacing: 6px;
+        height: 28px;
+        Rectangle {
+            width: 64px;
+            PrimaryButton {
+                width: parent.width;
+                height: parent.height;
+                text: "Accept";
+                hint: "Keep the design as it is now as a trial, and tick this\ntier as tuned. See the History tab's Trials view.";
+                enabled: root.unlocked && TuneModel.can_accept;
+                clicked => { TuneModel.accept(); }
+            }
+            // The guide's Tune lesson outlines this button.
+            if GuideModel.highlight_target == "tune_accept_button": Rectangle {
+                border-width: 2px;
+                border-color: Theme.accent-cyan;
+                border-radius: Theme.radius-sm;
+            }
+        }
+        CompactButton {
+            width: 112px;
+            height: 28px;
+            font_size: 11px;
+            text: "Revert This Tier";
+            hint: "Put this tier back to the angle it has in the Baseline. One undo step.";
+            enabled: root.unlocked && TuneModel.can_revert;
+            clicked => { TuneModel.revert_tier(); }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        CompactButton {
+            width: 76px;
+            height: 28px;
+            font_size: 11px;
+            text: "Next Tier";
+            hint: "Pick the next tier that has not been accepted yet.";
+            enabled: root.unlocked && TuneModel.can_next;
+            clicked => { TuneModel.next_tier(); }
+        }
+    }
+
+    // The mini sweep: Advanced only.
+    if TuneModel.has_selection && root.advanced: VerticalLayout {
+        spacing: 4px;
+        HorizontalLayout {
+            spacing: 6px;
+            height: 24px;
+            Text { text: "Objective"; font-size: 10px; font-weight: 700; color: Theme.text-muted; vertical-alignment: center; }
+            ComboBox {
+                width: 120px;
+                enabled: root.unlocked;
+                accessible-label: "Tune Objective";
+                accessible-description: "The figure the best angle and the plateau are scored on.";
+                model: TuneModel.figure_names;
+                current-index <=> TuneModel.figure_index;
+                selected => { TuneModel.figure_changed(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            if TuneModel.sweep_stale: StaleBadge {
+                text: "Out of Date";
+                hint: "Another tier changed since this chart was drawn. It is\ndrawn again when the design settles, or press Recompute.";
+                enabled: root.unlocked;
+                recompute => { TuneModel.redraw(); }
+            }
+        }
+        TuneChart {
+            unlocked: root.unlocked;
+            opacity: TuneModel.sweep_stale ? 0.55 : 1.0;
+        }
+        HorizontalLayout {
+            Text { text: TuneModel.axis_low; font-size: 9px; color: Theme.text-muted; }
+            Text {
+                horizontal-stretch: 1;
+                text: "Angle (Degrees)";
+                font-size: 9px;
+                color: Theme.text-muted;
+                horizontal-alignment: center;
+            }
+            Text { text: TuneModel.axis_high; font-size: 9px; color: Theme.text-muted; horizontal-alignment: right; }
+        }
+        // Its full height, so the line is never cut in half at the top of the scroll area.
+        WrapNote {
+            text: "Each curve uses its own range below; heights are not comparable. Fire is a unitless index. Ring, star and shading follow the objective.";
+            font_size: 9px;
+        }
+        TuneMetricLegend {
+            unlocked: root.unlocked;
+            opacity: TuneModel.sweep_stale ? 0.55 : 1.0;
+        }
+        if TuneModel.readout_text != "": Text {
+            text: TuneModel.readout_text;
+            font-size: 10px;
+            color: Theme.text-primary;
+            wrap: word-wrap;
+        }
+    }
+
+}

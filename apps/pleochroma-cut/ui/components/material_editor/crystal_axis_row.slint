@@ -1,0 +1,133 @@
+import { ComboBox, SpinBox } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { TipBox, FieldCaption } from "../tip_box.slint";
+
+// The Crystal Axis row of the material editor: the default direction of the material's crystal
+// axis (tilt and azimuth, and for a biaxial material the Second Axis turn), which a design takes
+// for this material unless it sets its own.
+//
+// The state lives in this global, not in `MaterialEditorDialog`: Rust fills it when the dialog's
+// pre-fill is pushed (`gui::optics::custom_materials::crystal_axis`) and reads it when Save runs,
+// so the Save callback keeps its signature (the same way the Dispersion section's model rides
+// beside it). "Not Set" (mode 0) means the material's built-in axis, untouched.
+export global CrystalAxisEditorModel {
+    // 0 = Not Set, 1 = Set (tilt and azimuth). Two-way bound to the combo.
+    in-out property <int> axis_mode: 0;
+    in-out property <int> tilt_deg: 0;       // 0..=90, whole degrees
+    in-out property <int> azimuth_deg: 0;    // 0..=360, whole degrees
+    // 0 = Not Set, 1 = Set. Only meaningful for a biaxial material with the axis set.
+    in-out property <int> second_mode: 0;
+    in-out property <int> second_deg: 0;     // 0..=180, whole degrees
+    // The stored values as pushed (fractions kept): Rust writes them back unchanged when the
+    // spin boxes still show their rounded value, so a plain re-save never moves them.
+    in-out property <float> stored_tilt_deg: 0.0;
+    in-out property <float> stored_azimuth_deg: 0.0;
+    in-out property <float> stored_second_deg: 0.0;
+    // What the dialog opened with, for its unsaved-edits check.
+    in-out property <int> baseline_axis_mode: 0;
+    in-out property <int> baseline_tilt_deg: 0;
+    in-out property <int> baseline_azimuth_deg: 0;
+    in-out property <int> baseline_second_mode: 0;
+    in-out property <int> baseline_second_deg: 0;
+    // The axis of the built-in material selected in the viewport, as text ("" for a custom or an
+    // isotropic selection). Shown read-only.
+    in-out property <string> built_in_text: "";
+
+    out property <bool> dirty: axis_mode != baseline_axis_mode
+        || tilt_deg != baseline_tilt_deg
+        || azimuth_deg != baseline_azimuth_deg
+        || second_mode != baseline_second_mode
+        || second_deg != baseline_second_deg;
+}
+
+// Shown by the dialog for every non-isotropic material; `is_biaxial` adds the Second Axis.
+export component MaterialCrystalAxisRow inherits VerticalLayout {
+    in property <bool> is_biaxial: false;
+
+    spacing: 6px;
+
+    FieldCaption {
+        text: "Crystal Axis:";
+        hint: "The direction of the stone's special optical axis, measured from the vertical (tilt) and around it (azimuth). Not Set keeps the material's own axis. A design can still set its own axis, which wins.";
+        font_size: 11px;
+    }
+    HorizontalLayout {
+        spacing: 10px;
+        alignment: start;
+        TipBox {
+            hint: "Not Set keeps the material's own axis.";
+            ComboBox {
+                width: 100px;
+                model: ["Not Set", "Set"];
+                current-index <=> CrystalAxisEditorModel.axis_mode;
+                accessible-label: "Crystal Axis";
+            }
+        }
+        if CrystalAxisEditorModel.axis_mode == 1: VerticalLayout {
+            spacing: 2px;
+            Text { text: "Tilt (\u{00b0})"; font-size: 10px; color: Theme.text-muted; }
+            SpinBox {
+                minimum: 0;
+                maximum: 90;
+                value <=> CrystalAxisEditorModel.tilt_deg;
+                accessible-label: "Crystal Axis Tilt in Degrees";
+            }
+        }
+        if CrystalAxisEditorModel.axis_mode == 1: VerticalLayout {
+            spacing: 2px;
+            Text { text: "Azimuth (\u{00b0})"; font-size: 10px; color: Theme.text-muted; }
+            SpinBox {
+                minimum: 0;
+                maximum: 360;
+                value <=> CrystalAxisEditorModel.azimuth_deg;
+                accessible-label: "Crystal Axis Azimuth in Degrees";
+            }
+        }
+    }
+
+    if root.is_biaxial: Text {
+        text: "For biaxial materials this is the gamma axis.";
+        font-size: 9px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+
+    if root.is_biaxial && CrystalAxisEditorModel.axis_mode == 1: VerticalLayout {
+        spacing: 6px;
+        FieldCaption {
+            text: "Second Axis:";
+            hint: "The turn of the second principal direction of a biaxial stone around the crystal axis, from 0 to 180 degrees. Not Set keeps the material's own second direction.";
+            font_size: 11px;
+        }
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: start;
+            TipBox {
+                hint: "Not Set keeps the material's own second direction.";
+                ComboBox {
+                    width: 100px;
+                    model: ["Not Set", "Set"];
+                    current-index <=> CrystalAxisEditorModel.second_mode;
+                    accessible-label: "Second Axis";
+                }
+            }
+            if CrystalAxisEditorModel.second_mode == 1: VerticalLayout {
+                spacing: 2px;
+                Text { text: "Turn (\u{00b0})"; font-size: 10px; color: Theme.text-muted; }
+                SpinBox {
+                    minimum: 0;
+                    maximum: 180;
+                    value <=> CrystalAxisEditorModel.second_deg;
+                    accessible-label: "Second Axis Turn in Degrees";
+                }
+            }
+        }
+    }
+
+    if CrystalAxisEditorModel.built_in_text != "": Text {
+        text: "The selected built-in material's axis: " + CrystalAxisEditorModel.built_in_text;
+        font-size: 9px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+}

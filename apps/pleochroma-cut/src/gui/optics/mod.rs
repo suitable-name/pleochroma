@@ -1,0 +1,24 @@
+//! Crystal-optics helpers: crystal-axis tilt/azimuth <-> `Vec3` conversion
+//! ([`c_axis`]), crystal-system/optical-character string and index conversions plus
+//! custom-`GemMaterial` construction ([`crystal_optics`]), tilt-curve SVG path
+//! generation for the performance-graph dialog ([`curve_path`]), and the custom
+//! material library's own create/edit/delete callbacks ([`custom_materials`]), and the material
+//! editor's physics color mode: its pure state ([`physics_state`]), solver worker
+//! ([`physics_solver`]) and Slint glue ([`physics_ui`]), and the editor's Dispersion
+//! section (Sellmeier/Cauchy coefficients, readout and curve: [`dispersion_editor`]).
+//!
+//! Grouped together as the material/crystal-optics domain logic that sits underneath
+//! the render/tilt/library UI modules, rather than left as flat top-level `gui` files.
+
+pub mod c_axis;
+pub mod color_variant_store;
+pub mod color_variants_section;
+pub mod crystal_optics;
+pub mod curve_path;
+pub mod custom_materials;
+pub mod dialog_color;
+pub mod dispersion_editor;
+pub mod offered_lighting;
+pub mod physics_solver;
+pub mod physics_state;
+pub mod physics_ui;

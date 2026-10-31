@@ -1,0 +1,120 @@
+[package]
+name = "pleochroma-web"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+authors = { workspace = true }
+description = "Browser build of pleochroma: open a faceting design (.psdd, .asc, .gem, .gcs), edit it, and save it back -- no design library, no remote worker, no database."
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+documentation = "https://docs.rs/pleochroma-web"
+keywords = ["gemstone", "faceting", "wasm", "slint", "rendering"]
+categories = ["wasm", "graphics", "rendering"]
+publish = { workspace = true }
+
+# `cdylib` is what `wasm-bindgen`/`trunk` need; `rlib` lets a native
+# `cargo check -p pleochroma-web` type-check the (empty) native build. See
+# `src/lib.rs` for why everything real is `wasm32`-gated.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# Every dependency lives under the `wasm32` target section below: every module that
+# uses one is `#[cfg(target_arch = "wasm32")]`, so a native build references none of
+# them and a native `cargo tree -p pleochroma-web` stays empty.
+[dependencies]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Turns a Rust panic into a readable `console.error` line instead of the browser's
+# opaque "unreachable executed" trap.
+console_error_panic_hook = "0.1.7"
+# `GemMaterial` (the render material list) and `LightingPreset` (the lighting list).
+# `hdr` stays on for the HDR environment-map upload the render Workers decode.
+# No `gpu` feature here: the page never compiles a kernel (Chrome's GPU process dies
+# compiling the megakernel). GPU rendering runs the event-wavefront
+# kernels in the separate GPU render Worker, crate `apps/pleochroma-web-gpu`.
+pleochroma = { workspace = true, features = ["hdr"] }
+# `Design`, the `.psdd` design file load/save string APIs, `History`.
+pleochroma-cut-core = { workspace = true }
+# The shared editor session, loaders, templates, cutting sheet and file naming.
+pleochroma-editor = { workspace = true }
+# `.asc` decoding/writing (Windows-1252 aware).
+pleochroma-formats = { workspace = true }
+# The Solid and Diagram tabs (`src/views`): the desktop's own frame pipeline
+# (`preview`), rasterizer and 2D diagram, run on the main thread.
+pleochroma-solid = { workspace = true }
+# The design library's records and the pure importer/search (`local`, `model`). A direct path
+# dependency, not `workspace = true`: the workspace entry keeps the default `sqlite` feature
+# on, and a member cannot switch it off. Without it the crate is pure Rust (no C SQLite).
+# Nothing else in this crate's graph may depend on the vault with default features, or Cargo
+# unification turns `sqlite` back on.
+pleochroma-vault = { path = "../../crates/pleochroma-vault", default-features = false }
+# The Worker pool (`host::WorkerPool`: render Workers + the solve Worker), the scene
+# spec, display/export pipeline and the persisted settings payload.
+pleochroma-web-core = { workspace = true }
+# Reads an uploaded `.hdr`'s header (dimensions) without decoding its pixels, and decodes the
+# library's cached PNG thumbnails (`png`; `pleochroma` already enables it for the encoder).
+image = { workspace = true, features = ["hdr", "png"] }
+# `Uint8Array` copies in and out of JS: a dropped file's `arrayBuffer()` bytes, a
+# download's `Blob` parts.
+js-sys = "0.3.106"
+# The async file picker: on wasm32 a hidden `<input type="file">`. `file-handle-inner`
+# gives the picked `web_sys::File`, whose `size` is checked before the file is read.
+rfd = { workspace = true, features = ["file-handle-inner"] }
+# The settings payload stored in `sessionStorage` as JSON.
+serde = { workspace = true }
+serde_json = { workspace = true }
+slint = { workspace = true, features = [
+    "backend-winit",
+    "renderer-femtovg",
+    "std",
+    # Required when `default-features = false` (a `compile_error!` otherwise).
+    "compat-1-2",
+] }
+# The console subscriber in `src/app/diagnostics.rs` receives the shared crates'
+# `tracing` events.
+tracing = { workspace = true }
+wasm-bindgen = "0.2.129"
+wasm-bindgen-futures = "0.4.79"
+web-sys = { version = "0.3.106", default-features = false, features = [
+    "BeforeUnloadEvent",
+    "Blob",
+    "BlobPropertyBag",
+    "console",
+    "Crypto",
+    "DataTransfer",
+    "Document",
+    "DomException",
+    "DragEvent",
+    "Element",
+    "Event",
+    "EventTarget",
+    "File",
+    "FileList",
+    "HtmlAnchorElement",
+    "HtmlElement",
+    "IdbCursor",
+    "IdbDatabase",
+    "IdbFactory",
+    "IdbIndex",
+    "IdbKeyRange",
+    "IdbObjectStore",
+    "IdbOpenDbRequest",
+    "IdbRequest",
+    "IdbTransaction",
+    "IdbTransactionMode",
+    "Navigator",
+    "Node",
+    "PageTransitionEvent",
+    "Performance",
+    "Storage",
+    "StorageManager",
+    "Url",
+    "Window",
+] }
+
+[build-dependencies]
+slint-build = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,208 @@
+import { ComboBox } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { RetargetModel } from "../../models/retarget.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { ActionButton } from "../chip_toggle.slint";
+import { ToggleRow } from "../toggle_switch.slint";
+import { TipBox, FieldCaption } from "../tip_box.slint";
+import { CandidateRow } from "parts.slint";
+
+// 4b. Optimize mode: the three settings (Advanced mode only), the Search
+// button, its progress, what it found and the options to pick from.
+// Picking one fills the table, the verdict and the comparison below;
+// Apply commits that one.
+export component OptimizeSection inherits VerticalLayout {
+    spacing: 8px;
+
+    if GuideModel.shows_advanced(): VerticalLayout {
+        spacing: 4px;
+        FieldCaption {
+            text: "Objective";
+            hint: "What the search favours when it scores a stone. Balanced weighs windowing, extinction and brilliance equally; the others lean one way.";
+        }
+        TipBox {
+            hint: "Pick what the search should favour.";
+            ComboBox {
+                model: RetargetModel.objective_options;
+                current-index <=> RetargetModel.objective_index;
+                enabled: !RetargetModel.is_busy;
+                accessible-label: "Objective";
+                selected(val) => { RetargetModel.settings_changed(); }
+            }
+        }
+        Text { text: RetargetModel.objective_description; font-size: 10px; font-italic: true; color: Theme.text-muted; wrap: word-wrap; }
+    }
+
+    if GuideModel.shows_advanced(): HorizontalLayout {
+        spacing: 8px;
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            min-width: 80px;
+            spacing: 4px;
+            FieldCaption {
+                text: "Range";
+                hint: "How far each crown and pavilion angle may move from its Shift angle, either side. A wider range finds more but takes longer to be worth it, and the options stay valid either way.";
+            }
+            // The two combos share the column and may shrink (min-width) instead of pushing the
+            // row, and with it the whole dialog body, wider than the visible column.
+            TipBox {
+                min-width: 80px;
+                hint: "Pick how far the angles may move.";
+                ComboBox {
+                    model: RetargetModel.range_options;
+                    current-index <=> RetargetModel.range_index;
+                    enabled: !RetargetModel.is_busy;
+                    accessible-label: "Range";
+                    selected(val) => { RetargetModel.settings_changed(); }
+                }
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            min-width: 80px;
+            spacing: 4px;
+            FieldCaption {
+                text: "Effort";
+                hint: "How many stones the search may score. More steps look harder and take longer; the time estimate below uses the speed measured on this design.";
+            }
+            TipBox {
+                min-width: 80px;
+                hint: "Pick how hard the search tries.";
+                ComboBox {
+                    model: RetargetModel.effort_options;
+                    current-index <=> RetargetModel.effort_index;
+                    enabled: !RetargetModel.is_busy;
+                    accessible-label: "Effort";
+                    selected(val) => { RetargetModel.settings_changed(); }
+                }
+            }
+        }
+    }
+
+    if GuideModel.shows_advanced(): ToggleRow {
+        text: "Keep the Design's Look";
+        hint: "Scores every option with a penalty for drifting from the table size and the crown-to-pavilion ratio of the design as it is.";
+        checked: RetargetModel.keep_look;
+        enabled: !RetargetModel.is_busy;
+        label_color: Theme.text-secondary;
+        toggled => {
+            RetargetModel.keep_look = !RetargetModel.keep_look;
+            RetargetModel.settings_changed();
+        }
+    }
+
+    Text {
+        text: "" + RetargetModel.free_tier_count + " angles can vary. " + RetargetModel.estimate_text;
+        font-size: 10px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+
+    action-button-search-done := ActionButton {
+        height: 32px;
+        text: RetargetModel.search_done ? "Search Again" : "Search for Better Angles";
+        hint: "Search for better crown and pavilion angles, starting from the Shift result. It runs in the background and can be cancelled. Every option it offers is checked the same way Shift is, so none of them loses the girdle.";
+        fill: Theme.accent-cyan;
+        hover_fill: Theme.accent-cyan-hover;
+        ink: Theme.text-on-accent;
+        edge: Theme.accent-cyan;
+        font_size: 12px;
+        weight: 700;
+        enabled: !RetargetModel.is_busy && RetargetModel.validity_state != 1;
+        clicked => { RetargetModel.search(); }
+    }
+
+    if RetargetModel.is_busy: Text {
+        text: RetargetModel.search_progress_text;
+        font-size: 11px;
+        font-weight: 600;
+        color: Theme.accent-cyan;
+        wrap: word-wrap;
+    }
+
+    if RetargetModel.search_error != "": HorizontalLayout {
+        spacing: 6px;
+        Image {
+            source: @image-url("../../icons/warning.svg");
+            colorize: Theme.accent-ruby;
+            width: 12px;
+            height: 12px;
+            y: 1px;
+        }
+        Text {
+            text: RetargetModel.search_error;
+            font-size: 10px;
+            font-weight: 600;
+            color: Theme.accent-ruby;
+            wrap: word-wrap;
+            horizontal-stretch: 1;
+        }
+    }
+
+    if RetargetModel.search_summary != "": Text {
+        text: RetargetModel.search_summary;
+        font-size: 11px;
+        font-weight: 600;
+        color: Theme.text-primary;
+        wrap: word-wrap;
+    }
+
+    for line in RetargetModel.search_notes: Text {
+        text: line;
+        font-size: 10px;
+        font-italic: true;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+
+    if RetargetModel.candidates.length > 0: VerticalLayout {
+        spacing: 4px;
+
+        Text { text: "Options (Click One to See It)"; font-size: 10px; font-weight: 700; color: Theme.text-muted; }
+
+        // The list is one Tab stop; Up and Down pick the previous or next
+        // option like a click does, Space picks the first one.
+        cand_focus := FocusScope {
+            height: cand_list.preferred-height;
+            enabled: !RetargetModel.is_busy;
+            accessible-role: AccessibleRole.list;
+            accessible-label: "Retarget Options";
+            accessible-description: "Up and Down pick the previous or next option. The picked option fills the table and the comparison.";
+            key-pressed(event) => {
+                if event.text == Key.DownArrow {
+                    if RetargetModel.selected_candidate < RetargetModel.candidates.length - 1 {
+                        RetargetModel.select_candidate(RetargetModel.selected_candidate + 1);
+                    }
+                    return accept;
+                } else if event.text == Key.UpArrow {
+                    if RetargetModel.selected_candidate > 0 {
+                        RetargetModel.select_candidate(RetargetModel.selected_candidate - 1);
+                    }
+                    return accept;
+                } else if event.text == Key.Space {
+                    if RetargetModel.selected_candidate < 0 {
+                        RetargetModel.select_candidate(0);
+                    }
+                    return accept;
+                }
+                reject
+            }
+
+            cand_list := VerticalLayout {
+                spacing: 4px;
+                for cand[index] in RetargetModel.candidates: CandidateRow {
+                    item: cand;
+                    selected: RetargetModel.selected_candidate == index;
+                    ringed: cand_focus.has-focus && RetargetModel.selected_candidate == index;
+                    active: !RetargetModel.is_busy;
+                    clicked => {
+                        cand_focus.focus();
+                        RetargetModel.select_candidate(index);
+                    }
+                }
+            }
+        }
+    }
+}

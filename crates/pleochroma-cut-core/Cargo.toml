@@ -1,0 +1,103 @@
+[package]
+name = "pleochroma-cut-core"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+documentation = "https://docs.rs/pleochroma-cut-core"
+keywords = ["gemstone", "faceting", "cad", "editor", "undo"]
+categories = ["science", "graphics"]
+publish = { workspace = true }
+description = "Editor-core library for faceting cutting instructions: preform, tiers, undo/redo, and live solid validation. No UI, no database, no rendering -- see the crate's own doc comment."
+
+[dependencies]
+# The public geometry crate -- see its own crate doc comment. This crate reaches it
+# by relative PATH dependency (via the private workspace's `[workspace.dependencies]`
+# entry), never a copy; see `../../Cargo.toml`'s own note on the public/private split.
+# `serde` because the rough colour (`rough_plan::zoned_plan`) stores `ZonedAbsorption` as JSON in
+# the vault side tables.
+pleochroma = { workspace = true, features = ["serde"] }
+glam = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# The design file's `unknown` tables (`toml::Table`, the format's own sanctioned "a
+# future build wrote this" extension point) are carried through `native/design_file.rs`
+# and `native/unknown_keys.rs`, so a save never drops a key a newer build wrote. Same
+# `toml` version the workspace already pins for `pleochroma-formats`.
+toml = { workspace = true }
+# `.asc` cutting-instructions read/write, AND (via `pleochroma_formats::native`) the on-disk schema,
+# TOML encode/decode and path rules for the
+# `.psdd` native design file (`native/` in this crate holds only the half
+# of that format that needs `Design`/`MeetConstraint` in scope: the conversions, and
+# `catalogue_asc` built on top of them -- see `native/mod.rs`'s own module
+# doc comment). `Design` wraps `pleochroma_formats::asc::AscSchedule` directly rather than
+# defining a second tier/schedule type, so this crate's editable schedule and
+# `pleochroma::geometry::cuts::StandardGemCuts::from_asc_schedule`'s input are the
+# exact same type -- no import/export step, no second parser to keep in sync. Two real
+# dependencies only, same as `lib.rs`'s own doc comment has always framed it: no
+# renderer, no database, and no GUI toolkit. The TOML/SHA-256 codec itself lives
+# in `pleochroma-formats`, so there is no text-file-format or hash-function
+# dependency in this crate either.
+pleochroma-formats = { workspace = true }
+# Rough-colour photometry (`rough_plan::photometry`).
+# `rawler` 0.8.0 (published 2026-08-30, LGPL-2.1): pure-Rust RAW/DNG decoder, no C
+# toolchain. Declared directly (not through `[workspace.dependencies]`) so the private
+# workspace, which shares this crate by path, needs no matching entry. Native only (see the
+# target table below).
+image = { workspace = true, features = ["png", "jpeg", "tiff"] }
+# Exact orientation for the convex hull when its float visibility test contradicts itself
+# (`rough_plan::shape::hull::exact`). Both are already in the dependency tree (the lock file pins
+# these versions); declared directly, like `rawler` below, so the private workspace needs no
+# matching `[workspace.dependencies]` entry.
+num-bigint = "0.4.8"
+num-rational = { version = "0.4.2", default-features = false, features = ["num-bigint", "std"] }
+# Warnings for a stone's color pattern that does not apply (`material::selection`). Declared
+# directly, like `rawler` below, so the private workspace that shares this crate by path needs no
+# matching `[workspace.dependencies]` entry; the version is the one the workspace pins.
+tracing = "0.1.44"
+
+# The camera RAW decoder is left out of the wasm32 build (the browser app reaches this crate
+# through `pleochroma-web-core`): rawler pulls in `uuid`, which has no randomness source on
+# `wasm32-unknown-unknown`, and a browser has no RAW files on a path to read. There
+# `rough_plan::photometry` decodes JPEG, PNG and TIFF only.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rawler = "=0.8.0"
+
+[dev-dependencies]
+# For `examples/manufacturability_corpus_probe.rs` only -- reads the user's real
+# `facet_diagrams.sqlite` catalogue read-only to measure the manufacturability
+# checks at corpus scale, exactly the pattern
+# `crates/pleochroma/examples/meet_solver_validation/main.rs` already uses (see its own
+# doc comment on why that lives in `examples/`, not the test suite: it needs a real
+# catalogue this repository does not ship, so a `#[test]` cannot depend on it). A
+# dev-dependency only -- never pulled into the library itself, so
+# `pleochroma-cut-core`'s own two-dependency (pleochroma, pleochroma-formats)
+# footprint (see `lib.rs`'s crate doc comment) is unchanged for every normal build.
+rusqlite = { workspace = true }
+# Benchmark harness for `benches/candidate_eval.rs` (BLD-2).
+divan = { workspace = true }
+
+[[bench]]
+name = "candidate_eval"
+harness = false
+
+# Zoning validation (lane V1, plan 2026-10-09 section 10): the synthetic test suite and the
+# performance benchmark.
+[[test]]
+name = "zoning_validation"
+path = "tests/zoning_validation/main.rs"
+
+[[example]]
+name = "zoning_bench"
+path = "examples/zoning_bench.rs"
+
+[features]
+default = []
+physics-color = []
+experimental = ["physics-color"]
+
+[lints]
+workspace = true

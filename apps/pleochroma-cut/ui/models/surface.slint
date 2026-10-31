@@ -1,0 +1,81 @@
+// Surface finish authoring in the desktop editor: how well each tier and facet is polished, or how
+// coarsely it is ground. The design stores it per tier (`Design::tier_surfaces`, changed only by
+// the undoable `Edit::SetTierSurface`); this global carries what the tier table's context menu, the
+// inspector's Surface Finish section and the Show Surface Finish overlay need. The Rust side is
+// `gui::editor::callbacks::tier_actions::surface` (the edits and the inspector state) and
+// `gui::editor::manipulate::surface_overlay` (the overlay).
+//
+// The scratch directions come from the user's Faceting Machine preference
+// (`FacetingMachineModel`, never stored in a design).
+
+// One mark of the overlay: a dot on a facet tinted by its grade and, for a polished facet, a short
+// tick along the direction of its scratches. Positions are in the viewport's logical coordinates.
+export struct SurfaceTick {
+    // The facet's centre.
+    cx: length,
+    cy: length,
+    // The ends of the scratch tick; equal to the centre for a facet without a scratch direction.
+    x0: length,
+    y0: length,
+    x1: length,
+    y1: length,
+    // The grade's tint.
+    tint: color,
+}
+
+export global SurfaceModel {
+    // --- The inspector's Surface Finish section ------------------------------------------------
+    // The grade names in menu order ("Ideal", "Mirror", ..., "Custom"), pushed once by Rust from
+    // the design's own list.
+    in property <[string]> grade_names: [];
+    // The same list with "Follow Tier" in front, for a facet's override.
+    in property <[string]> facet_option_names: [];
+    // The loaded tier's grade, an index of `grade_names`. Two-way with the grade combo.
+    in-out property <int> tier_grade: 0;
+    // The loaded tier's Custom values and scratch choices. The sliders and switches write them and
+    // call `controls_changed`.
+    in-out property <float> custom_rq: 6.0;
+    in-out property <float> custom_aniso: 1.0;
+    in-out property <bool> use_angle: false;
+    in-out property <float> angle_deg: 0.0;
+    in-out property <bool> no_sweep: false;
+    // Whether the loaded tier's grade is Custom, and whether its scratches have a direction
+    // (a polish or a Custom finish; a ground finish is round).
+    in property <bool> is_custom: false;
+    in property <bool> directional: false;
+    // One plain line about the tier: "Commercial, 2 facets differ"; "" for an ideal tier.
+    in property <string> summary: "";
+    // The loaded tier's facets, by label and by position, for the per-facet override.
+    in property <[string]> facet_labels: [];
+    in property <[float]> facet_positions: [];
+    // The facet the override row shows (an index of `facet_labels`) and its override: 0 follows the
+    // tier, otherwise 1 + the index of `grade_names`.
+    in-out property <int> facet_pick: 0;
+    in-out property <int> facet_option: 0;
+
+    // A grade was chosen for tier `tier` (the tier table's context menu and the inspector's combo):
+    // (tier, index of `grade_names`).
+    callback grade_chosen(int, int);
+    // One of the Custom values, Custom Angle or No Sweep changed for tier `tier`; Rust reads the
+    // properties above.
+    callback controls_changed(int);
+    // The context menu's No Sweep entry: (tier, on).
+    callback no_sweep_set(int, bool);
+    // The override row picked facet `facet_pick` of tier `tier`: Rust sets `facet_option`.
+    callback facet_picked(int, int);
+    // The override row chose an option for the facet at position (tier, position, option).
+    callback facet_option_chosen(int, float, int);
+
+    // --- The Show Surface Finish overlay -------------------------------------------------------
+    // The toolbar pill and the section's switch.
+    in-out property <bool> show_overlay: false;
+    // Whether marks are drawn: the switch is on, the stone has a surface finish and a frame is
+    // shown.
+    in property <bool> overlay_visible: false;
+    in property <[SurfaceTick]> ticks: [];
+    // Bumped by Rust after every edit of a surface finish, so the overlay is recomputed even though
+    // no new frame lands.
+    in property <int> design_version: 0;
+    // Rust recomputes the overlay (the switch, the view or the design changed).
+    callback overlay_changed();
+}

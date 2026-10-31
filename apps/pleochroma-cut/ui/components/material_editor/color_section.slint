@@ -1,0 +1,144 @@
+import { Theme } from "../../theme.slint";
+import { PhysicscolorModel } from "../../models/physics_color.slint";
+import { BodyColorEditorModel } from "../../models/body_color_editor.slint";
+import { Zoning } from "../../models/zoning.slint";
+import { ActionButton } from "../chip_toggle.slint";
+import { SegmentPill } from "../pill_button.slint";
+import { MaterialColorPresets } from "color_presets.slint";
+import { ChromophorePicker } from "chromophore_picker.slint";
+import { LchEditor } from "lch_editor.slint";
+
+// The Color area of the Gem Material Editor. Fantasy (the nine presets or a free pick, fitted to
+// the three legacy bands) or Physics (host + elements, see `ChromophorePicker`). Switching keeps
+// BOTH payloads: the recipe survives a trip through Fantasy and a saved fantasy color survives a
+// trip through Physics.
+//
+// The physics editor is a cargo feature (`physical-color`). Without it the toggle and the recipe
+// section are not shown and the Fantasy controls are always shown, even over a stored physics
+// recipe (a note says so); which of the four views applies is decided in Rust
+// (`gui::optics::physics_state::color_section_view`).
+//
+// Split out of `material_editor_dialog.slint` to keep that file under its line limit; the
+// dialog's `selected_color_preset` is shared through the two-way binding.
+export component MaterialColorSection inherits VerticalLayout {
+    in-out property <int> selected_color_preset;
+    // The dialog's optical character (its combo index). A uniaxial or biaxial material gets one
+    // color row per direction in the editor below, so the material keeps its pleochroism.
+    in property <int> optical_character_idx: 0;
+
+    // The fantasy mode's free color picker (spec 7), inline under the preset row.
+    property <bool> fantasy_picker_open: false;
+
+    spacing: 8px;
+    if PhysicscolorModel.show_mode_toggle : HorizontalLayout {
+        spacing: 10px;
+        alignment: start;
+        Text {
+            text: "Color Mode:";
+            font-size: 11px;
+            font-weight: 600;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+            accessible-role: AccessibleRole.text;
+        }
+        SegmentPill {
+            width: 76px;
+            text: "Fantasy";
+            hint: "Pick the body color from the swatches or any color you like. The program finds the closest color the model can show.";
+            selected: !PhysicscolorModel.active;
+            picked => {
+                // Physics -> Fantasy returns the preset to show (a recipe-seeded
+                // fantasy color is "Custom (keep)").
+                root.selected_color_preset = PhysicscolorModel.set_mode(false, root.selected_color_preset);
+            }
+        }
+        SegmentPill {
+            width: 76px;
+            text: "Physics";
+            hint: "Build the color from a host crystal and the elements that color it, as in the real stone.";
+            selected: PhysicscolorModel.active;
+            picked => {
+                // The first switch solves the current fantasy color into the
+                // host on the solver worker (never on this thread).
+                root.selected_color_preset = PhysicscolorModel.set_mode(true, root.selected_color_preset);
+            }
+        }
+    }
+
+    if PhysicscolorModel.show_fantasy_section : VerticalLayout {
+        spacing: 6px;
+        // Physics editor not in this build, but the material's color is a physics
+        // recipe: say so, and say what picking a color does.
+        if PhysicscolorModel.show_recipe_note : Rectangle {
+            border-radius: Theme.radius-sm;
+            background: Theme.surface-info;
+            height: recipe_note.preferred-height + 12px;
+            recipe_note := Text {
+                x: 8px;
+                width: parent.width - 16px;
+                y: 6px;
+                text: "This material's color comes from a physics recipe made in another build. Picking a color here replaces it with a fixed color; the recipe stays saved with the material."
+                    + (PhysicscolorModel.optics_locked ? " Crystal system and optical character stay locked until you pick a color." : "");
+                font-size: 10px;
+                color: Theme.text-primary;
+                wrap: word-wrap;
+            }
+        }
+        // A Two-Color base is edited in the pattern editor only: the swatches, the
+        // picker and the editor stay out of reach, with a note saying so.
+        if Zoning.base_color_locked : Text {
+            text: Zoning.base_color_locked_note;
+            font-size: 10px;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+        }
+        if !Zoning.base_color_locked : MaterialColorPresets {
+            selected_color_preset <=> root.selected_color_preset;
+            show_selection: !PhysicscolorModel.show_recipe_note;
+            // Replaces a physics recipe's color when the editor is hidden; otherwise
+            // hands the same swatch back.
+            chosen(index) => {
+                root.selected_color_preset = PhysicscolorModel.color_preset_chosen(index);
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            ActionButton {
+                width: 100px;
+                height: 26px;
+                text: "Pick\u{2026}";
+                hint: "Open the color editor: choose the tone, saturation and hue of the body color for a stone of this size (of each direction, for a material that shows two or three colors). Saving keeps the full color, not just the closest swatch.";
+                fill: Theme.surface-raised;
+                hover_fill: Theme.surface-control-hover;
+                font_size: 10px;
+                enabled: !Zoning.base_color_locked;
+                clicked => {
+                    root.fantasy_picker_open = !root.fantasy_picker_open;
+                    if root.fantasy_picker_open {
+                        BodyColorEditorModel.target = 1;
+                        BodyColorEditorModel.dialog_character_idx = root.optical_character_idx;
+                        BodyColorEditorModel.open_requested();
+                    }
+                }
+            }
+            Text {
+                text: "Swatches and previews show the color at 7 mm; it deepens in a larger stone.";
+                font-size: 9px;
+                color: Theme.text-muted;
+                vertical-alignment: center;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+            }
+        }
+        if root.fantasy_picker_open : LchEditor {
+            enabled: !Zoning.base_color_locked;
+            apply_hint: "Use this color for the material. Save the material to keep it.";
+            applied => { root.fantasy_picker_open = false; }
+            cancelled => { root.fantasy_picker_open = false; }
+        }
+    }
+
+    if PhysicscolorModel.show_physics_section : ChromophorePicker {
+    }
+}

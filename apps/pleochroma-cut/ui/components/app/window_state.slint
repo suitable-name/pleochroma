@@ -1,0 +1,382 @@
+import { BatchModel } from "../../models/batch.slint";
+import { CommandPaletteModel } from "../../models/command_palette.slint";
+import { CompareModel } from "../../models/compare.slint";
+import { CuttingModeModel } from "../../models/cutting_mode.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { ExportModel } from "../../models/export.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { HelpModel } from "../../models/help.slint";
+import { LibraryModel } from "../../models/library.slint";
+import { ParametersModel } from "../../models/parameters.slint";
+import { PhysicscolorModel } from "../../models/physics_color.slint";
+import { PreferencesModel } from "../../models/preferences.slint";
+import { RadvWorkaroundModel } from "../../models/radv_workaround.slint";
+import { RawTextModel } from "../../models/raw_text.slint";
+import { RenderJobsModel } from "../../models/render_jobs.slint";
+import { RetargetModel } from "../../models/retarget.slint";
+import { ShortcutsModel } from "../../models/shortcuts.slint";
+import { SweepModel } from "../../models/sweep.slint";
+import { TiltModel } from "../../models/tilt.slint";
+import { TutorialsModel } from "../../models/tutorials.slint";
+import { UpdateModel } from "../../models/update.slint";
+import { ViewportModel } from "../../models/viewport.slint";
+import { ParametersDockMetrics } from "../parameters_panel/parameters_dock.slint";
+
+// The main window's derived state -- split out of `app.slint` to keep that file under its line
+// budget. Nothing here draws: `MainWindow` mounts one zero-sized instance (`win_state`) fed with
+// the window width, the two tab indices and the close question, and reads its results:
+//
+//  * where the Parameters dock and the guide sit and how wide the dialogs' area is (the layout
+//    metrics, with the arithmetic and the reasons for every constant);
+//  * the library column's width-driven auto-collapse;
+//  * which dialogs are up, and the hand-back of the keyboard to the main window when they close
+//    (`focus_main`).
+export component WindowState {
+    in property <length> window_width: 0px;
+    in property <int> active_tab: 0;
+    in property <int> render_view_tab: 0;
+    // `MainWindow`'s window-close question (it owns the dialog and its callbacks).
+    in property <bool> close_confirm_open: false;
+    // Hands the keyboard back to the main window's shortcut scope (`app.slint`).
+    callback focus_main();
+
+    // Where the Parameters dock sits. It docks only where the viewport keeps its guaranteed
+    // width WITH the dock open; narrower, the open panel floats over the window instead of
+    // squeezing the viewport. The decision reads the REAL space: the window less its 12px body
+    // padding, the library column (340px open, 40px rail, plus the 12px gap after it) and, in the
+    // Edit view, the guide column. It uses the OPEN dock width even while the dock is folded to
+    // its rail, so folding and opening never flips docked and floating.
+    //
+    // Live Render row: 24 (padding) + library column + viewport + 8 (gap) + 360 (dock).
+    //   viewport >= 700px (the toolbar's two-row layout needs about 570px, `gem_viewport.slint`)
+    //   => docked from width 1144px with the library on its rail, 1444px with it open.
+    //   `library_wants_auto_collapse` (below) folds the library to the rail between the two while
+    //   the panel is open, so 1144px is the practical breakpoint.
+    // Edit row: 24 + library column + viewport + 12 + [guide 260 + 12] + 6 (handle) + 12 + inspector
+    //   dock (min 600) + 12 + 360 (dock).
+    //   viewport >= 380px => the row needs 380 + 6 + 24 + 600 + 372 = 1382px (+272px with the
+    //   guide), so docked from width 1458px (+272px) with the library on its rail, 1758px
+    //   (+272px) with it open.
+    out property <length> library_column: (LibraryModel.panel_collapsed ? 40px : 340px) + 12px;
+    out property <length> guide_column: GuideModel.open ? 272px : 0px;
+    out property <bool> params_docked_live: root.window_width - 24px - root.library_column - 8px - ParametersDockMetrics.open_width >= 700px;
+    out property <bool> params_docked_edit: root.window_width - 24px - root.library_column - 380px - 6px - 24px - 600px
+        - (ParametersDockMetrics.open_width + 12px) - root.guide_column >= 0px;
+    out property <bool> params_in_edit_row: root.render_view_tab == 1 && EditorModel.enabled;
+    out property <bool> params_docked: root.params_in_edit_row ? root.params_docked_edit : root.params_docked_live;
+    // The open panel has no room beside the viewport: it floats over the window instead.
+    out property <bool> params_floating: ParametersModel.open && root.active_tab == 0 && !root.params_docked;
+    // What the docked dock takes of the Edit row's width, with the 12px gap before it: the
+    // inspector dock's clamp (above, and the `SplitHandle`'s) and the guide's left edge (below)
+    // keep the viewport at least 380px wide with it there.
+    out property <length> params_edit_extent: root.params_in_edit_row
+        ? (ParametersModel.open && root.params_docked_edit ? ParametersDockMetrics.open_width : ParametersDockMetrics.rail_width) + 12px
+        : 0px;
+    // Decide from the real row budget, including the sidebar rail even when its
+    // full panel floats. Opening the library must not clip the camera controls.
+    out property <bool> edit_wide: root.window_width - 24px - root.library_column
+        >= 380px + 600px + 6px + 24px + root.guide_column + root.params_edit_extent;
+
+    // Whether the guide panel is the wide Edit layout's own docked column (else it floats).
+    // Docked, the panel sits between the viewport and the dock, so its left edge
+    // (`guide_left_edge`) is the window width less the 12px body padding, the dock, the 6px
+    // handle, two 12px gaps and the panel's own 260px -- keep that in lock-step with
+    // `edit_row` in `tab_3d_content.slint`. Floating, it is the panel's own x.
+    out property <bool> guide_docked: root.active_tab == 0 && root.params_in_edit_row && root.edit_wide;
+    // The floating guide's default spot keeps clear of the Parameters dock at the window's
+    // right edge (the open panel, or its rail): it used to float over the Stone dock.
+    // The catalogue tabs have no dock.
+    out property <length> guide_float_reserve: root.active_tab != 0
+        ? 0px
+        : (ParametersModel.open ? min(ParametersDockMetrics.open_width, root.window_width - 24px) : ParametersDockMetrics.rail_width);
+    out property <length> guide_left_edge: root.guide_docked
+        ? root.window_width - 12px - root.params_edit_extent - EditorModel.dock_width - 6px - 24px - 260px
+        : (GuideModel.float_placed
+            ? clamp(GuideModel.float_x, 0px, max(0px, root.window_width - 260px))
+            : max(0px, root.window_width - 260px - 20px - root.guide_float_reserve));
+
+    // --- Dialogs and the open guide (round 4) --------------------------------------------
+    // A dialog is centred on the WHOLE window. While a guide panel is open, a lesson still
+    // has to reach its step text and Back/Next, so the guide is "lifted": it is drawn as a
+    // card at the window's right edge ABOVE every scrim (`GuideOverlayLayer`'s `parked`
+    // mode, `app.slint`), and the dialogs' area keeps the same gutter free on both sides, so
+    // the dialog stays centred and the card never lies over it. Both gutters are dimmed by
+    // two scrim rectangles in `app.slint`; nothing else is lit, so no bright band cuts
+    // through the header or the status strip. The guide's own docked column is left empty
+    // meanwhile (`Tab3dContent.guide_parked`).
+    // A window too narrow to leave a 640px dialog area between the gutters keeps the guide
+    // under the scrim instead (the dialog needs the room more). The native menu bar is drawn
+    // by the OS outside the window content, so no scrim reaches it (nothing to fix there).
+    out property <length> guide_gutter: 284px; // 260px card + a 12px margin each side
+    // The questions that must answer before anything else: the guide stays under their scrim.
+    out property <bool> confirm_open: EditorModel.unsaved_dialog_open || EditorModel.write_confirm_open
+        || root.close_confirm_open || EditorModel.startup_restore_path != "";
+    out property <bool> guide_lifted: root.other_overlay_open && GuideModel.open && !GuideModel.collapsed
+        && !CuttingModeModel.open && !root.confirm_open
+        && root.window_width - 2 * root.guide_gutter >= 640px;
+    out property <length> dialog_area_x: root.guide_lifted ? root.guide_gutter : 0px;
+    out property <length> dialog_area_width: root.guide_lifted
+        ? root.window_width - 2 * root.guide_gutter
+        : root.window_width;
+
+    // --- Toast placement -------------------------------------------------------------------
+    // Toasts sit over the VIEWPORT (the picture), not the window, so they are centred on
+    // what the cutter is looking at: the library column and the docks are left out. The
+    // numbers mirror `Tab3dContent`: 12px body padding, the library column (+ its 12px gap),
+    // and on the right the Parameters dock (+ gap) and, in the Edit row, the inspector dock,
+    // the 6px handle, two 12px gaps and the docked guide column.
+    property <length> viewport_left: 12px + root.library_column;
+    property <length> live_dock_extent: (ParametersModel.open && root.params_docked_live
+        ? ParametersDockMetrics.open_width
+        : ParametersDockMetrics.rail_width) + 8px;
+    property <length> edit_viewport_right: root.edit_wide
+        ? root.window_width - 12px - root.params_edit_extent - EditorModel.dock_width - 6px - 24px
+            - (GuideModel.open ? (GuideModel.collapsed ? 176px : 260px) + 12px : 0px)
+        : root.window_width - 12px - ParametersDockMetrics.rail_width - 8px;
+    property <length> viewport_right: root.active_tab != 0
+        ? root.window_width - 12px
+        : (root.params_in_edit_row
+            ? root.edit_viewport_right
+            : root.window_width - 12px - root.live_dock_extent);
+    // A floating guide card (anywhere but the docked Edit column) is cleared as well.
+    property <bool> guide_floating_open: GuideModel.open && !GuideModel.collapsed && !root.guide_docked;
+    property <length> toast_right: root.guide_floating_open
+        ? min(root.viewport_right, root.guide_left_edge - 12px)
+        : root.viewport_right;
+    property <bool> toast_over_viewport: root.toast_right - root.viewport_left >= 260px;
+    // Cutting mode covers the whole window with its own screen: the toast takes the window.
+    out property <bool> toast_cutting: CuttingModeModel.open;
+    // While a dialog is up the toast leaves its card alone: the dialogs area, at the TOP,
+    // where no dialog footer ever is (an Export or Retarget footer used to lie under it).
+    out property <bool> toast_at_top: !root.toast_cutting
+        && (root.other_overlay_open || EditorModel.write_confirm_open || root.confirm_open);
+    out property <length> toast_area_x: root.toast_cutting
+        ? 0px
+        : (root.toast_at_top
+            ? root.dialog_area_x
+            : (root.toast_over_viewport ? root.viewport_left : 0px));
+    out property <length> toast_area_width: root.toast_cutting
+        ? root.window_width
+        : (root.toast_at_top
+            ? root.dialog_area_width
+            : (root.toast_over_viewport ? root.toast_right - root.viewport_left : root.window_width));
+    // The toast's distance from the window's bottom edge (unused at the top). Edit: above the
+    // viewport's info chip and its HUD line (the chip's top edge is ~115px up) and the status
+    // strip; Live Render: above the hint pills; the catalogue tabs have neither. Cutting
+    // mode: above its navigation row.
+    out property <length> toast_bottom: root.toast_cutting
+        ? 104px
+        : (root.active_tab == 0 && root.params_in_edit_row
+            ? 128px
+            : (root.active_tab == 0 && root.render_view_tab == 0 ? 76px : 24px));
+
+    // Whether `LibraryModel.panel_collapsed` is currently `true`
+    // because THIS reaction collapsed it for lack of width, as opposed to the user
+    // having collapsed it themselves via `diagram_list.slint`'s own rail toggle.
+    // Only that first case is ever auto-restored below -- a manual collapse must
+    // never be silently reopened just because the window happened to grow again.
+    // Deliberately does NOT call `LibraryModel.panel_collapsed_changed` (the manual
+    // toggle's own persistence hook, `gui::mod::build_main_window`'s
+    // `on_panel_collapsed_changed`): a width-driven collapse is a transient display
+    // adjustment, not a change to the user's saved preference, and firing that
+    // callback here would silently overwrite it on every resize.
+    property <bool> library_auto_collapsed_by_width: false;
+    //
+    // When the library is folded for lack of width:
+    //  * Edit view: the inspector dock (min 600) and a 380px viewport (+ the Parameters dock when
+    //    the window can dock it with the library on its rail, i.e. from 1458px + guide) must fit
+    //    with the library open (340 + 12): 24 + 352 + 1010 + guide [+ 372 + ... dock] -> the
+    //    library folds below 1386px (+272px guide), or below 1758px (+272px) where the dock could
+    //    dock. At or below 1200px it always folds (the narrow stack).
+    //  * Live Render: while the window could dock the Parameters dock (viewport >= 700px) only
+    //    with the library on its rail -- widths 1144px to 1443px.
+    // Both rules read the window width and the OPEN dock width only -- never `ParametersModel.open`
+    // and never the library's own state -- so folding the dock (it leaves its rail mounted) or the
+    // library never feeds back into them. Cost: in those bands the library is on its rail as soon
+    // as the dock could dock, even before the panel is first opened.
+    property <bool> edit_could_dock_with_rail: root.window_width - 24px - 52px - 1010px - (ParametersDockMetrics.open_width + 12px) - root.guide_column >= 0px;
+    property <bool> library_wants_auto_collapse: root.active_tab != 0
+        ? false
+        : (root.params_in_edit_row
+            ? (root.window_width < 1200px
+                || root.window_width - 24px - 352px < 1010px + root.guide_column
+                    + (root.edit_could_dock_with_rail ? ParametersDockMetrics.open_width : ParametersDockMetrics.rail_width) + 12px)
+            : (root.render_view_tab == 0
+                && root.window_width - 24px - 52px - 8px - ParametersDockMetrics.open_width >= 700px
+                && root.window_width - 24px - 352px - 8px - ParametersDockMetrics.open_width < 700px));
+    // The rule's value the last time `sync_library_auto_collapse` acted on it. The library folds
+    // only when the rule STARTS applying (and reopens only when it stops), never on every resize
+    // inside the band: a user who opens the library from its rail there keeps it open until the
+    // window leaves the band, instead of having it folded again by the next 1px width change.
+    property <bool> library_auto_rule_active: false;
+    function sync_library_auto_collapse() {
+        if root.library_wants_auto_collapse == root.library_auto_rule_active {
+            // Opened by hand while the rule applies: no longer ours to reopen later.
+            if !LibraryModel.panel_collapsed {
+                root.library_auto_collapsed_by_width = false;
+            }
+            return;
+        }
+        root.library_auto_rule_active = root.library_wants_auto_collapse;
+        if root.library_wants_auto_collapse {
+            if !LibraryModel.panel_collapsed {
+                root.library_auto_collapsed_by_width = true;
+                LibraryModel.panel_collapsed = true;
+            }
+        } else if root.library_auto_collapsed_by_width {
+            root.library_auto_collapsed_by_width = false;
+            LibraryModel.panel_collapsed = false;
+        }
+    }
+    changed library_wants_auto_collapse => { root.sync_library_auto_collapse(); }
+    // Re-evaluated on every trigger that can make the rule above start/stop
+    // applying, not only an actual resize -- switching INTO the Edit sub-tab while
+    // already narrower than 1200px needs the same collapse `changed window_width` alone
+    // would miss (nothing there changes the width itself).
+    changed window_width => { root.sync_library_auto_collapse(); }
+    changed render_view_tab => { root.sync_library_auto_collapse(); }
+    changed active_tab => { root.sync_library_auto_collapse(); }
+
+    // A tutorial step that points at a tab of the Parameters dock ("stone_tab", "lighting_tab",
+    // "render_output_tab") needs that tab showing, so the step opens it (`ParametersModel.show_tab`,
+    // the one tab opener the toolbar, the View menu and the palette use). The tab's pill
+    // draws the outline (`parameters_panel.slint`). The learner can still fold the panel afterwards. The worked
+    // example, shared with the web app, still names "design_settings" for its material step; on
+    // the desktop the design's material lives in the Stone tab, so that target opens and outlines
+    // the Stone tab as well (the DESIGN panel keeps its own outline).
+    property <string> guide_parameters_target: GuideModel.highlight_target;
+    changed guide_parameters_target => {
+        if root.guide_parameters_target == "stone_tab" || root.guide_parameters_target == "design_settings" {
+            ParametersModel.show_tab(0);
+        }
+        if root.guide_parameters_target == "lighting_tab" { ParametersModel.show_tab(1); }
+        if root.guide_parameters_target == "render_output_tab" { ParametersModel.show_tab(2); }
+    }
+
+    // The command palette bumps `restore_focus_pulse` whenever it closes. Its search field
+    // held the keyboard focus and is removed with it, which would leave no focused item and
+    // silence every shortcut until the next click; taking the focus back here avoids that.
+    // A command chosen in the palette runs a moment after this (see `gui::commands`), so a
+    // dialog that command opens still ends up with the focus.
+    property <int> command_palette_focus_pulse: CommandPaletteModel.restore_focus_pulse;
+    changed command_palette_focus_pulse => { root.focus_main(); }
+
+    // Whether the welcome dialog shows: a new user's first start (or "Show the welcome tour
+    // again"), once Preferences and the start-up restore question are out of the way.
+    out property <bool> welcome_open: PreferencesModel.first_run_tour_pending && EditorModel.enabled
+        && !PreferencesModel.dialog_open && EditorModel.startup_restore_path == "";
+    // Whether the "Check for New Versions?" question shows: only while it is still to be asked
+    // AND the window is idle -- never on top of the welcome dialog or the tour, Preferences, the
+    // start-up restore question, the tutorial browser or another dialog. Once those are out of
+    // the way it appears; until then it simply waits (or comes on the next start).
+    out property <bool> update_consent_open: UpdateModel.consent_pending && EditorModel.enabled
+        && !PreferencesModel.first_run_tour_pending && !root.welcome_open
+        && !PreferencesModel.dialog_open && EditorModel.startup_restore_path == ""
+        && !GuideModel.open && !TutorialsModel.browser_open
+        && !EditorModel.new_dialog_open && !EditorModel.unsaved_dialog_open
+        && !root.close_confirm_open && !RawTextModel.is_open && !SweepModel.dialog_open
+        && !CuttingModeModel.open;
+    changed update_consent_open => {
+        if !root.update_consent_open && !EditorModel.new_dialog_open && !EditorModel.unsaved_dialog_open {
+            root.focus_main();
+        }
+    }
+    // Whether the "RADV Shader Workaround" question shows: only while it is still to be asked (Rust
+    // raises `prompt_pending` once the GPU adapter is known to be RADV) AND the window is idle, by
+    // the same rule as the new-version question above -- and only after that question is answered
+    // or dismissed (`!UpdateModel.consent_pending`), so the two never share the screen.
+    out property <bool> radv_prompt_open: RadvWorkaroundModel.prompt_pending && EditorModel.enabled
+        && !PreferencesModel.first_run_tour_pending && !root.welcome_open
+        && !UpdateModel.consent_pending
+        && !PreferencesModel.dialog_open && EditorModel.startup_restore_path == ""
+        && !GuideModel.open && !TutorialsModel.browser_open
+        && !EditorModel.new_dialog_open && !EditorModel.unsaved_dialog_open
+        && !root.close_confirm_open && !RawTextModel.is_open && !SweepModel.dialog_open
+        && !CuttingModeModel.open;
+    changed radv_prompt_open => {
+        if !root.radv_prompt_open && !EditorModel.new_dialog_open && !EditorModel.unsaved_dialog_open {
+            root.focus_main();
+        }
+    }
+    // The browser and the welcome dialog hold the keyboard while open and take it with them
+    // when they go; the main window takes it back here, unless the answer opened a dialog of
+    // its own (the New Design dialog, the unsaved-changes question), which keeps it.
+    property <bool> tutorials_browser_open: TutorialsModel.browser_open;
+    changed tutorials_browser_open => {
+        if !root.tutorials_browser_open && !EditorModel.new_dialog_open && !EditorModel.unsaved_dialog_open {
+            root.focus_main();
+        }
+    }
+    // The new-version question comes up in the same pass when the welcome dialog goes (a first
+    // run), and its own `FocusScope` takes the keyboard on mounting: the main window must not
+    // take it back from the question.
+    changed welcome_open => {
+        if !root.welcome_open && !root.update_consent_open && !EditorModel.new_dialog_open && !EditorModel.unsaved_dialog_open {
+            root.focus_main();
+        }
+    }
+    // The Edit as Text dialog holds the keyboard while open (its text box takes it on opening)
+    // and the main window takes it back when the dialog closes.
+    property <bool> raw_text_open: RawTextModel.is_open;
+    changed raw_text_open => {
+        if !root.raw_text_open && !EditorModel.new_dialog_open && !EditorModel.unsaved_dialog_open {
+            root.focus_main();
+        }
+    }
+    // The Angle Sweep dialog the same way: it takes the keyboard on opening and gives it back.
+    property <bool> sweep_open: SweepModel.dialog_open;
+    changed sweep_open => {
+        if !root.sweep_open && !EditorModel.new_dialog_open && !EditorModel.unsaved_dialog_open {
+            root.focus_main();
+        }
+    }
+    // Cutting mode the same way: its screen takes the keyboard on opening and the main window
+    // takes it back when the screen closes.
+    property <bool> cutting_mode_open: CuttingModeModel.open;
+    changed cutting_mode_open => {
+        if !root.cutting_mode_open && !EditorModel.new_dialog_open && !EditorModel.unsaved_dialog_open {
+            root.focus_main();
+        }
+    }
+
+    // The dialogs without a handler of their own above (New Design, Retarget, Gear Remap, the
+    // material editor, the performance graph, the anchor explainer, the metadata editor, the
+    // batch questions, the Render Jobs panel, Shortcuts, Preferences and the glossary): each
+    // removes the item that held the keyboard when it closes, which would leave no focused item
+    // and silence every shortcut until the next click. Whichever of them closes last hands the
+    // keyboard back, unless one of the other dialogs (or the unsaved-changes question) is still
+    // up and keeps it.
+    // The command palette is one of them (its scrim used to stop at the guide's edge); so are
+    // the Retarget dialog's Compare-only mode and the colour-conflict question, which draw a
+    // scrim of their own too.
+    out property <bool> other_overlay_open: EditorModel.new_dialog_open || EditorModel.gear_remap_open
+        || EditorModel.anchor_explainer_open || EditorModel.unsaved_dialog_open
+        || CommandPaletteModel.open || RetargetModel.compare_open
+        || (PhysicscolorModel.ui_enabled && PhysicscolorModel.color_conflict_name != "")
+        || RetargetModel.is_open || ViewportModel.material_editor_open || TiltModel.dialog_open
+        || LibraryModel.metadata_editor_open || BatchModel.preview_visible || BatchModel.tilt_visible
+        || RenderJobsModel.panel_open || ShortcutsModel.open || PreferencesModel.dialog_open
+        || HelpModel.glossary_open || root.welcome_open || root.update_consent_open
+        || root.radv_prompt_open
+        || root.close_confirm_open || root.tutorials_browser_open || root.raw_text_open
+        || root.sweep_open || root.cutting_mode_open
+        || ExportModel.is_open;
+    changed other_overlay_open => {
+        if !root.other_overlay_open {
+            root.focus_main();
+        }
+    }
+
+    property <bool> inline_compare_open: CompareModel.optimizer_inline_open;
+    changed inline_compare_open => {
+        CompareModel.inline_visibility_changed();
+        if !root.inline_compare_open && !root.other_overlay_open {
+            root.focus_main();
+        }
+    }
+    property <bool> inline_compare_hidden: CompareModel.optimizer_inline_open
+        && (root.active_tab != 0 || root.render_view_tab != 1 || !EditorModel.enabled);
+    changed inline_compare_hidden => {
+        if root.inline_compare_hidden { CompareModel.close_embedded(); }
+    }
+}

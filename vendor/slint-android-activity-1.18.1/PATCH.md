@@ -8,7 +8,7 @@ the renderer and other Slint crates remain upstream dependencies.
 `application-owned-back.patch` contains the behavior change proposed for upstream:
 an Activity metadata boolean, `dev.slint.applicationOwnsBack`, default false, skips
 the backend's API 34+ dispatcher registration. Apps opting in own registration,
-root navigation, IME handling and committed Back delivery. Indicatrix opts in and
+root navigation, IME handling and committed Back delivery. Pleochroma opts in and
 provides that owner in BackNavigationController.
 
 Legacy Back with a toolkit popup open dispatches Escape to dismiss the popup and

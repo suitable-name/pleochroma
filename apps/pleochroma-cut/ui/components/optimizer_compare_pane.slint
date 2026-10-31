@@ -1,0 +1,87 @@
+// Automatic Optimize comparison, hosted directly in the editor viewport.
+import { ComboBox, ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { CompareModel } from "../models/compare.slint";
+import { CompareView } from "compare_view.slint";
+import { ActionButton } from "chip_toggle.slint";
+
+export component OptimizerComparePane inherits Rectangle {
+    background: Theme.bg-darkest;
+    // The pane is mounted only while the comparison is open (`if` in `app.slint`), so `init` runs
+    // each time it opens. Taking the keyboard here makes Escape close it without a click first.
+    init => { pane_keys.focus(); }
+    // A stacked editor can leave very little viewport height. Explicit content bounds
+    // keep the window minimum unchanged while all controls remain scrollable.
+    ScrollView {
+        width: root.width;
+        height: root.height;
+        Rectangle {
+            width: max(1px, root.width - 16px);
+            height: max(root.height, 440px);
+            pane_keys := FocusScope {
+                key-pressed(event) => {
+                    if event.text == Key.Escape {
+                        CompareModel.close();
+                        return accept;
+                    }
+                    reject
+                }
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: "Optimize Comparison";
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: Theme.text-primary;
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                        }
+                        ActionButton {
+                            width: 78px;
+                            height: 28px;
+                            text: "Close";
+                            hint: "Return to the main editor renderer. The selected candidate stays pending.";
+                            clicked => { CompareModel.close(); }
+                        }
+                    }
+                    if CompareModel.reference_available: ComboBox {
+                        width: min(300px, root.width - 40px);
+                        model: CompareModel.reference_options;
+                        current-index <=> CompareModel.reference_index;
+                        accessible-label: "Compare Against";
+                        selected => { CompareModel.reference_changed(self.current-index); }
+                    }
+                    CompareView {
+                        vertical-stretch: 1;
+                        show_split: true;
+                        show_metrics: true;
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: end;
+                        ActionButton {
+                            width: 100px;
+                            height: 30px;
+                            text: "Discard Preview";
+                            hint: "Close the comparison and show the current design. The candidate stays available.";
+                            clicked => { CompareModel.discard(); }
+                        }
+                        ActionButton {
+                            width: 150px;
+                            height: 30px;
+                            text: "Apply This Candidate";
+                            enabled: CompareModel.can_keep;
+                            fill: Theme.accent-cyan;
+                            hover_fill: Theme.accent-cyan-hover;
+                            ink: Theme.text-on-accent;
+                            clicked => { CompareModel.keep(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

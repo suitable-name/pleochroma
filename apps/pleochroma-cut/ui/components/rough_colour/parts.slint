@@ -1,0 +1,89 @@
+import { Theme } from "../../theme.slint";
+import { ReportRow } from "../locate/photo_canvas.slint";
+
+// Small building blocks of the Rough Color wizard's step panels.
+
+export component StepTitle inherits Rectangle {
+    in property <string> text;
+    height: 18px;
+    Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        font-size: 11px;
+        font-weight: 700;
+        color: Theme.text-muted;
+        vertical-alignment: center;
+    }
+}
+
+export component Note inherits Rectangle {
+    in property <string> text;
+    in property <color> text_color: Theme.text-muted;
+    preferred-height: note_text.preferred-height;
+    note_text := Text {
+        width: parent.width;
+        text: root.text;
+        font-size: 10px;
+        color: root.text_color;
+        wrap: word-wrap;
+    }
+}
+
+export component Rows inherits VerticalLayout {
+    in property <[ReportRow]> rows;
+    spacing: 2px;
+    for row in root.rows: Text {
+        text: row.text;
+        font-size: 10px;
+        color: row.warn ? Theme.accent-amber : Theme.text-secondary;
+        wrap: word-wrap;
+    }
+}
+
+// The Compare step's three panes side by side (photo, render, difference), each with its title.
+// A pane with no picture says why, instead of an empty dark box. A click on any pane reports
+// where, as fractions of the pane (the window turns it into a pixel of the photo).
+export component ComparePanes inherits HorizontalLayout {
+    in property <image> photo;
+    in property <image> render;
+    in property <image> heat;
+    callback clicked(float, float);
+
+    spacing: 8px;
+    for entry in [
+        { title: "Photo", picture: root.photo },
+        { title: "Render", picture: root.render },
+        { title: "Difference (CIEDE2000)", picture: root.heat },
+    ]: VerticalLayout {
+        spacing: 4px;
+        Text { text: entry.title; font-size: 11px; font-weight: 700; color: Theme.text-secondary; horizontal-alignment: center; }
+        Rectangle {
+            vertical-stretch: 1;
+            background: Theme.bg-input;
+            border-radius: Theme.radius-md;
+            clip: true;
+            Image {
+                width: parent.width;
+                height: parent.height;
+                source: entry.picture;
+                image-fit: contain;
+            }
+            // A pane with no picture says why, instead of an empty dark box.
+            if entry.picture.width == 0: Text {
+                width: parent.width - 32px;
+                x: 16px;
+                height: parent.height;
+                text: "Not available yet.\nLoad the photos, prepare them and run the fit again.";
+                font-size: 11px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            TouchArea {
+                clicked => { root.clicked(self.mouse-x / self.width, self.mouse-y / self.height); }
+            }
+        }
+    }
+}

@@ -1,0 +1,67 @@
+import { ColorPatternModel } from "../../models/color_pattern.slint";
+import { ColorPicker } from "../material_editor/color_picker.slint";
+import { RoughPill } from "../rough_planner/fields.slint";
+import { PatternTitle, PatternNote, PatternSlider, PatternSwatch } from "parts.slint";
+
+// A zone picker in the pattern window; it never opens the custom-material dialog.
+export component PatternColorPicker inherits VerticalLayout {
+    property <bool> show_picker: false;
+    spacing: 8px;
+
+    PatternTitle { text: "ZONE COLOR"; }
+    PatternNote { text: "Choose the color at this stone's size. The closest absorption color is solved after Use Color; the pattern preview shows the result."; }
+    PatternSlider {
+        label: "Tone";
+        hint: "Lightness of this zone's color.";
+        minimum: 0; maximum: 100; step: 1;
+        value <=> ColorPatternModel.picker_tone;
+        value_text: "" + Math.round(ColorPatternModel.picker_tone);
+        moved(v) => { ColorPatternModel.picker_changed(0, v); }
+    }
+    PatternSlider {
+        label: "Saturation";
+        hint: "Color intensity of this zone.";
+        minimum: 0; maximum: 150; step: 1;
+        value <=> ColorPatternModel.picker_chroma;
+        value_text: "" + Math.round(ColorPatternModel.picker_chroma);
+        moved(v) => { ColorPatternModel.picker_changed(1, v); }
+    }
+    PatternSlider {
+        label: "Hue";
+        hint: "Hue around the color wheel, in degrees.";
+        minimum: 0; maximum: 360; step: 1;
+        value <=> ColorPatternModel.picker_hue;
+        value_text: "" + Math.round(ColorPatternModel.picker_hue) + "\u{b0}";
+        moved(v) => { ColorPatternModel.picker_changed(2, v); }
+    }
+    HorizontalLayout {
+        spacing: 6px;
+        alignment: start;
+        PatternSwatch { color_a: ColorPatternModel.picker_swatch; }
+        RoughPill {
+            text: root.show_picker ? "Hide Picker" : "Pick Color...";
+            hint: "Choose a color visually or type its hex value.";
+            clicked => { root.show_picker = !root.show_picker; }
+        }
+    }
+    if root.show_picker: ColorPicker {
+        initial: ColorPatternModel.picker_swatch;
+        apply_label: "Use Color";
+        applied(color) => { ColorPatternModel.picker_srgb(color); }
+        cancelled => { root.show_picker = false; }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: end;
+        RoughPill {
+            text: "Cancel";
+            hint: "Keep this zone's previous color.";
+            clicked => { ColorPatternModel.picker_cancelled(); }
+        }
+        RoughPill {
+            text: "Use Color";
+            hint: "Solve this color for the zone and show it in the pattern preview.";
+            clicked => { ColorPatternModel.picker_applied(); }
+        }
+    }
+}

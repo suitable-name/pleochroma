@@ -1,0 +1,2 @@
+# The macOS packaging script must remain executable by Bash after Windows checkouts.
+scripts/package-macos.sh text eol=lf

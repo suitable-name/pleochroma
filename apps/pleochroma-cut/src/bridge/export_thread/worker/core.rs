@@ -1,0 +1,484 @@
+//! [`render_accumulation`]: the shared local/remote render core -- calibrates and runs
+//! the local/remote concurrent phase and merges every engine's contribution exactly
+//! once into a linear accumulation buffer, without writing anything to disk.
+
+mod lanes;
+
+use super::types::{AccumulationCarry, AccumulationOutcome};
+use crate::{
+    bridge::export_thread::{
+        ExportProgress,
+        batch::{ExportCtx, HYBRID_MIN_SPP, calibrate_split, local_chunk_size, run_local_batches},
+        params::{ComputeTarget, ExportParams},
+        sample_cursor::SampleCursor,
+        scene_snapshot::SceneSnapshot,
+    },
+    settings::{LocalComputeTarget, WorkerSettings},
+};
+use glam::Vec3;
+use lanes::{RenderJob, render_on_ctx};
+use pleochroma::{
+    geometry::tool::StoneGeometry,
+    optics::raytracer::{Camera, DEFAULT_FOV_DEG, EnvironmentSource},
+    renderer::gpu_backend::{GpuBackend, GpuSceneRef, scene_routes_to_gpu_with_tools},
+};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
+/// Builds the per-call scene/camera/environment context ([`ExportCtx`]) one render's
+/// batches share, and calls `f` with it. Extracted out of [`render_accumulation`] so
+/// [`render_local_share`] (the viewer's own local-share render for a final-picture
+/// export, v16) builds this identically -- the camera pose, environment resolution and
+/// `GpuSceneRef` wiring must never drift between the two, or local and remote (or a
+/// local-share render and `render_accumulation`'s own local lane) would light the stone
+/// differently.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the scoped context borrows the frozen scene, pose and both independent GPU backends"
+)]
+fn with_export_ctx<R>(
+    scene: &SceneSnapshot,
+    cam_yaw: f32,
+    cam_pitch: f32,
+    width: u32,
+    height: u32,
+    gpu: &GpuBackend,
+    ray_gpu: Option<&pleochroma::renderer::gpu_backend::whitted::WhittedGpuBackend>,
+    cancel: &AtomicBool,
+    f: impl FnOnce(Result<&ExportCtx<'_>, String>) -> R,
+) -> R {
+    let camera = Camera::new(cam_yaw, cam_pitch, scene.distance, DEFAULT_FOV_DEG)
+        .with_roll(scene.camera_roll);
+
+    // A loaded HDR panorama (`SceneSnapshot::env_map`) replaces the analytic studio
+    // rig as this render's environment, mirroring `render_thread::mod`'s live render
+    // loop. The GPU megakernel has its own `env_mode` for `HdrMap` and
+    // renders it directly -- `gpu_scene.environment` built as `HdrMap` here traces on
+    // the GPU exactly like any other environment, falling through to the CPU tracer
+    // only on the same generic per-frame decline every other scene gets (no adapter,
+    // device lost, `gpu` feature off), not an HDR-specific one.
+    let environment = scene.env_map.as_deref().map_or_else(
+        || {
+            scene
+                .lighting_preset
+                .studio(scene.exposure, scene.light_yaw, scene.light_pitch)
+                .with_backdrop(scene.backdrop)
+                .with_surface_glare(scene.surface_glare)
+                .with_head_shadow(scene.head_shadow_deg)
+        },
+        EnvironmentSource::HdrMap,
+    );
+    // The silk and play-of-color ride on the traced material, which the GPU kernels read too.
+    let traced = scene.traced_material();
+    let gpu_scene = GpuSceneRef {
+        camera: &camera,
+        width,
+        height,
+        planes: &scene.active_planes,
+        facet_finishes: &scene.facet_finishes,
+        material: &traced,
+        max_bounces: scene.max_bounces,
+        environment,
+    };
+    // Shared by every batch this call runs (via `ExportCtx::gpu_retired`) so a joined
+    // GPU-thread panic in any one of them retires the backend for the REST of this
+    // call, not just the batch it happened in -- see `batch::hybrid_batch`'s own doc
+    // comment. Deliberately per-call, not carried in `AccumulationCarry`: a caller
+    // sweeping many frames retries the GPU on every frame even after a panic on an
+    // earlier one, rather than writing it off for the rest of the sweep.
+    let gpu_retired = AtomicBool::new(false);
+    // A scene the GPU cannot trace (fluorescence, a UV lamp, more tools than the kernels
+    // trace; a concave stone within the limit IS traced, with its tools, by every
+    // `try_accumulate_geom` call in `batch`) is the CPU tracer's alone: swapping in a backend
+    // with no device makes every GPU attempt below decline, which each batch already answers
+    // by tracing the full share on the CPU, exactly as a build without the `gpu` feature
+    // does.
+    let no_gpu = GpuBackend::disabled();
+    // The facet surfaces, machine and abraded edge ride to the GPU kernels with every request
+    // (`ExportCtx::try_gpu`) and to the CPU tracer in `render_batch`.
+    let facet_surfaces = scene.facet_surfaces();
+    let surface = scene.surface_scene(&facet_surfaces);
+    let gpu = if scene_routes_to_gpu_with_tools(
+        &traced,
+        StoneGeometry {
+            planes: &scene.active_planes,
+            tools: &scene.tools,
+        },
+        &scene.fluorescence,
+        environment.lighting_preset().unwrap_or_default(),
+    ) {
+        gpu
+    } else {
+        &no_gpu
+    };
+    let ray_frame = pleochroma::renderer::frame_scene::FrameScene {
+        camera: &camera,
+        width,
+        height,
+        planes: &scene.active_planes,
+        facet_finishes: &scene.facet_finishes,
+        material: &scene.material,
+        max_bounces: scene.max_bounces,
+        environment,
+    };
+    let ray_prep = if scene.engine.is_ray() {
+        match pleochroma::renderer::whitted::WhittedPrep::new(
+            &ray_frame,
+            &scene.fluorescence,
+            scene.engine.ray,
+        ) {
+            Ok(prep) => Some(prep),
+            Err(reason) => return f(Err(reason.to_string())),
+        }
+    } else {
+        None
+    };
+    let ray_soa = ray_prep
+        .as_ref()
+        .map(|_| pleochroma::optics::raytracer::build_plane_soa(&scene.active_planes));
+    // The frozen frame owns these uploads until all local/remote claims finish.
+    // A decline chooses CPU for this frame; the next frame may recover the backend.
+    let ray_uploaded = ray_gpu.zip(ray_prep.as_ref()).and_then(|(gpu, prep)| {
+        gpu.prepare_cancellable(&ray_frame, &scene.tools, prep, &|| {
+            cancel.load(Ordering::Acquire)
+        })
+        .ok()
+    });
+    let ctx = ExportCtx {
+        width,
+        height,
+        camera: &camera,
+        scene,
+        gpu,
+        gpu_scene: &gpu_scene,
+        surface,
+        gpu_retired: &gpu_retired,
+        ray: ray_prep.as_ref().zip(ray_soa.as_ref()),
+        ray_gpu: ray_gpu.zip(ray_uploaded.as_ref()),
+    };
+    f(Ok(&ctx))
+}
+
+/// Renders `params.samples_per_pixel` samples per pixel of `scene` from the camera pose
+/// `(cam_yaw, cam_pitch)` in small batches (so progress can be reported and
+/// cancellation checked between batches, rather than after every single sample or only
+/// once at the end), returning the finished linear accumulation buffer -- no
+/// tone-mapping or disk I/O; see [`super::export::run_export`] for the still-image
+/// export's own wrapper that adds both.
+///
+/// `cam_yaw`/`cam_pitch` are explicit, separate from `scene`'s own stored pose, so a
+/// caller sweeping the camera across many calls against the SAME static `scene` (the
+/// tilt performance video, one call per swept angle) can pass that call's own pose --
+/// [`super::export::run_export`] passes `scene.yaw`/`scene.pitch` unchanged,
+/// reproducing today's still-image behaviour exactly. This is the ONE place both the
+/// local `Camera` and the remote `SceneState` (via `remote::scene_state_from_snapshot`)
+/// get their pose from, so local, GPU and remote engines can never disagree on which
+/// frame they are tracing.
+///
+/// `gpu`/`carry` are caller-owned (not acquired/reset inside this function) so a
+/// multi-frame caller can reuse the SAME [`GpuBackend`] and [`AccumulationCarry`] across
+/// every frame instead of paying adapter acquisition and remote
+/// probing/calibration once per frame -- see [`AccumulationCarry`]'s own doc comment.
+///
+/// # Local + remote as a third engine, sharing a claim point
+///
+/// `compute_target` and `worker` add the remote endpoint alongside the CPU/GPU hybrid
+/// split (see "Hybrid CPU+GPU export" below). Unlike that split -- a single up-front
+/// calibration, since both live in-process -- remote samples are claimed from a
+/// [`SampleCursor`] the local loop ALSO claims from concurrently for the whole
+/// concurrent phase: see `sample_cursor`'s module doc for why a shared atomic claim
+/// point avoids handing an engine a fixed slice that runs out early with nothing
+/// further to claim. `ComputeTarget::LocalOnly` skips every remote code path entirely,
+/// so its output stays byte-identical to a purely local render.
+///
+/// Remote is dispatched as a SEQUENCE of chunk requests sized to a target wall-clock
+/// duration (see `remote::remote_chunk_samples`), not one request for its whole share
+/// -- a giant request is what let remote's slice finish early with nothing further to
+/// claim. If a chunk's connection drops partway, [`remote::run_remote_batch`]'s
+/// returned `samples_done` is always exactly the valid PREFIX completed for that
+/// chunk; the unfinished remainder goes back to the shared cursor for local to pick up
+/// (`ComputeTarget::Both`) or fails the render outright (`RemoteOnly`, which has no
+/// local lane to hand it to).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "this is the shared render worker's own top-level entry point -- \
+              scene/pose/output params plus the compute-target/worker/carry choice -- \
+              and its body is already split across `batch`/`remote`'s own helper \
+              functions and this module's `prepare_remote_lane`/`run_lanes`; bundling \
+              the arguments into a struct would just move the same count into field \
+              access, not reduce it"
+)]
+pub fn render_accumulation(
+    scene: &SceneSnapshot,
+    cam_yaw: f32,
+    cam_pitch: f32,
+    params: ExportParams,
+    compute_target: ComputeTarget,
+    worker: Option<&WorkerSettings>,
+    gpu: &GpuBackend,
+    local_compute: LocalComputeTarget,
+    carry: &mut AccumulationCarry,
+    cancel: &AtomicBool,
+    mut report_progress: impl FnMut(ExportProgress),
+) -> AccumulationOutcome {
+    // `max_bounces` is deliberately unused here: `scene.max_bounces` is already the
+    // render's resolved bounce cap (`gui::render_export`/the tilt video both set it
+    // right after `SceneSnapshot::capture`). `ExportParams::max_bounces` exists only so
+    // the still-image dialog's choice is validated centrally alongside
+    // width/height/samples_per_pixel.
+    let ExportParams {
+        width,
+        height,
+        samples_per_pixel,
+        ..
+    } = params;
+    let job = RenderJob {
+        scene,
+        cam_yaw,
+        cam_pitch,
+        width,
+        height,
+        samples_per_pixel,
+        compute_target,
+        worker,
+        cancel,
+    };
+
+    if scene.engine.is_ray() && cancel.load(Ordering::Acquire) {
+        return AccumulationOutcome::Cancelled;
+    }
+    let ray_gpu = if scene.engine.is_ray()
+        && local_compute != LocalComputeTarget::Cpu
+        && compute_target != ComputeTarget::RemoteOnly
+    {
+        Some(std::sync::Arc::clone(carry.ray_gpu.get_or_insert_with(
+            || {
+                std::sync::Arc::new(
+                    pleochroma::renderer::gpu_backend::whitted::WhittedGpuBackend::acquire(),
+                )
+            },
+        )))
+    } else {
+        None
+    };
+    let rendered = with_export_ctx(
+        scene,
+        cam_yaw,
+        cam_pitch,
+        width,
+        height,
+        gpu,
+        ray_gpu.as_deref(),
+        cancel,
+        |ctx| {
+            if scene.engine.is_ray() && cancel.load(Ordering::Acquire) {
+                return Err(AccumulationOutcome::Cancelled);
+            }
+            let ctx = ctx.map_err(AccumulationOutcome::Failed)?;
+            render_on_ctx(ctx, &job, local_compute, carry, &mut report_progress)
+        },
+    );
+    match rendered {
+        Ok(done) => AccumulationOutcome::Completed(done),
+        Err(early) => early,
+    }
+}
+
+/// Traces absolute samples `[first, first + samples)` of `scene` with the export's own
+/// local lanes ONLY (CPU, or CPU+GPU under `LocalComputeTarget::CpuGpu`) -- no remote
+/// lane, no shared cursor with anything else. This is the viewer's own contribution to a
+/// final-picture export that reserved this tail for it (v16 -- see
+/// `remote::final_image`'s module doc comment and `worker::final_picture::final_picture`,
+/// which runs this concurrently with the remote's own `FinalImageRequest` for the
+/// server's share via `thread::scope`).
+///
+/// Returns `None` if `stop` was raised before the range finished (a user cancel, or the
+/// remote lane already completed and this contribution is no longer needed); otherwise
+/// `Some` is always exactly `samples` samples deep, a plain `width * height` radiance
+/// sum (not yet divided by `samples`), ready to serialise and upload as one
+/// `CONTRIBUTION`.
+///
+/// `done` is updated (absolute count relative to `first`: `0` at the start, `samples`
+/// once finished) after every batch so a concurrently-polling caller can report combined
+/// progress. `hybrid_frac` is both read (a carried-forward split estimate skips
+/// recalibrating) and written back, the same convention `render_accumulation` uses via
+/// `AccumulationCarry::hybrid_frac` -- taken here as a plain `&mut Option<f64>` instead,
+/// since a local-share render and the export's own full render never run in the same
+/// call and share no other carried state.
+///
+/// Sample identity matches the server exactly: both `render_batch` (via
+/// `run_local_batches`) and `pleochroma-worker`'s own tracer derive each sample's
+/// stratification from the ABSOLUTE global pixel/sample index, never a
+/// range-relative one, so a viewer-rendered tail and a server-rendered one are the same
+/// bits whichever side ends up tracing it.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one render's own identity (scene, pose, output params, the absolute \
+              sample range, GPU backend, local compute choice, the split-estimate \
+              carry, cancellation and a progress counter) -- the same shape \
+              `render_accumulation` itself takes, split differently because this is a \
+              single-engine-choice, single-range, local-only render"
+)]
+pub(in crate::bridge::export_thread) fn render_local_share(
+    scene: &SceneSnapshot,
+    pose: (f32, f32),
+    params: ExportParams,
+    first: u32,
+    samples: u32,
+    gpu: &GpuBackend,
+    local_compute: LocalComputeTarget,
+    hybrid_frac: &mut Option<f64>,
+    stop: &AtomicBool,
+    done: &AtomicU32,
+) -> Option<Vec<Vec3>> {
+    let (cam_yaw, cam_pitch) = pose;
+    let ExportParams { width, height, .. } = params;
+
+    if scene.engine.is_ray() && stop.load(Ordering::Acquire) {
+        return None;
+    }
+    let ray_gpu = (scene.engine.is_ray() && local_compute != LocalComputeTarget::Cpu)
+        .then(pleochroma::renderer::gpu_backend::whitted::WhittedGpuBackend::acquire);
+    with_export_ctx(
+        scene,
+        cam_yaw,
+        cam_pitch,
+        width,
+        height,
+        gpu,
+        ray_gpu.as_ref(),
+        stop,
+        |ctx| {
+            if scene.engine.is_ray() && stop.load(Ordering::Acquire) {
+                return None;
+            }
+            let ctx = ctx.ok()?;
+            let mut accum = vec![Vec3::ZERO; (width as usize) * (height as usize)];
+            let mut gpu_accum = vec![Vec3::ZERO; accum.len()];
+            // Absolute cursor for the calibration probe (if any) -- starts at `first`, the
+            // reserved tail's own first absolute sample, exactly as `render_accumulation`'s
+            // own `samples_done` starts at `0` (its own range's first absolute sample).
+            let mut next = first;
+            let mut gpu_frac = if !scene.engine.is_ray()
+                && local_compute == LocalComputeTarget::CpuGpu
+                && samples >= HYBRID_MIN_SPP
+            {
+                hybrid_frac
+                    .or_else(|| calibrate_split(ctx, &mut next, &mut accum, &mut gpu_accum, stop))
+            } else {
+                None
+            };
+
+            let cursor = SampleCursor::new(next, first + samples);
+            // This render has no remote lane of its own to wait on -- an already-`true`
+            // "remote lane done" flag collapses `run_local_batches`' stop condition to
+            // "stop once the cursor is empty", the same single-engine convention
+            // `render_accumulation`'s own no-remote-lane branch uses.
+            let no_remote = AtomicBool::new(true);
+            let stopped = run_local_batches(
+                ctx,
+                &cursor,
+                local_chunk_size(samples),
+                &no_remote,
+                &mut gpu_frac,
+                &mut accum,
+                &mut gpu_accum,
+                stop,
+                |traced, _accum, _gpu_accum| {
+                    done.store((next - first) + traced, Ordering::Relaxed);
+                },
+            );
+            *hybrid_frac = gpu_frac;
+            if stopped || stop.load(Ordering::Relaxed) {
+                return None;
+            }
+
+            // Merge the GPU's separate accumulation exactly once, mirroring
+            // `render_accumulation`'s own end-of-render merge. A pure-CPU share leaves
+            // `gpu_accum` all zero, making this a no-op.
+            for (px, gpu_px) in accum.iter_mut().zip(&gpu_accum) {
+                *px += *gpu_px;
+            }
+            Some(accum)
+        },
+    )
+}
+
+#[cfg(test)]
+mod prepared_ray_tests {
+    use super::*;
+    use crate::bridge::render_thread::RenderContext;
+    use pleochroma::renderer::{engine::RenderEngine, gpu_backend::whitted::WhittedGpuBackend};
+    use std::sync::Mutex;
+
+    #[test]
+    fn a_declined_frame_upload_preserves_cpu_claims_and_cancelled_output() {
+        let mut scene = SceneSnapshot::capture(&Mutex::new(RenderContext::default())).unwrap();
+        scene.engine.engine = RenderEngine::RayTraced;
+        scene.engine.ray.aa_taps = 4;
+        let gpu = GpuBackend::disabled();
+        let ray_gpu = WhittedGpuBackend::disabled();
+        let cancel = AtomicBool::new(false);
+        let mut cpu = vec![Vec3::ZERO; 64];
+        with_export_ctx(
+            &scene,
+            scene.yaw,
+            scene.pitch,
+            8,
+            8,
+            &gpu,
+            None,
+            &cancel,
+            |ctx| {
+                assert!(!super::super::export_ray::accumulate(
+                    ctx.unwrap(),
+                    0,
+                    4,
+                    &mut cpu,
+                    &cancel
+                ));
+            },
+        );
+        with_export_ctx(
+            &scene,
+            scene.yaw,
+            scene.pitch,
+            8,
+            8,
+            &gpu,
+            Some(&ray_gpu),
+            &cancel,
+            |ctx| {
+                let ctx = ctx.unwrap();
+                assert!(
+                    ctx.ray_gpu.is_none(),
+                    "a disabled adapter declines the frame upload"
+                );
+                let mut actual = vec![Vec3::ZERO; 64];
+                assert!(!super::super::export_ray::accumulate(
+                    ctx,
+                    0,
+                    4,
+                    &mut actual,
+                    &cancel
+                ));
+                assert_eq!(
+                    actual, cpu,
+                    "upload decline retries the complete absolute tap claim"
+                );
+                cancel.store(true, Ordering::Release);
+                let before = actual.clone();
+                assert!(super::super::export_ray::accumulate(
+                    ctx,
+                    0,
+                    1,
+                    &mut actual,
+                    &cancel
+                ));
+                assert_eq!(
+                    actual, before,
+                    "cancellation commits no CPU fallback output"
+                );
+            },
+        );
+    }
+}

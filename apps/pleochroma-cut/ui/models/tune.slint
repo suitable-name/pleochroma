@@ -1,0 +1,152 @@
+// The Optimize tab's Tune view: state (`components/editor_inspector/tune_tab.slint` is its view).
+//
+// Tune is the hand-driven partner of Optimize: the cutter takes the design's tiers one at a
+// time in a tuning order (pavilion main, crown main, then the rest), sees a small sweep of the
+// selected tier's angle around its current value, nudges the angle or clicks the chart to set it,
+// and accepts the tier. Every angle change is a normal undo step.
+//
+// Rust owns everything the view shows (`gui::editor::tune_panel`): the tier rows already carry
+// their text, the chart is SVG path data in a 0..100 by 0..100 viewbox (the same one the Angle
+// Sweep dialog's chart uses) and the marks are positions in percent, so the view only draws what
+// it is given. The view writes `active` (the Search | Tune pills), `advanced` (the interface it
+// is drawn in), the angle field and the two combo positions.
+
+// One tier of the tier list.
+export struct TuneTierRow {
+    // The tier's position in the design (what every callback names it by).
+    tier: int,
+    // "P1", "C2": the tier's code.
+    code: string,
+    // The name a person reads ("Pavilion Main"); the code again when the tier has no name.
+    name: string,
+    // The angle as a positive number with two decimals and a degree sign ("41.25°").
+    angle: string,
+    // "40.75 → 41.25" when the angle differs from the Baseline's, else empty.
+    change: string,
+    // "follows P1 - 2" for a tier whose angle follows a relation, a sentence for a girdle tier,
+    // else empty. A tier with a note cannot be picked.
+    note: string,
+    // The cutter accepted the tier in this session.
+    accepted: bool,
+    // Whether the tier can be picked and tuned.
+    selectable: bool,
+    selected: bool,
+    // Whether the tier can move up or down the tuning order (Advanced).
+    can_up: bool,
+    can_down: bool,
+}
+
+// A stretch of the chart whose angles are as good as the best one, within the figure's noise:
+// the left edge and the width, in percent of the plot.
+export struct TuneBand {
+    x: float,
+    w: float,
+}
+
+// One curve and its visibility control. All curves reuse the same completed sweep.
+export struct TuneMetricRow {
+    index: int,
+    label: string,
+    range_text: string,
+    commands: string,
+    shown: bool,
+}
+
+export global TuneModel {
+    // Whether the Tune view is showing in place of the Search view (the Search | Tune pills).
+    in-out property <bool> active: false;
+    // Whether the interface is Advanced (the mini sweep, Pair With, the order and Jump to Best
+    // are shown). Written by the view from `GuideModel.shows_advanced()`.
+    in-out property <bool> advanced: false;
+    // Whether a design is open.
+    in property <bool> has_design: false;
+    // A sentence for the empty states ("Open a design to tune it."), else empty.
+    in property <string> status_text: "";
+
+    // --- The tier list --------------------------------------------------------------
+    in property <[TuneTierRow]> tiers: [];
+    // A hidden setting is not at its default: the order, objective or visible curves changed
+    // (the Simple interface hides these and says so).
+    in property <bool> hidden_in_use: false;
+
+    // --- The selected tier ----------------------------------------------------------
+    in property <bool> has_selection: false;
+    // "PAVILION MAIN (P1) 41.25°".
+    in property <string> title: "";
+    // The angle box: a positive number. Written by Rust when the tier or its angle changes.
+    in-out property <string> angle_text: "";
+    // Whether Accept, Revert This Tier and Next Tier can be pressed.
+    in property <bool> can_accept: false;
+    in property <bool> can_revert: false;
+    in property <bool> can_next: false;
+
+    // --- The mini sweep (Advanced) --------------------------------------------------
+    // 0 nothing drawn (no tier, or not started), 1 drawing, 2 drawn, 3 drawn but no angle of
+    // it gives a stone.
+    in property <int> sweep_state: 0;
+    // 0..1 while drawing.
+    in property <float> sweep_progress: 0.0;
+    // Another tier changed since the chart was drawn; it is redrawn when the design settles.
+    in property <bool> sweep_stale: false;
+    in property <[string]> figure_names: [];
+    in-out property <int> figure_index: 0;
+    // The objective's line (also used to detect/clear old chart state) and every curve's
+    // independently scaled path. The legend gives each curve's actual range and unit.
+    in property <string> chart_commands: "";
+    in property <[TuneMetricRow]> metrics: [];
+    in property <bool> objective_shown: true;
+    in property <bool> no_metrics_shown: false;
+    // The objective's stretches as good as the best. Visibility never changes the objective.
+    in property <[TuneBand]> plateau: [];
+    // Marks in percent of the plot; negative means "not shown".
+    in property <float> current_x: -1.0;
+    in property <float> current_y: -1.0;
+    in property <float> best_x: -1.0;
+    in property <float> best_y: -1.0;
+    in property <float> hover_x: -1.0;
+    // The ends of the angle axis and what the line's height means.
+    in property <string> axis_low: "";
+    in property <string> axis_high: "";
+    in property <string> range_text: "";
+    // The sentence for the angle under the pointer, else for the best angle.
+    in property <string> readout_text: "";
+    // Whether Jump to Best can be pressed.
+    in property <bool> can_jump: false;
+
+    // --- Pair With (Advanced) -------------------------------------------------------
+    // The combo's entries: "Pair With..." first, then the other tiers a sweep can take.
+    in property <[string]> pair_names: [];
+    in-out property <int> pair_index: 0;
+
+    // --- Callbacks ------------------------------------------------------------------
+    // The Search | Tune pills (`active` already holds the new value).
+    callback mode_changed();
+    // A tier row was clicked (the design position).
+    callback select_tier(int);
+    // The row's Up or Down: the tier (design position) and -1 for up, 1 for down.
+    callback move_tier(int, int);
+    // A nudge button: the change of the shown angle in degrees (-0.5, -0.1, 0.1, 0.5).
+    callback nudge(float);
+    // The angle box was accepted with this text.
+    callback angle_edited(string);
+    // Jump to Best: set the best angle of the mini sweep.
+    callback jump_to_best();
+    // The figure combo changed.
+    callback figure_changed();
+    // Show/hide a curve; this only presents already measured values.
+    callback metric_toggled(int);
+    // The pointer over the chart (the fraction across the plot, -1 when it left) and a click on it.
+    callback chart_hover(float);
+    callback chart_clicked(float);
+    // Pair With: the partner's entry among the other sweepable tiers (the combo's entry minus the
+    // heading).
+    callback pair_chosen(int);
+    // Draw the mini sweep again for the design as it is now.
+    callback redraw();
+    // Accept the selected tier: keep the design as a trial and tick the tier.
+    callback accept();
+    // Put the selected tier back to the Baseline's angle (one undo step).
+    callback revert_tier();
+    // Select the next tier that is not accepted yet.
+    callback next_tier();
+}

@@ -1,0 +1,486 @@
+//! The `render` subcommand: trace a scene straight to a PNG, no networking.
+//!
+//! Deliberately built and tested BEFORE `serve` -- it exercises the whole
+//! trace-and-encode path (scene loading, validation, parallel tracing, tone-mapping,
+//! PNG output) with nothing networked to debug at the same time, and it has standalone
+//! value of its own: batch 4K stills without running the interactive viewer at all.
+
+use crate::{
+    cli::{ComputeMode, RenderArgs},
+    png_out, render_core, validate,
+};
+use pleochroma::renderer::gpu_backend::GpuBackend;
+use pleochroma_net::SceneState;
+
+/// Hard cap on `render`'s `--samples`.
+///
+/// Unlike `serve`'s much smaller [`validate::MAX_SAMPLES_PER_REQUEST`] (one batch of a
+/// larger accumulation), this is the total spp for one whole image traced locally by a
+/// trusted invocation -- a fat-finger guard, not a `DoS` boundary.
+pub const MAX_CLI_SAMPLES: u32 = 1_000_000;
+
+/// Validates `render`'s own `--width`/`--height`/`--samples` flags.
+///
+/// Independent of `--scene`; checked before the scene file is even read, so a bad flag
+/// fails fast rather than after a possibly-slow file load and JSON parse.
+///
+/// # Errors
+///
+/// Returns a human-readable message describing the first thing wrong with the values.
+pub fn validate_render_params(width: u32, height: u32, samples: u32) -> Result<(), String> {
+    if width == 0 || height == 0 {
+        return Err("--width and --height must both be positive".to_string());
+    }
+    let pixels = u64::from(width) * u64::from(height);
+    if pixels > u64::from(validate::MAX_PIXELS) {
+        return Err(format!(
+            "--width x --height ({width}x{height} = {pixels} px) exceeds the maximum of {} px",
+            validate::MAX_PIXELS
+        ));
+    }
+    if samples == 0 {
+        return Err("--samples must be positive".to_string());
+    }
+    if samples > MAX_CLI_SAMPLES {
+        return Err(format!(
+            "--samples must be <= {MAX_CLI_SAMPLES} (got {samples})"
+        ));
+    }
+    Ok(())
+}
+
+/// Runs the `render` subcommand end to end.
+///
+/// Validates flags, loads and validates the scene, traces `args.samples` total samples
+/// across the whole frame, tone-maps, and writes a PNG to `args.out`.
+///
+/// Acquires a [`GpuBackend`] once for this invocation (`OnlyCpu` forces
+/// [`GpuBackend::disabled`]) and traces through [`render_core::trace_samples_with_gpu`],
+/// which falls back to the CPU tracer whenever the GPU declines.
+///
+/// `render` traces its whole sample budget as one call with no adaptive sub-batching --
+/// there's no concurrent hybrid CPU+GPU split to calibrate here (that exists for
+/// `serve`'s long-running streamed jobs via `render_core::hybrid`), so
+/// [`ComputeMode::Hybrid`] and [`ComputeMode::OnlyGpu`] resolve identically here.
+///
+/// # Errors
+///
+/// Returns a human-readable message for any failure: bad flags, an unreadable or
+/// unparseable `--scene` file, a scene that fails [`validate::validate_scene`], or a
+/// PNG-encoding failure.
+///
+/// # Panics
+///
+/// Panics only if the Ray-Traced AA tap count fails to convert to `u8` after the
+/// 1, 4, 8 or 16 check, which cannot happen.
+pub fn run(args: &RenderArgs) -> Result<(), String> {
+    validate_render_params(args.width, args.height, args.samples)?;
+
+    let scene_text = std::fs::read_to_string(&args.scene)
+        .map_err(|e| format!("could not read scene file {}: {e}", args.scene.display()))?;
+    let mut scene: SceneState = serde_json::from_str(&scene_text).map_err(|e| {
+        format!(
+            "could not parse scene file {} as JSON: {e}",
+            args.scene.display()
+        )
+    })?;
+
+    // --width/--height are authoritative for the output image, overwriting whatever
+    // scene.json serialized, so the same file can be re-rendered at other resolutions.
+    scene.width = args.width;
+    scene.height = args.height;
+    if let Some(engine) = args.engine.as_deref() {
+        scene.engine.engine = match engine {
+            "path" => pleochroma::renderer::engine::RenderEngine::PathTraced,
+            "ray" => pleochroma::renderer::engine::RenderEngine::RayTraced,
+            _ => return Err("--engine must be path or ray".to_owned()),
+        };
+    }
+    if scene.engine.is_ray() {
+        if ![1, 4, 8, 16].contains(&args.samples) {
+            return Err("Ray-Traced --samples must be 1, 4, 8 or 16 AA taps".to_owned());
+        }
+        scene.engine.ray.aa_taps = u8::try_from(args.samples).expect("1, 4, 8 or 16");
+    }
+
+    validate::validate_scene(&scene)?;
+
+    // An HDR scene names its map only by content hash + declared dimensions (see
+    // `pleochroma_net::scene::HdrEnvironment`); resolving the actual bytes only ever
+    // happens over the network (`NEED_ASSET`/`ASSET`, `crate::assets::fetch`). `render`
+    // is a standalone, no-network CLI with no way to supply them, so tracing an HDR
+    // scene here used to panic deep inside `render_core` (`assets::decoded::resolved_hdr_map`)
+    // instead of failing cleanly at the top.
+    if let Some(hdr) = scene.hdr() {
+        return Err(format!(
+            "scene {} is lit by an HDR environment map (hash {}, {}x{}), but `render` has no \
+             way to supply its bytes -- that only happens over the network via `serve`/`join`; \
+             a --scene file for `render` must use the studio rig",
+            args.scene.display(),
+            pleochroma_net::messages::hash_hex(&hdr.content_hash),
+            hdr.width,
+            hdr.height
+        ));
+    }
+
+    let gpu = match args.compute_mode {
+        _ if scene.engine.is_ray() => GpuBackend::disabled(),
+        ComputeMode::OnlyCpu => GpuBackend::disabled(),
+        ComputeMode::Hybrid | ComputeMode::OnlyGpu => GpuBackend::acquire(),
+    };
+    let threads = render_core::effective_thread_count(args.threads);
+    let backend_desc = if scene.engine.is_ray() && args.compute_mode != ComputeMode::OnlyCpu {
+        "Ray-Traced small GPU kernel with complete CPU fallback".to_owned()
+    } else {
+        gpu.adapter_label().map_or_else(
+            || format!("CPU across {threads} threads"),
+            |label| format!("GPU: {label} (CPU fallback across {threads} threads if needed)"),
+        )
+    };
+    tracing::info!(
+        "pleochroma-worker render: {}x{} @ {} spp -> {} ({backend_desc})",
+        args.width,
+        args.height,
+        args.samples,
+        args.out.display()
+    );
+
+    let sums = if scene.engine.is_ray() {
+        let mut out = vec![glam::Vec3::ZERO; args.width as usize * args.height as usize];
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        if !render_core::whitted::trace(
+            &scene,
+            0,
+            args.samples,
+            args.threads,
+            args.compute_mode != ComputeMode::OnlyCpu,
+            &cancel,
+            &mut out,
+        ) {
+            return Err("Ray-Traced rendering could not complete the requested AA taps".to_owned());
+        }
+        out
+    } else {
+        render_core::trace_samples_with_gpu(&gpu, &scene, 0, args.samples, args.threads)
+    };
+    let rgba = png_out::tonemap_to_rgba(args.width, args.height, args.samples, &sums);
+    png_out::write_png(args.width, args.height, rgba, &args.out)?;
+
+    tracing::info!("wrote {}", args.out.display());
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pleochroma::{
+        geometry::cuts::StandardGemCuts,
+        optics::{materials::GemMaterial, raytracer::LightingPreset},
+    };
+    use std::path::PathBuf;
+
+    #[test]
+    fn validate_render_params_rejects_zero_and_negative() {
+        // "negative" is rejected one layer up, at CLI parsing (u32 can't hold one).
+        assert!(validate_render_params(0, 1080, 64).is_err());
+        assert!(validate_render_params(1920, 0, 64).is_err());
+        assert!(validate_render_params(1920, 1080, 0).is_err());
+    }
+
+    #[test]
+    fn validate_render_params_rejects_absurd_dimensions() {
+        let err = validate_render_params(100_000, 100_000, 64).unwrap_err();
+        assert!(err.contains("exceeds the maximum"), "{err}");
+    }
+
+    #[test]
+    fn validate_render_params_rejects_absurd_sample_counts() {
+        let err = validate_render_params(1920, 1080, 50_000_000).unwrap_err();
+        assert!(err.contains("--samples"), "{err}");
+    }
+
+    #[test]
+    fn validate_render_params_accepts_sensible_values() {
+        assert!(validate_render_params(3840, 2160, 4096).is_ok());
+        assert!(validate_render_params(8, 8, 4).is_ok());
+    }
+
+    fn write_tiny_scene_json(dir: &std::path::Path) -> PathBuf {
+        let scene = SceneState {
+            engine: pleochroma::renderer::engine::EngineSpec::default(),
+            width: 999, // deliberately wrong -- must be overwritten by --width/--height
+            height: 999,
+            yaw: 0.4,
+            camera_roll: 0.0,
+            pitch: 0.3,
+            distance: 3.0,
+            light_yaw: 0.85,
+            light_pitch: 0.95,
+            exposure: 1.0,
+            max_bounces: 4,
+            lighting_preset: LightingPreset::Daylight,
+            material: GemMaterial::diamond(),
+            planes: StandardGemCuts::standard_round_brilliant(),
+            girdle_frosted: false,
+            backdrop: 0.0,
+            environment: pleochroma_net::scene::SceneEnvironment::Studio,
+            surface_glare: 1.0,
+            tools: Vec::new(),
+            fluorescence: pleochroma::optics::fluorescence::Fluorescence::default(),
+            head_shadow_deg: 16.0,
+            frosted_planes: Vec::new(),
+            effects: pleochroma_net::scene::effects::SceneEffects::default(),
+        };
+        let path = dir.join("scene.json");
+        std::fs::write(&path, serde_json::to_string(&scene).unwrap()).unwrap();
+        path
+    }
+
+    /// A `scene.json` written before `surface_glare` existed loads with the unscaled
+    /// `1.0`, and a written value survives the file round trip.
+    #[test]
+    fn a_scene_json_without_surface_glare_loads_as_unscaled() {
+        let dir = std::env::temp_dir().join(format!(
+            "pleochroma-worker-glare-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let text = std::fs::read_to_string(write_tiny_scene_json(&dir)).unwrap();
+        let mut value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let object = value.as_object_mut().unwrap();
+        assert!(object.remove("surface_glare").is_some());
+        let loaded: SceneState = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(loaded.surface_glare.to_bits(), 1.0f32.to_bits());
+
+        value["surface_glare"] = serde_json::json!(0.25);
+        let loaded: SceneState = serde_json::from_value(value).unwrap();
+        assert_eq!(loaded.surface_glare.to_bits(), 0.25f32.to_bits());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A `scene.json` written before `head_shadow_deg` existed loads with the 16 degree
+    /// default, and a written value survives.
+    #[test]
+    fn a_scene_json_without_head_shadow_loads_as_sixteen_degrees() {
+        let dir = std::env::temp_dir().join(format!(
+            "pleochroma-worker-head-shadow-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let text = std::fs::read_to_string(write_tiny_scene_json(&dir)).unwrap();
+        let mut value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert!(
+            value
+                .as_object_mut()
+                .unwrap()
+                .remove("head_shadow_deg")
+                .is_some()
+        );
+        let loaded: SceneState = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(loaded.head_shadow_deg.to_bits(), 16.0f32.to_bits());
+
+        value["head_shadow_deg"] = serde_json::json!(0.0);
+        let loaded: SceneState = serde_json::from_value(value).unwrap();
+        assert_eq!(loaded.head_shadow_deg.to_bits(), 0.0f32.to_bits());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// End-to-end smoke test: a real tiny scene file through the real `run` path (JSON
+    /// loading, validation, tracing, tone-mapping, PNG encoding), nothing mocked.
+    #[test]
+    fn run_produces_a_png_of_the_requested_dimensions() {
+        let dir = std::env::temp_dir().join(format!(
+            "pleochroma-worker-render-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let scene_path = write_tiny_scene_json(&dir);
+        let out_path = dir.join("render.png");
+
+        let args = RenderArgs {
+            engine: None,
+            scene: scene_path,
+            out: out_path.clone(),
+            width: 8,
+            height: 8,
+            samples: 4,
+            threads: 2,
+            // Forcing CPU keeps this deterministic regardless of the `gpu` feature; see
+            // the `_via_gpu` counterpart below.
+            compute_mode: ComputeMode::OnlyCpu,
+        };
+        run(&args).unwrap();
+
+        let img = image::open(&out_path).expect("render must produce a valid, readable PNG");
+        assert_eq!(img.width(), 8);
+        assert_eq!(img.height(), 8);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn run_rejects_a_missing_scene_file() {
+        let args = RenderArgs {
+            engine: None,
+            scene: PathBuf::from("this/path/does/not/exist.json"),
+            out: std::env::temp_dir().join("never.png"),
+            width: 8,
+            height: 8,
+            samples: 4,
+            threads: 1,
+            compute_mode: ComputeMode::OnlyCpu,
+        };
+        assert!(run(&args).is_err());
+    }
+
+    /// `render` refuses an HDR scene with a clear error instead of panicking deep
+    /// inside the tracer: the CLI has no network path to fetch the map's bytes.
+    #[test]
+    fn run_rejects_an_hdr_scene_clearly() {
+        let dir = std::env::temp_dir().join(format!(
+            "pleochroma-worker-render-hdr-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let mut scene = SceneState {
+            engine: pleochroma::renderer::engine::EngineSpec::default(),
+            width: 8,
+            height: 8,
+            yaw: 0.4,
+            camera_roll: 0.0,
+            pitch: 0.3,
+            distance: 3.0,
+            light_yaw: 0.85,
+            light_pitch: 0.95,
+            exposure: 1.0,
+            max_bounces: 4,
+            lighting_preset: LightingPreset::Daylight,
+            material: GemMaterial::diamond(),
+            planes: StandardGemCuts::standard_round_brilliant(),
+            girdle_frosted: false,
+            backdrop: 0.0,
+            environment: pleochroma_net::scene::SceneEnvironment::Studio,
+            surface_glare: 1.0,
+            tools: Vec::new(),
+            fluorescence: pleochroma::optics::fluorescence::Fluorescence::default(),
+            head_shadow_deg: 16.0,
+            frosted_planes: Vec::new(),
+            effects: pleochroma_net::scene::effects::SceneEffects::default(),
+        };
+        scene.environment =
+            pleochroma_net::scene::SceneEnvironment::Hdr(pleochroma_net::scene::HdrEnvironment {
+                content_hash: [0u8; 32],
+                width: 512,
+                height: 256,
+            });
+        let scene_path = dir.join("scene.json");
+        std::fs::write(&scene_path, serde_json::to_string(&scene).unwrap()).unwrap();
+
+        let args = RenderArgs {
+            engine: None,
+            scene: scene_path,
+            out: dir.join("never.png"),
+            width: 8,
+            height: 8,
+            samples: 4,
+            threads: 1,
+            compute_mode: ComputeMode::OnlyCpu,
+        };
+        let err = run(&args).unwrap_err();
+        assert!(err.contains("HDR"), "{err}");
+        assert!(err.contains("no way to supply"), "{err}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn run_rejects_a_scene_with_a_degenerate_normal() {
+        // A zero-length normal is finite and round-trips through JSON fine (unlike
+        // NaN/Infinity, which serde_json can't represent), so it exercises
+        // `validate::validate_scene`'s degenerate-normal check specifically.
+        let dir = std::env::temp_dir().join(format!(
+            "pleochroma-worker-render-badscene-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let mut scene = SceneState {
+            engine: pleochroma::renderer::engine::EngineSpec::default(),
+            width: 8,
+            height: 8,
+            yaw: 0.0,
+            camera_roll: 0.0,
+            pitch: 0.0,
+            distance: 3.0,
+            light_yaw: 0.0,
+            light_pitch: 0.0,
+            exposure: 1.0,
+            max_bounces: 4,
+            lighting_preset: LightingPreset::Daylight,
+            material: GemMaterial::diamond(),
+            planes: StandardGemCuts::standard_round_brilliant(),
+            girdle_frosted: false,
+            backdrop: 0.0,
+            environment: pleochroma_net::scene::SceneEnvironment::Studio,
+            surface_glare: 1.0,
+            tools: Vec::new(),
+            fluorescence: pleochroma::optics::fluorescence::Fluorescence::default(),
+            head_shadow_deg: 16.0,
+            frosted_planes: Vec::new(),
+            effects: pleochroma_net::scene::effects::SceneEffects::default(),
+        };
+        scene.planes[0].normal = [0.0, 0.0, 0.0];
+        let scene_path = dir.join("scene.json");
+        std::fs::write(&scene_path, serde_json::to_string(&scene).unwrap()).unwrap();
+
+        let args = RenderArgs {
+            engine: None,
+            scene: scene_path,
+            out: dir.join("never.png"),
+            width: 8,
+            height: 8,
+            samples: 4,
+            threads: 1,
+            compute_mode: ComputeMode::OnlyCpu,
+        };
+        let err = run(&args).unwrap_err();
+        assert!(err.contains("degenerate"), "{err}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// GPU counterpart to `run_produces_a_png_of_the_requested_dimensions`: with
+    /// `OnlyGpu`, a usable adapter actually dispatches `GpuFrameRenderer` end to end
+    /// (diamond is isotropic, so `GemMaterial::gpu_supported()` is true). Falls back to
+    /// CPU without failing the test on a machine with no usable adapter.
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn run_produces_a_png_of_the_requested_dimensions_via_gpu() {
+        let dir = std::env::temp_dir().join(format!(
+            "pleochroma-worker-render-gpu-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let scene_path = write_tiny_scene_json(&dir);
+        let out_path = dir.join("render.png");
+
+        let args = RenderArgs {
+            engine: None,
+            scene: scene_path,
+            out: out_path.clone(),
+            width: 8,
+            height: 8,
+            samples: 4,
+            threads: 2,
+            compute_mode: ComputeMode::OnlyGpu,
+        };
+        run(&args).unwrap();
+
+        let img = image::open(&out_path).expect("render must produce a valid, readable PNG");
+        assert_eq!(img.width(), 8);
+        assert_eq!(img.height(), 8);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

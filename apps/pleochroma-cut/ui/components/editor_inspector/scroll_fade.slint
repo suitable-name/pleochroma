@@ -1,0 +1,25 @@
+import { Theme } from "../../theme.slint";
+
+// A soft fade at the bottom edge of a scroll area, drawn while there is more content below, so a
+// control that is cut off at the edge reads as "scroll for more" and not as a layout bug. Place
+// it over the bottom of the area (`y: parent.height - self.height`, `width: parent.width`) and
+// bind `active` to "the content is taller than what shows and not at its end" (or, with `top`,
+// to "scrolled away from the start"). It takes no
+// clicks: the pointer goes through it to what is underneath.
+export component ScrollFade inherits Rectangle {
+    in property <bool> active: false;
+    // The colour of the surface under the scroll area, which the content fades into.
+    in property <color> tone: Theme.bg-darkest;
+    // The fade for the TOP edge (content scrolled off above): solid at the edge, clear below it.
+    // Place it at `y: 0px` and bind `active` to "scrolled away from the start".
+    in property <bool> top: false;
+
+    height: 22px;
+
+    if root.active && !root.top: Rectangle {
+        background: @linear-gradient(180deg, root.tone.transparentize(1.0) 0%, root.tone 100%);
+    }
+    if root.active && root.top: Rectangle {
+        background: @linear-gradient(180deg, root.tone 0%, root.tone.transparentize(1.0) 100%);
+    }
+}

@@ -1,0 +1,474 @@
+import { Theme } from "../../theme.slint";
+import { ComboBox, LineEdit } from "std-widgets.slint";
+import { RoughPlanModel } from "../../models/rough_plan.slint";
+import { Zoning } from "../../models/zoning.slint";
+import { RoughField, RoughRadio, RoughPill, ElidedText, FieldLabel, WrapText } from "fields.slint";
+import { TipBox } from "../tip_box.slint";
+
+// Left column rough base definition, dimensions, material, weighed carat,
+// and the weight-check readout chip.
+export component RoughForm inherits VerticalLayout {
+    spacing: 8px;
+
+    // Header
+    Text {
+        text: "ROUGH";
+        font-size: 11px;
+        font-weight: 700;
+        color: Theme.text-muted;
+    }
+
+    // Base shape picker: two rows of two, because all four in one row (about 340 px with
+    // "Mesh (OBJ/STL/PLY)") are wider than the left column and used to push the whole form
+    // past its edges.
+    VerticalLayout {
+      spacing: 4px;
+      HorizontalLayout {
+        spacing: 12px;
+        alignment: start;
+
+        RoughRadio {
+            label: "Block";
+            hint: "A rectangular block of rough. You give its three sizes in millimetres.";
+            selected: RoughPlanModel.base_kind == 0;
+            editable: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+            picked => { RoughPlanModel.set_base(0); }
+        }
+        RoughRadio {
+            label: "Cylinder";
+            hint: "A round rod of rough: you give its diameter, its length and the axis it runs along.";
+            selected: RoughPlanModel.base_kind == 1;
+            editable: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+            picked => { RoughPlanModel.set_base(1); }
+        }
+      }
+      HorizontalLayout {
+        spacing: 12px;
+        alignment: start;
+
+        RoughRadio {
+            label: "Pebble";
+            hint: "A rounded, pebble-shaped rough. You give its three sizes in millimetres.";
+            selected: RoughPlanModel.base_kind == 2;
+            editable: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+            picked => { RoughPlanModel.set_base(2); }
+        }
+        RoughRadio {
+            label: "Mesh (OBJ/STL/PLY)";
+            hint: "Use your own 3D model of the rough from an .OBJ, .STL or .PLY file. Choosing this opens a file picker. The numbers in the file are read in the unit chosen below. Files up to 64 MB are read.";
+            selected: RoughPlanModel.base_kind == 3;
+            editable: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+            picked => { RoughPlanModel.import_obj(); }
+        }
+      }
+    }
+
+    // The unit the numbers of a mesh file are read in. The choice is read when a file is picked
+    // and is kept for the session. A refused size suggests a unit but never applies it.
+    HorizontalLayout {
+        spacing: 6px;
+        alignment: start;
+        Text {
+            text: "Mesh File Units:";
+            font-size: 10px;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+        }
+        TipBox {
+            hint: "The unit the numbers in an OBJ, STL or PLY file are in. The planner scales them to millimetres. Choose it before you pick the file. If the size looks wrong, the message suggests a unit; it is never applied for you.";
+            ComboBox {
+                min-width: 0px;
+                model: ["mm", "cm", "m", "inch", "µm"];
+                current-index <=> RoughPlanModel.mesh_unit_index;
+                enabled: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+                accessible-label: "Unit of the Numbers in a Mesh File";
+            }
+        }
+    }
+
+    // A mesh is being read or scaled in the background.
+    if RoughPlanModel.mesh_busy: WrapText {
+        text: RoughPlanModel.mesh_busy_text;
+        font_size: 11px;
+        text_color: Theme.text-secondary;
+    }
+
+    // Imported mesh: the size of its bounding box (read-only; a pick of the radio
+    // imports another file).
+    if RoughPlanModel.base_kind == 3: WrapText {
+        text: "Bounding box of the mesh, " + RoughPlanModel.rough_x + " x "
+            + RoughPlanModel.rough_y + " x " + RoughPlanModel.rough_z
+            + " mm (the file's numbers read in the unit chosen above; Fit to weight rescales it).";
+        font_size: 10px;
+        text_color: Theme.text-muted;
+    }
+
+    // Inclusions: closed shapes inside the rough where no stone may go. They still count as
+    // material in the weight and the yield. Adding or removing one is an undo step. Every rough
+    // takes them. On a block, a cylinder or a pebble the cutter chooses the kind (a mesh file or a
+    // typed sphere, ellipsoid or box) and types where it goes; on an imported mesh the inclusion
+    // is always a mesh file in the rough file's coordinates, so those controls are not shown.
+    if RoughPlanModel.inclusions_possible: VerticalLayout {
+        spacing: 4px;
+
+        if RoughPlanModel.inclusion_placement_possible: HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            Text {
+                text: "Inclusion Kind:";
+                font-size: 10px;
+                color: Theme.text-muted;
+                vertical-alignment: center;
+            }
+            TipBox {
+                hint: "What to add. A Mesh File is your own closed 3D model of the inclusion. A Sphere, an Ellipsoid or a Box is a shape you describe by its size.";
+                ComboBox {
+                    min-width: 0px;
+                    model: RoughPlanModel.inclusion_kinds;
+                    current-index <=> RoughPlanModel.inclusion_kind_index;
+                    enabled: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+                    accessible-label: "Kind of the New Inclusion";
+                }
+            }
+        }
+
+        // Where the inclusion goes: its centre in mm from the corner of the uncut rough.
+        if RoughPlanModel.inclusion_placement_possible: HorizontalLayout {
+            spacing: 6px;
+            RoughField {
+                label: "Position X (mm)";
+                hint: "Where the centre of the inclusion is along X, in millimetres from the corner of the rough. Leave it empty for the middle of the rough.";
+                placeholder: "centre";
+                editable: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+                value <=> RoughPlanModel.inclusion_x_mm;
+            }
+            RoughField {
+                label: "Position Y (mm)";
+                hint: "Where the centre of the inclusion is along Y, in millimetres from the corner of the rough. Leave it empty for the middle of the rough.";
+                placeholder: "centre";
+                editable: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+                value <=> RoughPlanModel.inclusion_y_mm;
+            }
+            RoughField {
+                label: "Position Z (mm)";
+                hint: "Where the centre of the inclusion is along Z, in millimetres from the corner of the rough. Leave it empty for the middle of the rough.";
+                placeholder: "centre";
+                editable: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+                value <=> RoughPlanModel.inclusion_z_mm;
+            }
+        }
+        if RoughPlanModel.inclusion_placement_possible: WrapText {
+            text: "Position is the centre of the inclusion, in mm from the corner of the rough. An empty field is the middle of the rough"
+                + (RoughPlanModel.inclusion_centre_text != "" ? " (" + RoughPlanModel.inclusion_centre_text + ")." : ".")
+                + (RoughPlanModel.inclusion_kind_index == 0 ? " A mesh file is placed by the centre of its bounding box." : "");
+            font_size: 10px;
+            text_color: Theme.text-muted;
+        }
+
+        // The size of a typed shape: a sphere takes only its diameter.
+        if RoughPlanModel.inclusion_placement_possible && RoughPlanModel.inclusion_kind_index == 1: HorizontalLayout {
+            spacing: 6px;
+            RoughField {
+                label: "Diameter (mm)";
+                hint: "How wide the sphere is across, in millimetres. There is no default: type it.";
+                placeholder: "e.g. 3.0";
+                editable: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+                value <=> RoughPlanModel.inclusion_size_x_mm;
+            }
+        }
+        if RoughPlanModel.inclusion_placement_possible && RoughPlanModel.inclusion_kind_index >= 2: HorizontalLayout {
+            spacing: 6px;
+            RoughField {
+                label: RoughPlanModel.inclusion_kind_index == 2 ? "Axis X (mm)" : "Edge X (mm)";
+                hint: RoughPlanModel.inclusion_kind_index == 2
+                    ? "The full length of the ellipsoid along X, in millimetres (not the half length). There is no default: type it."
+                    : "The length of the box along X, in millimetres. There is no default: type it.";
+                placeholder: "e.g. 3.0";
+                editable: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+                value <=> RoughPlanModel.inclusion_size_x_mm;
+            }
+            RoughField {
+                label: RoughPlanModel.inclusion_kind_index == 2 ? "Axis Y (mm)" : "Edge Y (mm)";
+                hint: RoughPlanModel.inclusion_kind_index == 2
+                    ? "The full length of the ellipsoid along Y, in millimetres (not the half length). There is no default: type it."
+                    : "The length of the box along Y, in millimetres. There is no default: type it.";
+                placeholder: "e.g. 2.0";
+                editable: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+                value <=> RoughPlanModel.inclusion_size_y_mm;
+            }
+            RoughField {
+                label: RoughPlanModel.inclusion_kind_index == 2 ? "Axis Z (mm)" : "Edge Z (mm)";
+                hint: RoughPlanModel.inclusion_kind_index == 2
+                    ? "The full length of the ellipsoid along Z, in millimetres (not the half length). There is no default: type it."
+                    : "The length of the box along Z, in millimetres. There is no default: type it.";
+                placeholder: "e.g. 1.5";
+                editable: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+                value <=> RoughPlanModel.inclusion_size_z_mm;
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            RoughPill {
+                field_height: true;
+                text: RoughPlanModel.inclusion_placement_possible && RoughPlanModel.inclusion_kind_index != 0
+                    ? "Add Inclusion" : "Add Inclusion...";
+                hint: RoughPlanModel.running ? "Not while a plan is running. Wait for it to finish, or cancel it."
+                    : (RoughPlanModel.mesh_busy ? "Wait for the mesh to finish loading."
+                    : (!RoughPlanModel.inclusion_placement_possible
+                        ? "Pick a mesh file (OBJ, STL or PLY) of a closed shape inside the rough, such as a crack or a crystal of another mineral. Stones keep clear of it, and the weight and the yield count it as material. The file uses the same coordinates and unit as the rough's file."
+                    : (RoughPlanModel.inclusion_kind_index == 0
+                        ? "Pick a mesh file (OBJ, STL or PLY) of a closed shape, such as a crack or a crystal of another mineral. Its bounding box has its centre at the position above. Stones keep clear of it, and the weight and the yield count it as material."
+                        : "Add the shape at the position and size above. Stones keep clear of it, and the weight and the yield count it as material.")));
+                enabled: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+                clicked => { RoughPlanModel.add_inclusion(); }
+            }
+            Text {
+                text: "Margin (mm):";
+                font-size: 10px;
+                color: Theme.text-muted;
+                vertical-alignment: center;
+            }
+            TipBox {
+                width: 56px;
+                hint: "How far stones keep away from the inclusion, in millimetres, because the edge of a real inclusion is uncertain. Leave it empty for 0.3. It is applied when you add the inclusion.";
+                LineEdit {
+                    min-width: 0px;
+                    text <=> RoughPlanModel.inclusion_margin;
+                    enabled: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+                    accessible-label: "Margin of a New Inclusion in Millimetres";
+                }
+            }
+        }
+
+        // Tracing an inclusion through photos needs a mesh to trace through: imported mesh roughs only.
+        if RoughPlanModel.locate_possible: HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            RoughPill {
+                text: "Locate Inclusion from Photos...";
+                hint: RoughPlanModel.running ? "Not while a plan is running. Wait for it to finish, or cancel it."
+                    : (RoughPlanModel.mesh_busy ? "Wait for the mesh to finish loading."
+                    : "Find an inclusion from photos of the rough taken on a fixed camera rig. Light from the inclusion bends at the surface, so the position is worked out through the mesh.");
+                enabled: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+                clicked => { RoughPlanModel.locate_inclusion(); }
+            }
+            RoughPill {
+                text: "Rough Color...";
+                hint: RoughPlanModel.running || RoughPlanModel.mesh_busy ? "Not while a plan is running or a mesh is loading."
+                    : "Work out the color of the stone, and of color zones inside it, from photos of the rough on a backlit rig.";
+                enabled: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+                clicked => { Zoning.open_rough_colour(); }
+            }
+        }
+        for row[i] in RoughPlanModel.inclusion_rows: HorizontalLayout {
+            spacing: 6px;
+            ElidedText {
+                text: row;
+                font_size: 10px;
+                text_color: Theme.text-secondary;
+            }
+            RoughPill {
+                text: "Remove";
+                hint: "Take this inclusion out again. Stones may then be placed there, and the weight is unchanged.";
+                enabled: !RoughPlanModel.running && !RoughPlanModel.mesh_busy;
+                clicked => { RoughPlanModel.remove_inclusion(i); }
+            }
+        }
+    }
+
+    // Block or Pebble dimensions (X, Y, Z in mm)
+    if RoughPlanModel.base_kind == 0 || RoughPlanModel.base_kind == 2: HorizontalLayout {
+        spacing: 6px;
+        RoughField {
+            label: "Rough X (mm)";
+            hint: "The size of the rough along the X axis, in millimetres.";
+            placeholder: "e.g. 18.4";
+            editable: !RoughPlanModel.running;
+            value <=> RoughPlanModel.rough_x;
+            committed => { RoughPlanModel.base_field_committed(); }
+        }
+        RoughField {
+            label: "Rough Y (mm)";
+            hint: "The size of the rough along the Y axis, in millimetres.";
+            placeholder: "e.g. 11.0";
+            editable: !RoughPlanModel.running;
+            value <=> RoughPlanModel.rough_y;
+            committed => { RoughPlanModel.base_field_committed(); }
+        }
+        RoughField {
+            label: "Rough Z (mm)";
+            hint: "The size of the rough along the Z axis, in millimetres.";
+            placeholder: "e.g. 9.6";
+            editable: !RoughPlanModel.running;
+            value <=> RoughPlanModel.rough_z;
+            committed => { RoughPlanModel.base_field_committed(); }
+        }
+    }
+
+    // Cylinder dimensions (Diameter, Length, Axis)
+    if RoughPlanModel.base_kind == 1: VerticalLayout {
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 6px;
+            RoughField {
+                label: "Diameter (mm)";
+                hint: "How wide the round rough is across, in millimetres.";
+                placeholder: "e.g. 10.0";
+                editable: !RoughPlanModel.running;
+                value <=> RoughPlanModel.cyl_diameter;
+                committed => { RoughPlanModel.base_field_committed(); }
+            }
+            RoughField {
+                label: "Length (mm)";
+                hint: "How long the rough is along its axis, in millimetres.";
+                placeholder: "e.g. 24.0";
+                editable: !RoughPlanModel.running;
+                value <=> RoughPlanModel.cyl_length;
+                committed => { RoughPlanModel.base_field_committed(); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Text {
+                text: "Axis:";
+                font-size: 10px;
+                color: Theme.text-muted;
+                vertical-alignment: center;
+            }
+            RoughPill {
+                text: "X";
+                hint: "The rod runs along the X axis.";
+                active: RoughPlanModel.cyl_axis == 0;
+                enabled: !RoughPlanModel.running;
+                clicked => { RoughPlanModel.cyl_axis = 0; RoughPlanModel.base_field_committed(); }
+            }
+            RoughPill {
+                text: "Y";
+                hint: "The rod runs along the Y axis.";
+                active: RoughPlanModel.cyl_axis == 1;
+                enabled: !RoughPlanModel.running;
+                clicked => { RoughPlanModel.cyl_axis = 1; RoughPlanModel.base_field_committed(); }
+            }
+            RoughPill {
+                text: "Z";
+                hint: "The rod runs along the Z axis.";
+                active: RoughPlanModel.cyl_axis == 2;
+                enabled: !RoughPlanModel.running;
+                clicked => { RoughPlanModel.cyl_axis = 2; RoughPlanModel.base_field_committed(); }
+            }
+        }
+    }
+
+    // Material dropdown
+    VerticalLayout {
+        spacing: 2px;
+        FieldLabel {
+            text: "Material";
+            hint: "The gem material of the rough. Its specific gravity turns the volume of the model into carats.";
+            font_size: 10px;
+        }
+        TipBox {
+            hint: "The gem material of the rough. Its specific gravity turns the volume of the model into carats.";
+            ComboBox {
+                min-width: 0px;
+                model: RoughPlanModel.materials;
+                current-index <=> RoughPlanModel.material_index;
+                enabled: !RoughPlanModel.running && RoughPlanModel.materials.length > 0;
+                accessible-label: "Material of the Rough";
+                selected(value) => { RoughPlanModel.base_field_committed(); }
+            }
+        }
+    }
+    if RoughPlanModel.materials.length == 0: WrapText {
+        text: "No material with a known specific gravity is available.";
+        font_size: 10px;
+        text_color: Theme.accent-amber;
+    }
+
+    // Carat: the model's own weight until a weighed carat is typed over it, and the
+    // Fit to weight action that scales the model to the typed weight.
+    HorizontalLayout {
+        spacing: 6px;
+        alignment: stretch;
+        RoughField {
+            label: "Carat (ct)";
+            hint: "The weight of the rough in carats, if you have weighed it. Leave it alone to use the weight of the model. Fit to weight scales the model to this weight.";
+            placeholder: "e.g. 8.90";
+            editable: !RoughPlanModel.running;
+            value <=> RoughPlanModel.weighed_ct;
+            committed => { RoughPlanModel.base_field_committed(); }
+        }
+        VerticalLayout {
+            alignment: end;
+            RoughPill {
+                field_height: true;
+                text: "Fit to Weight";
+                hint: RoughPlanModel.running ? "Not while a plan is running. Wait for it to finish, or cancel it."
+                    : (RoughPlanModel.mesh_busy ? "Wait for the mesh to finish loading."
+                    : (RoughPlanModel.weight_check_level == 0 ? "Type a weighed carat first, so there is a weight to scale the model to."
+                    : "Scale the model up or down until its weight matches the carat you typed."));
+                enabled: !RoughPlanModel.running && !RoughPlanModel.mesh_busy && RoughPlanModel.weight_check_level != 0;
+                clicked => { RoughPlanModel.fit_to_weight(); }
+            }
+        }
+    }
+
+    // Model volume & weight text
+    if RoughPlanModel.model_text != "": WrapText {
+        text: RoughPlanModel.model_text;
+        font_size: 11px;
+        text_color: Theme.text-secondary;
+    }
+
+    // Weight check chip
+    if RoughPlanModel.weight_check_text != "": Rectangle {
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: RoughPlanModel.weight_check_level == 1 ? Theme.success
+            : (RoughPlanModel.weight_check_level == 2 ? Theme.accent-amber
+            : (RoughPlanModel.weight_check_level == 3 ? Theme.danger : Theme.border-subtle));
+        background: RoughPlanModel.weight_check_level == 1 ? Theme.toast-success-surface
+            : (RoughPlanModel.weight_check_level == 2 ? Theme.surface-warning
+            : (RoughPlanModel.weight_check_level == 3 ? Theme.danger-surface : Theme.surface-sunken));
+
+        HorizontalLayout {
+            padding-left: 6px;
+            padding-right: 6px;
+            padding-top: 4px;
+            padding-bottom: 4px;
+            spacing: 6px;
+            alignment: start;
+
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 4px;
+                    background: RoughPlanModel.weight_check_level == 1 ? Theme.success
+                        : (RoughPlanModel.weight_check_level == 2 ? Theme.accent-amber
+                        : (RoughPlanModel.weight_check_level == 3 ? Theme.danger : Theme.text-muted));
+                }
+            }
+
+            Text {
+                text: RoughPlanModel.weight_check_text;
+                font-size: 11px;
+                color: RoughPlanModel.weight_check_level == 1 ? Theme.success
+                    : (RoughPlanModel.weight_check_level == 2 ? Theme.accent-amber
+                    : (RoughPlanModel.weight_check_level == 3 ? Theme.danger : Theme.text-secondary));
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    // Model error if invalid
+    if RoughPlanModel.model_error != "": WrapText {
+        text: RoughPlanModel.model_error;
+        font_size: 11px;
+        text_color: Theme.danger;
+    }
+}

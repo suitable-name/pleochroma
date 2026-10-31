@@ -1,0 +1,578 @@
+import { LineEdit, ComboBox, ScrollView } from "std-widgets.slint";
+import { GearRemapRow } from "../types.slint";
+import { Theme } from "../theme.slint";
+import { EditorModel } from "../models/editor.slint";
+import { GuideModel } from "../models/guide.slint";
+import { HelpTopics } from "../models/help.slint";
+import { DesignSettingsModel } from "../models/design_settings.slint";
+import { SectionHeader } from "section_header.slint";
+import { ParametersModel } from "../models/parameters.slint";
+import { MaterialChip, PreviewBadge } from "material_chip.slint";
+// The material is shown here as a read-only chip (`MaterialChip`, with the amber "Previewing"
+// badge while a preview is on); the Stone tab of the Parameters dock edits it.
+import { ViewportModel } from "../models/viewport.slint";
+import { GuideLockTip } from "guide_lock.slint";
+import { HelpButton } from "help_button.slint";
+import { TipButton } from "compact_controls.slint";
+import { ToggleRow } from "toggle_switch.slint";
+import { AdvancedNote } from "advanced_note.slint";
+import { SettingLabel } from "settings_dialog/setting_label.slint";
+
+// The Edit sub-tab's schedule-wide settings -- material combo (built-ins, custom
+// catalogue materials, then "Custom RI…"), RI override/effective/critical-angle
+// readouts, gear combo, symmetry order and mirror. Rows: 1a material/RI/color/apply,
+// 1b chips/new-edit/linked, then gear/symmetry, then printed details, each ending in a stretch spacer so nothing here stretches
+// to fill the dock's own width. Collapsible as a whole (`SectionHeader`, title
+// "DESIGN") via `EditorModel.settings_collapsed`; the gear-remap confirmation
+// nested inside is separately collapsible (title "GEAR REMAP") via
+// `EditorModel.remap_collapsed`.
+//
+// The Simple interface (`GuideModel.shows_advanced()` false) keeps what most designs need: the
+// material, the body color, the gear and the title. It leaves out the RI override, the
+// symmetry order and Mirror, the extra header lines, the footnotes, the gear reference angle and
+// the printed proportions. A hidden field keeps its value and still applies, and the note at
+// the bottom says so when one of them is off its default
+// (`DesignSettingsModel.advanced_in_use`).
+//
+// Every label has a tooltip, every field and button a screen-reader name, and every control
+// takes Tab. The labels carry the plain-language explanations (`SettingLabel`).
+export component EditorDesignSettings inherits Rectangle {
+    background: Theme.bg-darkest;
+    border-radius: Theme.radius-sm;
+    // The worked-example guide's outline while a step targets this panel
+    // (`GuideModel.highlight_target == "design_settings"`); same pattern as
+    // `editor_tier_table.slint`'s `guide_highlighted`.
+    property <bool> guide_highlighted: GuideModel.highlight_target == "design_settings";
+    border-width: root.guide_highlighted ? 2px : 1px;
+    border-color: root.guide_highlighted ? Theme.accent-cyan : Theme.border-subtle;
+    clip: true;
+    // Zero stretch: without this the section is a stretchable cell of the
+    // dock's column (widgets have no maximum height of their own), and spare
+    // dock height inflated the combos, fields and buttons to hundreds of
+    // pixels instead of going to the tier table. NOT `height:
+    // content.preferred-height` -- a layout's preferred height defaults to
+    // 100% of its parent, so that binding is circular and grows unbounded.
+    vertical-stretch: 0;
+
+    // `false` while the worked-example guide locks this panel (`GuideAllow.
+    // design_settings`): every combo, field, toggle and Apply button below ANDs it
+    // into its own `enabled:`, and the `GuideLockTip` at the end of this component
+    // explains why on hover. The read-only chips stay readable.
+    property <bool> unlocked: GuideModel.allows_design_settings();
+
+    // Whether the Advanced controls show: the Advanced interface, or a guide step that needs them.
+    property <bool> advanced: GuideModel.shows_advanced();
+    // The Simple interface hides some fields that are off their default: say so.
+    property <bool> advanced_note_visible: !root.advanced && DesignSettingsModel.advanced_in_use(
+        "",
+        EditorModel.design_extra_headers,
+        EditorModel.design_footnotes,
+        EditorModel.design_gear_reference_angle,
+        EditorModel.printed_vol_w3_text + EditorModel.printed_lw_text + EditorModel.printed_cw_text
+            + EditorModel.printed_pw_text + EditorModel.printed_hw_text,
+        EditorModel.mirror);
+
+    // Unapplied-edit markers for the Material/Gear/Symmetry Apply buttons -- the
+    // same amber "*" treatment as `editor_inspector.slint`'s `preform_pending`/
+    // `yield_pending`. A background refresh only re-seeds a section's scratch
+    // fields when the underlying DESIGN value actually changed, so it cannot
+    // silently flip `pending` back to `false` by reasserting a just-typed value.
+    property <bool> gear_pending: false;
+    property <bool> symmetry_pending: false;
+    // "Apply Details" pending marker -- same treatment.
+    property <bool> meta_pending: false;
+    // "Apply Printed" pending marker -- same treatment.
+    property <bool> printed_pending: false;
+    // `form_reset_pulse` (`ui/models/editor.slint`) bumps on New/Load Selected/
+    // Open -- a different design underneath these fields, where a leftover
+    // "pending" flag from the previous design would mislead. Local alias so
+    // `changed` can watch a global's property, as `editor_inspector.slint` does.
+    property <int> tracked_form_reset_pulse: EditorModel.form_reset_pulse;
+    changed tracked_form_reset_pulse => {
+        root.gear_pending = false;
+        root.symmetry_pending = false;
+        root.meta_pending = false;
+        root.printed_pending = false;
+    }
+
+    // Mirrors `EditorModel.gear_remap_open` (an `in property`, read-only from this
+    // side) into a local property purely so `changed` can watch it, and clears
+    // the "Apply Gear *" pending marker when the `GearRemapDialog` modal closes
+    // (Confirm and Cancel both flip `gear_remap_open` back to `false` from Rust).
+    // The dialog itself has no access to this component's local `gear_pending`.
+    property <bool> tracked_gear_remap_open: EditorModel.gear_remap_open;
+    changed tracked_gear_remap_open => {
+        if !root.tracked_gear_remap_open {
+            root.gear_pending = false;
+        }
+    }
+
+    content := VerticalLayout {
+        padding: 8px;
+        spacing: 6px;
+
+        SectionHeader {
+            title: "DESIGN";
+            hint: "The index gear, symmetry and details of the open design, and its material\nat a glance (edited in the Stone tab). Click to show or hide them.";
+            collapsed: EditorModel.settings_collapsed;
+            toggled => { EditorModel.settings_collapsed = !EditorModel.settings_collapsed; }
+            // The manual page for this panel stays reachable while it is collapsed.
+            VerticalLayout {
+                alignment: center;
+                HelpButton {
+                    topic: HelpTopics.design-settings;
+                    hint: "Open the manual page on the design settings";
+                }
+            }
+        }
+
+        if !EditorModel.settings_collapsed: VerticalLayout {
+            spacing: 6px;
+
+        // Row 1: the material, read-only. It is edited in the Stone tab (one place for the
+        // stone's material, colour, size and effects); this chip shows what the design has.
+        HorizontalLayout {
+            spacing: 10px;
+            material-chip-l136 := MaterialChip {
+                show_ri: true;
+                row_height: 28px;
+                hint: "The design's material. Press to edit it in the Stone tab.";
+            }
+            if ViewportModel.previewing: PreviewBadge {
+                compact: true;
+                row_height: 28px;
+            }
+            VerticalLayout {
+                alignment: center;
+                TipButton {
+                    text: "Edit in Stone Tab";
+                    hint: "Open the Stone tab to change the material, refractive\nindex, body color, size and render effects.";
+                    clicked => { ParametersModel.show_tab(0); }
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+
+        Rectangle { height: 1px; background: Theme.border-subtle; }
+
+        // Row 2: index gear / symmetry.
+        HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout {
+                spacing: 3px;
+                SettingLabel {
+                    text: "Index Gear";
+                    hint: "The number of teeth on the faceting machine's index wheel (96 is the\nusual). Changing it asks you to confirm first, because every index\nposition is renumbered; a gear that is not a multiple of the old one\nloses some precision, shown in red before you confirm. See the glossary.";
+                }
+                ComboBox {
+                    enabled: root.unlocked;
+                    min-width: 0px;
+                    preferred-width: 120px;
+                    max-width: 160px;
+                    model: ["96", "80", "77", "72", "64", "120", "Custom"];
+                    current-index <=> EditorModel.gear_index;
+                    accessible-label: "Index Gear";
+                    accessible-description: "The tooth count of the index wheel. Press Apply Gear to use it.";
+                    selected => { root.gear_pending = true; }
+                }
+            }
+            if EditorModel.gear_index == 6: VerticalLayout {
+                spacing: 3px;
+                SettingLabel {
+                    text: "Custom Teeth";
+                    hint: "The tooth count of a gear that is not in the list.";
+                }
+                LineEdit {
+                    enabled: root.unlocked;
+                    width: 70px;
+                    text <=> EditorModel.gear_custom_text;
+                    accessible-label: "Custom Gear Teeth";
+                    accessible-description: "The tooth count of your own index gear. Press Apply Gear to use it.";
+                    edited => { root.gear_pending = true; }
+                    changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                }
+            }
+            VerticalLayout {
+                // Bottom-aligned to the fields' baseline, as with Apply Material.
+                alignment: end;
+                tip-button-gear-pending := TipButton {
+                    enabled: root.unlocked;
+                    // Gear applies through the `GearRemapDialog` confirmation rather
+                    // than immediately, so this marks "a remap has been requested
+                    // and not yet confirmed" -- cleared by Confirm or Cancel there.
+                    text: root.gear_pending ? "Apply Gear *" : "Apply Gear";
+                    reader_label: "Apply Gear";
+                    hint: "Change the index gear. A window asks you to confirm\nand shows how every index position is renumbered.";
+                    primary: root.gear_pending;
+                    clicked => { EditorModel.gear_apply(EditorModel.gear_index, EditorModel.gear_custom_text); }
+                }
+            }
+            // Symmetry and Mirror are advanced; the Simple interface leaves them out.
+            if root.advanced: VerticalLayout {
+                spacing: 3px;
+                // Tooltip previews how many tiers the CURRENTLY typed symmetry
+                // order/mirror would leave with an incomplete orbit, before Apply
+                // Symmetry commits anything -- requested live as the field is edited.
+                SettingLabel {
+                    text: "Symmetry Order";
+                    // The column is only as wide as the 60px field; this keeps the whole name.
+                    min-width: 100px;
+                    hint: "How many times the facet pattern repeats around the\nstone (8 for a standard round brilliant). \{EditorModel.symmetry_preview_text}";
+                }
+                LineEdit {
+                    enabled: root.unlocked;
+                    width: 60px;
+                    text <=> EditorModel.symmetry_order_text;
+                    accessible-label: "Symmetry Order";
+                    accessible-description: "How many times the pattern repeats around the stone. Press Enter to apply.";
+                    edited => {
+                        EditorModel.request_symmetry_preview(self.text, EditorModel.mirror);
+                        root.symmetry_pending = true;
+                    }
+                    // Enter commits, matching the RI Override field above.
+                    accepted => {
+                        EditorModel.apply_symmetry(EditorModel.symmetry_order_text, EditorModel.mirror);
+                        root.symmetry_pending = false;
+                    }
+                    changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                }
+            }
+            if root.advanced: VerticalLayout {
+                alignment: end;
+                width: 96px;
+                ToggleRow {
+                    // As tall as the fields and buttons beside it, so its label and switch
+                    // sit on their centre line instead of a few pixels low.
+                    min-height: 32px;
+                    text: "Mirror";
+                    hint: "Also make the pattern a mirror image of itself, so every facet\nhas a partner on the other side. Press Apply Symmetry to use it.";
+                    checked: EditorModel.mirror;
+                    enabled: root.unlocked;
+                    toggled => {
+                        EditorModel.mirror = !EditorModel.mirror;
+                        root.symmetry_pending = true;
+                        // Mirror is the other half of the proposed change
+                        // the symmetry preview describes, so refresh it
+                        // here too, not only on the order field's `edited`.
+                        EditorModel.request_symmetry_preview(EditorModel.symmetry_order_text, EditorModel.mirror);
+                    }
+                }
+            }
+            if root.advanced: VerticalLayout {
+                // Bottom-aligned to the fields' baseline, as with Apply Material.
+                alignment: end;
+                tip-button-symmetry-pending := TipButton {
+                    enabled: root.unlocked;
+                    // Amber "*" marks unapplied edits, as with Apply Material.
+                    text: root.symmetry_pending ? "Apply Symmetry *" : "Apply Symmetry";
+                    reader_label: "Apply Symmetry";
+                    hint: "Use the symmetry order and Mirror setting shown. Tiers whose pattern\nwould be left incomplete are listed in the Symmetry Order tooltip.";
+                    primary: root.symmetry_pending;
+                    clicked => {
+                        EditorModel.apply_symmetry(EditorModel.symmetry_order_text, EditorModel.mirror);
+                        root.symmetry_pending = false;
+                    }
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+
+        Rectangle { height: 1px; background: Theme.border-subtle; }
+
+        // Row 3: design metadata, committed as an `Edit::SetMeta`
+        // (`crates/pleochroma-cut-core`). `design_title` is the FIRST header line
+        // (this app's "first header is the title" convention, e.g. the catalogue
+        // import fallback and the status strip's `design_label`);
+        // `design_extra_headers`/`design_footnotes` are every further
+        // header/footnote line, joined/split on "; " since this app has no
+        // multi-line text control. The title stays in the Simple interface (a cutter names a
+        // design); the other fields are advanced.
+        // Title and (advanced) the gear reference angle, with Apply Details at the row's end
+        // for the Simple interface too; the extra header and footnote lines, which want
+        // room, follow on their own row.
+        HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 3px;
+                SettingLabel {
+                    text: "Title";
+                    hint: "The design's name: the first header line of the .asc file. It is\nthe window title and the default name of a saved or exported file.";
+                }
+                LineEdit {
+                    enabled: root.unlocked;
+                    min-width: 120px;
+                    horizontal-stretch: 1;
+                    text <=> EditorModel.design_title;
+                    accessible-label: "Design Title";
+                    accessible-description: "The name of the design. Press Apply Details to use it.";
+                    edited => { root.meta_pending = true; }
+                    changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                }
+            }
+            if root.advanced: VerticalLayout {
+                spacing: 3px;
+                SettingLabel {
+                    text: "Gear Ref. Angle";
+                    // The column is only as wide as the 70px field; this keeps the whole name.
+                    min-width: 100px;
+                    hint: "Where the index wheel's zero tooth points, in degrees around\nthe stone. Leave it at 0 unless your machine's wheel is set\ndifferently. The 3D handles and the diagram follow it.";
+                }
+                LineEdit {
+                    enabled: root.unlocked;
+                    width: 70px;
+                    text <=> EditorModel.design_gear_reference_angle;
+                    accessible-label: "Gear Reference Angle in Degrees";
+                    accessible-description: "Where the index wheel's zero tooth points. Press Apply Details to use it.";
+                    edited => { root.meta_pending = true; }
+                    changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                }
+            }
+            VerticalLayout {
+                // Bottom-aligned to the fields' baseline, as with Apply Material.
+                alignment: end;
+                tip-button-meta-pending := TipButton {
+                    enabled: root.unlocked;
+                    // Amber "*" marks unapplied edits, as with Apply Material.
+                    text: root.meta_pending ? "Apply Details *" : "Apply Details";
+                    reader_label: "Apply Details";
+                    hint: "Use the title and the other details shown. It is one step you can undo.";
+                    primary: root.meta_pending;
+                    clicked => {
+                        EditorModel.apply_design_meta(EditorModel.design_title, EditorModel.design_extra_headers, EditorModel.design_footnotes, EditorModel.design_gear_reference_angle);
+                        root.meta_pending = false;
+                    }
+                }
+            }
+        }
+
+        if root.advanced: HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 3px;
+                SettingLabel {
+                    text: "Extra Header Lines";
+                    hint: "More header lines for the .asc file after the title, such\nas the designer or a date. Separate several with \"; \".";
+                }
+                LineEdit {
+                    enabled: root.unlocked;
+                    min-width: 100px;
+                    horizontal-stretch: 1;
+                    text <=> EditorModel.design_extra_headers;
+                    accessible-label: "Extra Header Lines";
+                    accessible-description: "More header lines after the title. Separate several with a semicolon. Press Apply Details to use them.";
+                    edited => { root.meta_pending = true; }
+                    changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 3px;
+                SettingLabel {
+                    text: "Footnotes";
+                    hint: "Note lines written at the end of the .asc file. Separate several with \"; \".";
+                }
+                LineEdit {
+                    enabled: root.unlocked;
+                    min-width: 100px;
+                    horizontal-stretch: 1;
+                    text <=> EditorModel.design_footnotes;
+                    accessible-label: "Footnotes";
+                    accessible-description: "Note lines for the end of the file. Separate several with a semicolon. Press Apply Details to use them.";
+                    edited => { root.meta_pending = true; }
+                    changed has-focus => { EditorModel.text_focus = self.has-focus; }
+                }
+            }
+        }
+
+        if root.advanced: Rectangle { height: 1px; background: Theme.border-subtle; }
+
+        // Row 4: a cutter's own typed printed proportions (Vol/W^3, L/W, C/W, P/W,
+        // H/W, the figures printed on every GemCad sheet), feeding Deep Solve's
+        // external verification target for a New, remote-loaded or natively-saved
+        // design -- none of which carry a catalogue row's measured columns the way
+        // "Load Selected" does. Without this, Deep Solve is unusable for those.
+        // Advanced: the Simple interface leaves the whole row out.
+        if root.advanced: HorizontalLayout {
+            spacing: 10px;
+            VerticalLayout {
+                spacing: 3px;
+                SettingLabel {
+                    text: "Printed Proportions (Vol/W\u{b3}, L/W, C/W, P/W, H/W)";
+                    hint: "The proportions printed on a GemCad-style sheet: volume over width\ncubed, length over width, crown, pavilion and total height over\nwidth. Deep Solve checks the solved stone against them when the\ndesign has no measured values of its own. Blank means not typed.";
+                }
+                HorizontalLayout {
+                    spacing: 4px;
+                    LineEdit { enabled: root.unlocked; width: 60px; text <=> EditorModel.printed_vol_w3_text; placeholder-text: "Vol/W\u{b3}"; accessible-label: "Printed Volume over Width Cubed"; edited => { root.printed_pending = true; } changed has-focus => { EditorModel.text_focus = self.has-focus; } }
+                    LineEdit { enabled: root.unlocked; width: 50px; text <=> EditorModel.printed_lw_text; placeholder-text: "L/W"; accessible-label: "Printed Length over Width"; edited => { root.printed_pending = true; } changed has-focus => { EditorModel.text_focus = self.has-focus; } }
+                    LineEdit { enabled: root.unlocked; width: 50px; text <=> EditorModel.printed_cw_text; placeholder-text: "C/W"; accessible-label: "Printed Crown Height over Width"; edited => { root.printed_pending = true; } changed has-focus => { EditorModel.text_focus = self.has-focus; } }
+                    LineEdit { enabled: root.unlocked; width: 50px; text <=> EditorModel.printed_pw_text; placeholder-text: "P/W"; accessible-label: "Printed Pavilion Height over Width"; edited => { root.printed_pending = true; } changed has-focus => { EditorModel.text_focus = self.has-focus; } }
+                    LineEdit { enabled: root.unlocked; width: 50px; text <=> EditorModel.printed_hw_text; placeholder-text: "H/W"; accessible-label: "Printed Total Height over Width"; edited => { root.printed_pending = true; } changed has-focus => { EditorModel.text_focus = self.has-focus; } }
+                }
+            }
+            VerticalLayout {
+                alignment: end;
+                tip-button-printed-pending := TipButton {
+                    enabled: root.unlocked;
+                    text: root.printed_pending ? "Apply Printed *" : "Apply Printed";
+                    reader_label: "Apply Printed";
+                    hint: "Use the printed proportions shown. Blank fields mean not typed.";
+                    primary: root.printed_pending;
+                    clicked => {
+                        EditorModel.apply_printed_proportions(
+                            EditorModel.printed_vol_w3_text,
+                            EditorModel.printed_lw_text,
+                            EditorModel.printed_cw_text,
+                            EditorModel.printed_pw_text,
+                            EditorModel.printed_hw_text
+                        );
+                        root.printed_pending = false;
+                    }
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+
+        if root.advanced_note_visible: AdvancedNote { }
+        } // if !EditorModel.settings_collapsed
+    }
+
+    GuideLockTip { locked: !root.unlocked; }
+}
+
+// The gear-remap confirmation, a real modal mounted by `app.slint` so it blocks
+// like every other confirmation in this app (`RetargetDialog`/`NewDesignDialog`)
+// and cannot be missed behind a collapsed "DESIGN" section or left open behind
+// other work. The Rust side refuses a stale Confirm (it compares
+// `EditorState::generation` against the value captured when the dialog opened).
+// The Rounding selector lets a cutter keep indices deliberately placed on a
+// half-tooth from being silently moved by Nearest; the Rust side recomputes the
+// red/black preview rows on change, so the preview stays honest. The Simple interface
+// leaves the Rounding selector out and keeps Nearest.
+export component GearRemapDialog inherits Rectangle {
+    visible: EditorModel.gear_remap_open;
+    background: Theme.overlay-backdrop;
+
+    TouchArea {
+        // Backdrop click cancels, matching `NewDesignDialog`'s own convention.
+        clicked => { EditorModel.gear_remap_cancel(); }
+    }
+
+    // Same re-focus-on-every-open idiom `RetargetDialog`'s own `key_scope` uses
+    // (`retarget_dialog.slint`) -- this component stays instantiated the whole
+    // time (`visible`, not `if`), so a plain `init => { self.focus(); }` would
+    // only ever fire once.
+    key_scope := FocusScope {
+        property <bool> open_mirror: EditorModel.gear_remap_open;
+        changed open_mirror => {
+            if self.open_mirror {
+                self.focus();
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                EditorModel.gear_remap_cancel();
+                return accept;
+            } else if event.text == Key.Return {
+                EditorModel.gear_remap_confirm();
+                return accept;
+            } else if event.text == Key.Tab || event.text == Key.Backtab {
+                // Tab walks the dialog's own buttons; every other key is swallowed so the
+                // window's shortcuts do not act behind the modal.
+                return reject;
+            }
+            accept
+        }
+    }
+
+    Rectangle {
+        width: 460px;
+        height: min(card.preferred-height, root.height - 40px);
+        background: Theme.surface-dialog;
+        border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.border-dialog;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: Theme.modal-shadow;
+        clip: true;
+        accessible-role: AccessibleRole.groupbox;
+        accessible-label: "Confirm Index Remap";
+        accessible-description: "Every tier's indices are recomputed for the new gear. Confirm Remap applies it, Cancel keeps the old gear.";
+
+        TouchArea {} // Isolate clicks inside the modal.
+
+        card := VerticalLayout {
+            padding: 16px;
+            spacing: 8px;
+
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "Confirm Index Remap"; font-size: 14px; font-weight: 700; color: Theme.text-primary; vertical-alignment: center; }
+                Rectangle { horizontal-stretch: 1; }
+                VerticalLayout {
+                    alignment: center;
+                    HelpButton {
+                        topic: HelpTopics.design-settings;
+                        hint: "Open the manual page on the design settings";
+                    }
+                }
+            }
+            Text {
+                text: "Every tier's indices are recomputed for the new gear:";
+                font-size: 11px;
+                font-weight: 700;
+                color: Theme.accent-amber;
+                wrap: word-wrap;
+            }
+
+            if GuideModel.shows_advanced(): VerticalLayout {
+                spacing: 8px;
+                SettingLabel {
+                    text: "Rounding";
+                    hint: "How an index that does not land on a whole tooth of the\nnew gear is rounded: to the nearest tooth (the usual),\ndown, or up. Pick Floor or Ceil to keep a position you\nplaced on a half tooth from moving the other way.";
+                }
+                ComboBox {
+                    model: ["Nearest", "Floor", "Ceil"];
+                    accessible-label: "Rounding";
+                    accessible-description: "How an index between two teeth is rounded in the new gear.";
+                    selected(val) => {
+                        EditorModel.gear_remap_set_rounding(val == "Nearest" ? 0 : (val == "Floor" ? 1 : 2));
+                    }
+                }
+            }
+
+            ScrollView {
+                height: min(rows.preferred-height, 240px);
+                rows := VerticalLayout {
+                    spacing: 2px;
+                    for row in EditorModel.gear_remap_rows: Rectangle {
+                        height: remap_line.preferred-height;
+                        accessible-role: AccessibleRole.text;
+                        accessible-label: row.name + ": " + row.old_indices + " becomes " + row.new_indices + (row.non_integral ? ", not a whole tooth" : "");
+                        remap_line := HorizontalLayout {
+                            spacing: 6px;
+                            Text { width: 60px; text: row.name; font-size: 10px; color: Theme.text-secondary; overflow: elide; }
+                            Text { horizontal-stretch: 1; text: row.old_indices + "  ->  " + row.new_indices; font-size: 10px; font-weight: row.non_integral ? 700 : 400; color: row.non_integral ? Theme.accent-ruby : Theme.text-secondary; overflow: elide; }
+                        }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 6px;
+                TipButton {
+                    text: "Confirm Remap";
+                    hint: "Renumber every tier's indices for the new gear. It is one step you can undo.";
+                    primary: true;
+                    clicked => { EditorModel.gear_remap_confirm(); }
+                }
+                TipButton {
+                    text: "Cancel";
+                    hint: "Keep the old gear and change nothing.";
+                    clicked => { EditorModel.gear_remap_cancel(); }
+                }
+            }
+        }
+    }
+}

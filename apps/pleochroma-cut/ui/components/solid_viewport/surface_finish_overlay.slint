@@ -1,0 +1,77 @@
+import { Theme } from "../../theme.slint";
+import { SurfaceModel } from "../../models/surface.slint";
+import { SolidPreviewModel } from "../../models/solid_preview.slint";
+import { ManipulateModel } from "../../models/manipulate.slint";
+
+// The Show Surface Finish overlay: a dot on every facet that has a surface finish, tinted by its
+// grade, and for a polished facet a short tick along the direction of its scratches (from the
+// Faceting Machine preference). Positions come from `SurfaceModel.ticks` in the viewport's logical
+// coordinates (`gui::editor::manipulate::surface_overlay`). Pointer input is never handled here:
+// the viewport's `drag_area` stays the only TouchArea.
+export component SurfaceFinishOverlay inherits Rectangle {
+    // Explicit geometry, like `CrystalAxisOverlay`: an overlay positioned by default would
+    // propagate its constraints to the viewport.
+    x: 0px;
+    y: 0px;
+    width: 100%;
+    height: 100%;
+
+    for tick in SurfaceModel.ticks: Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+
+        // The scratch tick; a facet without a scratch direction has both ends at its centre.
+        if tick.x0 != tick.x1 || tick.y0 != tick.y1: Path {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            viewbox-x: 0;
+            viewbox-y: 0;
+            viewbox-width: self.width / 1px;
+            viewbox-height: self.height / 1px;
+            stroke: tick.tint;
+            stroke-width: 2px * ManipulateModel.handle_scale;
+            MoveTo {
+                x: tick.x0 / 1px;
+                y: tick.y0 / 1px;
+            }
+            LineTo {
+                x: tick.x1 / 1px;
+                y: tick.y1 / 1px;
+            }
+        }
+        Rectangle {
+            x: tick.cx - self.width / 2;
+            y: tick.cy - self.height / 2;
+            width: 8px * ManipulateModel.handle_scale;
+            height: 8px * ManipulateModel.handle_scale;
+            border-radius: self.width / 2;
+            background: tick.tint.transparentize(0.25);
+            border-width: 1px;
+            border-color: Theme.bg-darkest;
+        }
+    }
+}
+
+// Tells Rust when anything the overlay depends on changed (the switch, the view, an edit of a
+// surface finish), so it recomputes the marks. A global's own property cannot get a `changed`
+// handler outside the file that declares it, so each input is mirrored into a plain local property
+// here. Zero-sized and invisible; mounted once in each viewport.
+export component SurfaceFinishWatcher inherits Rectangle {
+    x: 0px;
+    y: 0px;
+    width: 0px;
+    height: 0px;
+
+    property <bool> shown: SurfaceModel.show_overlay;
+    property <int> version: SurfaceModel.design_version;
+    property <int> view_mode: SolidPreviewModel.view_mode;
+
+    changed shown => { SurfaceModel.overlay_changed(); }
+    changed version => { SurfaceModel.overlay_changed(); }
+    changed view_mode => { SurfaceModel.overlay_changed(); }
+    init => { SurfaceModel.overlay_changed(); }
+}

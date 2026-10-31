@@ -1,0 +1,671 @@
+import { LineEdit, ComboBox, Button } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { SearchInput } from "search_input.slint";
+import { FilterPanel } from "filter_panel.slint";
+import { ImportDialog } from "import_dialog.slint";
+import { RemoteWorkerDialog } from "remote_worker_dialog.slint";
+import { LibraryModel } from "../models/library.slint";
+import { RemoteWorkerModel } from "../models/remote_worker.slint";
+import { PreferencesModel } from "../models/preferences.slint";
+import { GuideModel } from "../models/guide.slint";
+import { RenderJobsModel } from "../models/render_jobs.slint";
+import { JobsChip } from "render_jobs/jobs_chip.slint";
+import { ExportChip } from "export_chip.slint";
+import { ExportRunModel } from "../models/export_run.slint";
+// The hand-drawn buttons of the toolbar are buttons for the keyboard and a screen reader too.
+import { TouchButton } from "touch_button.slint";
+
+export component HeaderToolbar inherits Rectangle {
+    public function focus_search() {
+        search_input.focus-input();
+    }
+
+    property <bool> filters_open: filter_popup.is-open;
+    property <bool> remote_open: remote_popup.is-open;
+    // Another surface asked for the Remote Coordinator dialog (`RemoteWorkerModel.open_dialog()`).
+    property <int> remote_open_requests: RemoteWorkerModel.open_requests;
+    changed remote_open_requests => {
+        if (!remote_popup.is-open) {
+            remote_popup.show();
+        }
+    }
+
+    property <bool> filters_active: Math.abs(LibraryModel.ri_filter_min - LibraryModel.ri_bounds_min) > 0.0001
+        || Math.abs(LibraryModel.ri_filter_max - LibraryModel.ri_bounds_max) > 0.0001
+        || Math.abs(LibraryModel.lw_filter_min - LibraryModel.lw_bounds_min) > 0.0001
+        || Math.abs(LibraryModel.lw_filter_max - LibraryModel.lw_bounds_max) > 0.0001
+        || Math.abs(LibraryModel.volume_filter_min - LibraryModel.volume_bounds_min) > 0.0001
+        || Math.abs(LibraryModel.volume_filter_max - LibraryModel.volume_bounds_max) > 0.0001
+        || Math.abs(LibraryModel.facets_filter_min - LibraryModel.facets_bounds_min) > 0.0001
+        || Math.abs(LibraryModel.facets_filter_max - LibraryModel.facets_bounds_max) > 0.0001;
+
+    // 64px -> 48px -> 40px, every control/font below shrunk to
+    // match. See the flattened `VerticalLayout`/`HorizontalLayout` below for how the
+    // logo/title/status-badge stack fits one line at this height.
+    //
+    // Wide (the default): one 40px row -- the logo cluster on the left, the controls
+    // right-aligned. `compact` (set by `app.slint` below 1160px) stacks two 38px rows --
+    // logo, title, status and badge on top, the controls (their combos sharing the width)
+    // underneath. The two clusters are positioned explicitly from `root.width` (a single
+    // set of controls serves both modes, so `search_input`/`focus_search()` and the popup
+    // ids stay unique); this Rectangle's own width comes from its parent, so reading
+    // `root.width` here cannot loop.
+    in property <bool> compact: false;
+    // The window's height, so the floating Advanced Filters panel can be capped to what
+    // fits below the toolbar (its body scrolls).
+    in property <length> window_height: 100000px;
+    height: root.compact ? 76px : 40px;
+    background: Theme.bg-card;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+
+    // Row geometry shared by the two clusters below.
+    property <length> controls_spacing: root.compact ? 6px : 10px;
+    property <length> combo_min_w: root.compact ? 72px : 96px;
+    property <length> search_min_w: root.compact ? 100px : 140px;
+    // Smallest / preferred width of the control cluster (Filters is a fixed 84px; Import
+    // and Remote are their buttons' own widths; six gaps between seven controls).
+    // The Remote button is advanced: the Simple interface leaves it out unless a remote is already
+    // set up or the library shown is a remote one (then it is how the cutter reaches it). Its cell
+    // keeps its place in the row at zero width, so the id-based sums below stay right.
+    property <bool> show_remote: GuideModel.shows_advanced() || RemoteWorkerModel.configured
+        || RemoteWorkerModel.library_is_remote || root.remote_open;
+    property <length> remote_w: root.show_remote ? remote_btn.preferred-width : 0px;
+    // The Jobs chip (the render queue) shows only while a job is waiting or running. Its cell
+    // keeps its place at zero width, like the Remote button's, so the layout still puts a gap
+    // beside it: eight cells, seven gaps, always.
+    property <length> jobs_w: RenderJobsModel.chip_visible ? jobs_chip.preferred-width : 0px;
+    // The export chip (a running export started from a dialog, popup open or not) is the same
+    // kind of cell: zero width when idle, so nine cells and eight gaps, always.
+    property <length> export_w: ExportRunModel.direct_running ? export_chip.preferred-width : 0px;
+    property <length> controls_min_w: root.search_min_w + 3 * root.combo_min_w + 84px
+        + import_btn.preferred-width + root.remote_w + root.jobs_w + root.export_w + 8 * root.controls_spacing;
+    property <length> controls_pref_w: 260px + 160px + 130px + 140px + 84px
+        + import_btn.preferred-width + root.remote_w + root.jobs_w + root.export_w + 8 * root.controls_spacing;
+    // The indicator was clicked: `app.slint` shows the running export's popup again.
+    callback show_export_progress();
+    // Wide row: the logo cluster keeps what the controls leave, never less than its own minimum width.
+    property <length> row_avail_w: root.width - 20px - 8px;
+    property <length> left_w: root.compact ? root.width - 20px
+        : max(left_cluster.min-width, min(left_cluster.preferred-width, root.row_avail_w - root.controls_pref_w));
+    property <length> controls_w: root.compact ? root.width - 20px
+        : max(root.controls_min_w, min(root.controls_pref_w, root.row_avail_w - root.left_w));
+
+    // Logo & Title Area
+    left_cluster := HorizontalLayout {
+            x: 10px;
+            y: 0px;
+            width: root.left_w;
+            height: root.compact ? 38px : 40px;
+            spacing: 8px;
+            alignment: start;
+
+            // Centred by a layout of its own: a fixed-size Rectangle in the row sits at the
+            // top of its cell, which left the tile above the title's centre line.
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    // 36px -> 26px -> 22px, matching the bar's own shrink.
+                    width: 22px;
+                    height: 22px;
+                    background: Theme.brand-mark-bg;
+                    border-radius: 6px;
+                    border-width: 1px;
+                    border-color: Theme.accent-cyan;
+
+                    Image {
+                        source: @image-url("../icons/gem.svg");
+                        colorize: Theme.accent-cyan;
+                        width: 12px;
+                        height: 12px;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                    }
+                }
+            }
+
+            // Title, status dot/message, and the remote-library badge share ONE row
+            // so every label fits without stacking across two lines in the
+            // bar's 40px height.
+            HorizontalLayout {
+                alignment: center;
+                spacing: 8px;
+
+                Text {
+                    text: "Pleochroma Cut";
+                    font-size: 13px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                    vertical-alignment: center;
+                }
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: center;
+                    // Centred by a layout of its own: a fixed-size Rectangle in a row
+                    // sits at the top of its cell, above the title's baseline.
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 6px;
+                            height: 6px;
+                            border-radius: 3px;
+                            background: LibraryModel.is_busy ? Theme.accent-amber : Theme.accent-emerald;
+                        }
+                    }
+                    Text {
+                        text: LibraryModel.status_message;
+                        font-size: 11px;
+                        color: LibraryModel.is_busy ? Theme.accent-amber : Theme.text-muted;
+                        overflow: elide;
+                        min-width: 0px;
+                        max-width: 220px;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Always-visible "which library am I looking at" badge --
+                // deliberately shown here, next to the status line, not only inside the
+                // Remote Coordinator dialog (`remote_popup`), so switching away from local is
+                // obvious even with that panel closed. See this component's own
+                // `library_source_label`/`library_is_remote` doc comment.
+                // The two pills below are each centred by a layout of their own: a
+                // fixed-height Rectangle in the row sits at the top of its cell, which
+                // left them ~10px above the title's baseline.
+                VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    height: 22px;
+                    border-radius: 11px;
+                    background: RemoteWorkerModel.library_is_remote ? Theme.accent-cyan-surface : Theme.bg-elevated;
+                    border-width: 1px;
+                    border-color: RemoteWorkerModel.library_is_remote ? Theme.accent-cyan : Theme.border-subtle;
+                    accessible-role: AccessibleRole.text;
+                    accessible-label: "Library Shown: " + RemoteWorkerModel.library_source_label;
+                    Tooltip { text: @markdown("Which library the list shows: your own library on this computer, or the library of a remote computer."); }
+                    HorizontalLayout {
+                        padding-left: 7px;
+                        padding-right: 7px;
+                        spacing: 4px;
+                        alignment: center;
+                        // Centred by a layout of its own, or the dot rides on the chip's top edge.
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 6px;
+                                height: 6px;
+                                border-radius: 3px;
+                                background: RemoteWorkerModel.library_is_remote ? Theme.accent-cyan : Theme.text-muted;
+                            }
+                        }
+                        Text {
+                            text: RemoteWorkerModel.library_source_label;
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: RemoteWorkerModel.library_is_remote ? Theme.accent-cyan : Theme.text-muted;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+                }
+
+                // Simple | Advanced: the ONE global switch for how many controls the app
+                // shows (`PreferencesModel.simple_mode`; Edit > Preferences... changes the
+                // same setting). Greyed while the worked-example guide runs, like the
+                // Preferences menu item.
+                VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 144px;
+                    height: 24px;
+                    border-radius: 12px;
+                    background: Theme.bg-input;
+                    border-width: 1px;
+                    border-color: Theme.border-subtle;
+                    clip: true;
+                    opacity: GuideModel.allows_advanced() ? 1.0 : 0.5;
+                    Tooltip { text: GuideModel.allows_advanced()
+                        ? @markdown("Simple shows the controls most designs need. Advanced shows every control. It only hides or shows controls: your designs and settings are never changed. Change it any time.")
+                        : @markdown("\{GuideModel.locked_hint}"); }
+                    // The Simple or Advanced tutorial outlines the whole pill; `z` keeps the
+                    // outline over the two halves, and it handles no pointer events.
+                    if GuideModel.highlight_target == "mode_switch": Rectangle {
+                        z: 5;
+                        border-width: 2px;
+                        border-color: Theme.accent-cyan;
+                        border-radius: 12px;
+                    }
+                    // 1px of padding keeps the selected half's fill inside the pill's own
+                    // outline (it bled past it in the high-contrast theme).
+                    HorizontalLayout {
+                        padding: 1px;
+                        Rectangle {
+                            background: PreferencesModel.simple_mode ? Theme.primary : transparent;
+                            border-radius: 11px;
+                            border-width: simple_focus.has-focus ? 2px : 0px;
+                            border-color: Theme.accent-cyan-hover;
+                            accessible-role: AccessibleRole.radio-button;
+                            accessible-label: "Simple Interface";
+                            accessible-description: "Show only the controls most designs need. Nothing is deleted or changed in your designs.";
+                            accessible-checkable: true;
+                            accessible-checked: PreferencesModel.simple_mode;
+                            accessible-enabled: GuideModel.allows_advanced();
+                            accessible-action-default => {
+                                if GuideModel.allows_advanced() && !PreferencesModel.simple_mode {
+                                    PreferencesModel.simple_mode = true;
+                                    PreferencesModel.simple_mode_changed(true);
+                                }
+                            }
+                            // Tab reaches each half; Space or Enter picks it.
+                            simple_focus := FocusScope {
+                                enabled: GuideModel.allows_advanced();
+                                key-pressed(event) => {
+                                    if event.text == Key.Space || event.text == Key.Return {
+                                        if !PreferencesModel.simple_mode {
+                                            PreferencesModel.simple_mode = true;
+                                            PreferencesModel.simple_mode_changed(true);
+                                        }
+                                        return accept;
+                                    }
+                                    return reject;
+                                }
+                            }
+                            Text {
+                                text: "Simple";
+                                font-size: 11px;
+                                font-weight: 600;
+                                color: PreferencesModel.simple_mode ? Theme.text-on-primary : Theme.text-secondary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            TouchArea {
+                                enabled: GuideModel.allows_advanced();
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    if !PreferencesModel.simple_mode {
+                                        PreferencesModel.simple_mode = true;
+                                        PreferencesModel.simple_mode_changed(true);
+                                    }
+                                }
+                            }
+                        }
+                        Rectangle {
+                            background: !PreferencesModel.simple_mode ? Theme.primary : transparent;
+                            border-radius: 11px;
+                            border-width: advanced_focus.has-focus ? 2px : 0px;
+                            border-color: Theme.accent-cyan-hover;
+                            accessible-role: AccessibleRole.radio-button;
+                            accessible-label: "Advanced Interface";
+                            accessible-description: "Show every control. Nothing is deleted or changed in your designs.";
+                            accessible-checkable: true;
+                            accessible-checked: !PreferencesModel.simple_mode;
+                            accessible-enabled: GuideModel.allows_advanced();
+                            accessible-action-default => {
+                                if GuideModel.allows_advanced() && PreferencesModel.simple_mode {
+                                    PreferencesModel.simple_mode = false;
+                                    PreferencesModel.simple_mode_changed(false);
+                                }
+                            }
+                            advanced_focus := FocusScope {
+                                enabled: GuideModel.allows_advanced();
+                                key-pressed(event) => {
+                                    if event.text == Key.Space || event.text == Key.Return {
+                                        if PreferencesModel.simple_mode {
+                                            PreferencesModel.simple_mode = false;
+                                            PreferencesModel.simple_mode_changed(false);
+                                        }
+                                        return accept;
+                                    }
+                                    return reject;
+                                }
+                            }
+                            Text {
+                                text: "Advanced";
+                                font-size: 11px;
+                                font-weight: 600;
+                                color: !PreferencesModel.simple_mode ? Theme.text-on-primary : Theme.text-secondary;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            TouchArea {
+                                enabled: GuideModel.allows_advanced();
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    if PreferencesModel.simple_mode {
+                                        PreferencesModel.simple_mode = false;
+                                        PreferencesModel.simple_mode_changed(false);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                }
+            }
+        }
+
+        // Search & Filter Controls. Every control below is 28px tall (38px -> 32px ->
+        // 28px across both passes), matching the bar's own shrink to 40px. Right-aligned
+        // in the wide row; the full-width second row when `compact`.
+        controls := HorizontalLayout {
+            x: root.width - 10px - root.controls_w;
+            y: root.compact ? 38px : 0px;
+            width: root.controls_w;
+            height: root.compact ? 38px : 40px;
+            spacing: root.controls_spacing;
+            alignment: center;
+
+            // Search Bar with icon
+            Rectangle {
+                min-width: root.search_min_w;
+                preferred-width: 260px;
+                horizontal-stretch: 1;
+                height: 28px;
+                background: Theme.bg-input;
+                border-radius: Theme.radius-sm;
+                // The library tutorials outline the search box (a cyan, 2px border).
+                border-width: GuideModel.highlight_target == "library_search" ? 2px : 1px;
+                border-color: GuideModel.highlight_target == "library_search" ? Theme.accent-cyan : Theme.border-subtle;
+
+                Tooltip { text: @markdown("Search the library by design title or designer. Ctrl+F jumps here."); }
+
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    spacing: 6px;
+                    // Stretch (not `center`): a centred layout gives the field its
+                    // preferred width, which is the placeholder's while empty and
+                    // only the typed text's afterwards.
+                    alignment: stretch;
+
+                    // Centred by a layout of its own: a fixed-size Image in the row sits at the
+                    // top of its cell.
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("../icons/search.svg");
+                            colorize: Theme.text-muted;
+                            width: 12px;
+                            height: 12px;
+                        }
+                    }
+
+                    search_input := SearchInput {
+                        horizontal-stretch: 1;
+                        text <=> LibraryModel.search_text;
+                        placeholder-text: "Search title or designer... (Ctrl+F)";
+                        accessible-label: "Search the Library";
+                        accessible-description: "Type part of a design title or designer to narrow the list. Ctrl+F jumps here.";
+                        edited => { LibraryModel.search_changed(self.text); }
+                    }
+
+                    if LibraryModel.search_text != "": Rectangle {
+                        width: 20px;
+                        height: 20px;
+                        border-radius: 10px;
+                        background: Theme.bg-elevated;
+
+                        Text {
+                            text: "×";
+                            font-size: 14px;
+                            color: Theme.text-secondary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchButton {
+                            label: "Clear Search";
+                            hint: "Clear the search box and show every design again.";
+                            ring_radius: 10px;
+                            clicked => {
+                                search_input.text = "";
+                                LibraryModel.search_changed("");
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Shape Selector
+            Rectangle {
+                min-width: root.combo_min_w;
+                preferred-width: 160px;
+                horizontal-stretch: 1;
+                height: 28px;
+
+                Tooltip { text: @markdown("Show only designs of one shape, such as round or oval."); }
+
+                ComboBox {
+                    width: 100%;
+                    height: 100%;
+                    accessible-label: "Shape Filter";
+                    accessible-description: "Show only designs of one shape.";
+                    model: LibraryModel.shape_options;
+                    current-index <=> LibraryModel.selected_shape_index;
+                    selected(val) => { LibraryModel.filter_shape_changed(val); }
+                }
+                // The filter tutorial outlines the Shape, Gear and Sort drop-downs and the
+                // Filters button together; the outline sits over the drop-down and takes no clicks.
+                if GuideModel.highlight_target == "library_filters": Rectangle {
+                    border-width: 2px;
+                    border-color: Theme.accent-cyan;
+                    border-radius: Theme.radius-sm;
+                }
+            }
+
+            // Gear Selector
+            Rectangle {
+                min-width: root.combo_min_w;
+                preferred-width: 130px;
+                horizontal-stretch: 1;
+                height: 28px;
+
+                Tooltip { text: @markdown("Show only designs cut on one index gear: the number of teeth on the faceting machine's wheel (96 is the usual). See the glossary."); }
+
+                ComboBox {
+                    width: 100%;
+                    height: 100%;
+                    accessible-label: "Gear Filter";
+                    accessible-description: "Show only designs cut on one index gear.";
+                    model: LibraryModel.gear_options;
+                    current-index <=> LibraryModel.selected_gear_index;
+                    selected(val) => { LibraryModel.filter_gear_changed(val); }
+                }
+                if GuideModel.highlight_target == "library_filters": Rectangle {
+                    border-width: 2px;
+                    border-color: Theme.accent-cyan;
+                    border-radius: Theme.radius-sm;
+                }
+            }
+
+            // Sort Selector -- tag/collection sorting is out of scope here.
+            // Index<->order mapping happens once, in
+            // Rust, at `gui::library::search::read_sort_order`, the same convention
+            // the Shape/Gear selectors above and the tilt-performance combo boxes in
+            // `filter_panel.slint` already use for their own index-coded fields.
+            //
+            // `gui::library::search::refresh_diagram_list_remote` sends this
+            // selector's order on the wire (`LibraryRequest::Search::order`)
+            // and `apps/pleochroma-worker::serve::library` applies it, so a remote
+            // library sorts exactly like a local one.
+            Rectangle {
+                min-width: root.combo_min_w;
+                preferred-width: 140px;
+                horizontal-stretch: 1;
+                height: 28px;
+
+                Tooltip { text: @markdown("Choose the order of the list: the library's own order, by title, newest first, or most recently edited first."); }
+
+                ComboBox {
+                    width: 100%;
+                    height: 100%;
+                    accessible-label: "Sort Order";
+                    accessible-description: "The order of the library list.";
+                    model: ["Catalogue Order", "Title", "Newest", "Recently Edited"];
+                    current-index <=> LibraryModel.sort_order_index;
+                    selected(val) => { LibraryModel.filters_changed(); }
+                }
+                if GuideModel.highlight_target == "library_filters": Rectangle {
+                    border-width: 2px;
+                    border-color: Theme.accent-cyan;
+                    border-radius: Theme.radius-sm;
+                }
+            }
+
+            // Advanced Range Filters Toggle
+            Rectangle {
+                width: 84px;
+                height: 28px;
+                background: root.filters_open ? Theme.accent-cyan : (filters_touch.has-hover ? Theme.bg-elevated : Theme.bg-input);
+                border-radius: Theme.radius-sm;
+                border-width: GuideModel.highlight_target == "library_filters" ? 2px : 1px;
+                border-color: root.filters_open || GuideModel.highlight_target == "library_filters" ? Theme.accent-cyan : (root.filters_active ? Theme.accent-amber : Theme.border-subtle);
+
+                // A button for the keyboard and a screen reader (`TouchButton`): it says whether the
+                // panel is open and whether a filter is on.
+                filters_touch := TouchButton {
+                    label: root.filters_active ? "Filters (A Filter Is On)" : "Filters";
+                    hint: "Open the filter panel: refractive index, length to width, volume, number of facets, RI match and tilt performance.";
+                    expandable: true;
+                    expanded: root.filters_open;
+                    clicked => {
+                        if (filter_popup.is-open) {
+                            filter_popup.close();
+                        } else {
+                            filter_popup.show();
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 5px;
+                    alignment: center;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("../icons/ruler.svg");
+                            colorize: root.filters_open ? Theme.text-on-amber : (root.filters_active ? Theme.accent-amber : Theme.text-secondary);
+                            width: 12px;
+                            height: 12px;
+                        }
+                    }
+                    Text {
+                        text: "Filters";
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: root.filters_open ? Theme.text-on-amber : (root.filters_active ? Theme.accent-amber : Theme.text-secondary);
+                        vertical-alignment: center;
+                    }
+                    if root.filters_active: Rectangle {
+                        width: 6px;
+                        height: 6px;
+                        border-radius: 3px;
+                        background: root.filters_open ? Theme.text-on-amber : Theme.accent-amber;
+                    }
+                }
+            }
+
+            // Import your own `.asc`/`.gem`/`.gcs` file(s) into the local library.
+            Rectangle {
+                width: import_btn.preferred-width;
+                height: 28px;
+                Tooltip { text: @markdown("Add your own design files to the library: one .asc, .gem or .gcs file, or a whole folder of them."); }
+                import_btn := Button {
+                    text: "Import";
+                    accessible-description: "Add your own design files to the library: one .asc, .gem or .gcs file, or a whole folder of them.";
+                    icon: @image-url("../icons/folder.svg");
+                    colorize-icon: true;
+                    height: 28px;
+                    clicked => {
+                        if (import_popup.is-open) {
+                            import_popup.close();
+                        } else {
+                            import_popup.show();
+                        }
+                    }
+                }
+                // The import tutorial outlines this button.
+                if GuideModel.highlight_target == "library_import": Rectangle {
+                    border-width: 2px;
+                    border-color: Theme.accent-cyan;
+                    border-radius: Theme.radius-sm;
+                }
+            }
+
+            // The render queue's Jobs chip, while a job is waiting or running. Like the Remote
+            // cell below, a zero-width cell keeps its place in the row, so the id-based sums
+            // above stay right (the extra gap is the seventh in those sums).
+            Rectangle {
+                width: root.jobs_w;
+                height: 28px;
+                visible: RenderJobsModel.chip_visible;
+                jobs_chip := JobsChip {}
+            }
+
+            // The export indicator, while an export from a dialog runs (see `ExportChip`).
+            Rectangle {
+                width: root.export_w;
+                height: 28px;
+                visible: ExportRunModel.direct_running;
+                export_chip := ExportChip {
+                    show_progress => { root.show_export_progress(); }
+                }
+            }
+
+            // Remote rendering: opens the single Remote Coordinator dialog
+            // (`remote_popup`, `RemoteWorkerDialog`).
+            Rectangle {
+                width: root.remote_w;
+                height: 28px;
+                visible: root.show_remote;
+                Tooltip { text: @markdown("Set up a remote computer to do the heavy rendering, and switch to its library. See the manual chapter on the remote worker."); }
+                remote_btn := Button {
+                    text: "Remote";
+                    accessible-description: "Set up a remote computer to do the heavy rendering, and switch to its library.";
+                    icon: @image-url("../icons/gem.svg");
+                    colorize-icon: true;
+                    height: 28px;
+                    clicked => {
+                        if (remote_popup.is-open) {
+                            remote_popup.close();
+                        } else {
+                            remote_popup.show();
+                        }
+                    }
+                }
+            }
+        }
+
+    // --- FLOATING FILTER PANEL ---
+    filter_popup := FilterPanel {
+        // The toolbar sits about 110px below the window top (menu bar, tabs, padding).
+        panel_max_height: max(200px, root.window_height - root.height - 110px);
+        x: parent.width - self.width - 16px;
+        y: root.height + 6px;
+    }
+
+    // --- FLOATING IMPORT POPUP ---
+    import_popup := ImportDialog {
+        x: parent.width - self.width - 16px;
+        y: root.height + 6px;
+    }
+
+    // --- MODAL BACKDROP FOR THE REMOTE-WORKERS POPUP ---
+    if root.remote_open: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: Theme.overlay-backdrop;
+        z: 150;
+
+        TouchArea {
+            clicked => { remote_popup.close(); }
+        }
+    }
+
+    // --- FLOATING REMOTE-WORKERS POPUP ---
+    remote_popup := RemoteWorkerDialog {
+        x: parent.width - self.width - 16px;
+        y: root.height + 6px;
+    }
+}

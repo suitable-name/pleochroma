@@ -1,0 +1,706 @@
+import { Slider } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { SolidPreviewModel } from "../models/solid_preview.slint";
+import { ViewportModel } from "../models/viewport.slint";
+import { EditorModel } from "../models/editor.slint";
+// The Tilt Curve pill is reachable from this tab too; its dialog (and the
+// custom-material editor's) is mounted at window size in `GlobalDialogsOverlay`
+// (`components/app/global_dialogs.slint`), driven entirely by `TiltModel`/
+// `ViewportModel`. `TiltModel.dialog_open` is still read below to disable the
+// drag area while the chart is open.
+import { TiltModel } from "../models/tilt.slint";
+// The mode toggle/cut slider, camera pose pills, Tilt Curve/Preform toggles
+// and status strip -- see `SolidViewportToolbar`'s own doc comment
+// (`solid_viewport/toolbar.slint`) for why this is split out.
+import { SolidViewportToolbar } from "solid_viewport/toolbar.slint";
+// The pictures (solid, traced, combined layers, Diagram), the refusal card and the placeholder.
+import { SolidViewportLayers } from "solid_viewport/layers.slint";
+// The angle/depth/index drag handles on the selected facet, and the hint line under
+// the toolbar -- see `ManipulateModel` (`models/manipulate.slint`).
+import { ManipulateModel } from "../models/manipulate.slint";
+import { ManipulateOverlay, SliceLineOverlay } from "solid_viewport/manipulate_overlay.slint";
+import { ManipulateHintBar } from "solid_viewport/hint_bar.slint";
+// The crystal axis drawn over the stone, with its drag handle(s) -- see `CrystalAxisModel`
+// (`models/crystal_axis.slint`) and `gui::editor::manipulate::crystal_axis_overlay`.
+import { CrystalAxisModel } from "../models/crystal_axis.slint";
+import { CrystalAxisOverlay, CrystalAxisWatcher } from "solid_viewport/crystal_axis_overlay.slint";
+import { SurfaceModel } from "../models/surface.slint";
+import { SurfaceFinishOverlay, SurfaceFinishWatcher } from "solid_viewport/surface_finish_overlay.slint";
+// The open tutorial step may outline the picture itself (`highlight_target == "solid_viewport"`).
+import { GuideModel } from "../models/guide.slint";
+
+// The Edit tab's solid-inspection viewport: a flat-shaded software render of the
+// current design's solid, shown as a static image after Solve. Reads
+// `SolidPreviewModel` directly rather than taking its state as local properties.
+//
+// Ray-Traced (4) shares the traced image, picking, camera and gesture layers.
+// `view_mode` picks among the images this component accepts: `0` (Solid) shows
+// `image` alone, `1` (Path-traced) shows `render_image` alone -- the same image
+// `GemViewportView` draws in the Live Render tab, forwarded here so a user can compare
+// without switching tabs. `2` (Solid + Path-Traced) and `5` (Solid + Ray-Traced)
+// show the selected tracer's `render_image` as a base layer
+// with `edges_image` (the solid's transparent-fill/opaque-edges render --
+// `gui::solid_preview::edges_layer`) composited on top. `3` (Diagram) shows
+// `diagram_image` -- a GemCAD-style three-panel (crown/pavilion/profile) 2D facet
+// diagram (`gui::solid_preview::diagram2d`), fixed/orthographic rather than tied to
+// the shared orbit camera. Dragging/scrolling in this mode pans/zooms the diagram
+// image itself (`diagram_pan_x`/`diagram_pan_y`/`diagram_zoom`, #29) rather than
+// the shared camera, and hover/click route through their OWN `diagram_facet_hover`/
+// `diagram_facet_click` callbacks against the diagram's own pick buffer, since its
+// pixel layout is entirely different from the Solid rasterizer's.
+export component SolidViewportView inherits Rectangle {
+    vertical-stretch: 1;
+    min-height: 0px;
+    min-width: 0px;
+    preferred-height: 480px;
+    clip: true;
+
+    // Diagram mode (view_mode 3) shows its own hover text; every other mode keeps the
+    // Solid rasterizer's.
+    property <string> hover_text: SolidPreviewModel.view_mode == 3 ? SolidPreviewModel.diagram_hover_text : SolidPreviewModel.hover_text;
+
+    property <bool> is_dragging: false;
+    property <length> last_mouse_x;
+    property <length> last_mouse_y;
+    // Accumulated |dx| + |dy| since the last pointer-down, in logical pixels --
+    // reset on `down` and grown on every `moved` while dragging. `clicked` only
+    // forwards to `facet_click`/`diagram_facet_click` below this threshold, so an
+    // orbit drag that happens to release over a facet doesn't also re-select it.
+    property <float> drag_distance: 0;
+    // `true` from a left-press that grabbed a drag handle (`ManipulateModel.
+    // drag_begin` granted it) until the button is released or Escape cancels it.
+    // While set, pointer moves drive the handle drag instead of the orbit.
+    property <bool> handle_dragging: false;
+    // `true` from a left-press that started a Slice-mode line (`ManipulateModel.
+    // slice_begin`) until the button is released or Escape drops the line. While set,
+    // pointer moves stretch the line: no orbit, no hover pick, no facet click.
+    property <bool> slice_dragging: false;
+    // `true` from a left-press that grabbed a crystal-axis handle (`CrystalAxisModel.drag_begin`
+    // granted it) until the button is released or Escape cancels it. Like `handle_dragging`,
+    // pointer moves then drive the axis instead of the orbit.
+    property <bool> axis_dragging: false;
+    // Set by a handle press and left set until the next press elsewhere: the
+    // release after a handle drag (or an Escape cancel) ends in a `clicked` that
+    // must not also pick whatever facet ends up under the pointer.
+    property <bool> swallow_click: false;
+
+    // #29: Diagram mode's own zoom/pan -- the fixed orthographic 2D faceting diagram
+    // has no shared orbit camera to reuse (unlike Solid/Path-traced/Both), so this
+    // is a plain scale + translate applied to the whole three-panel image, entirely
+    // presentational (the underlying `diagram_image` raster is unchanged). `1.0`/
+    // `0px` is "no zoom, no pan" -- the diagram fills the viewport exactly as
+    // before. Reset by the "Reset View" pill, shown only in Diagram mode.
+    property <float> diagram_zoom: 1.0;
+    property <length> diagram_pan_x: 0px;
+    property <length> diagram_pan_y: 0px;
+    // Maps a viewport-local mouse coordinate back to the SAME logical-pixel space
+    // `diagram_facet_hover`/`diagram_facet_click` already expected before zoom/pan
+    // existed (that is, "where this point would be if `diagram_zoom` were `1.0`
+    // and both pans were `0px`") -- `gui::solid_preview::diagram_wiring`'s hover/
+    // click callbacks, and the HiDPI scale-factor multiplication they already do,
+    // are unaffected by this component ever zooming or panning.
+    function diagram_unzoomed_x(mouse_x: length) -> length {
+        return (mouse_x - root.diagram_pan_x) / root.diagram_zoom;
+    }
+    function diagram_unzoomed_y(mouse_y: length) -> length {
+        return (mouse_y - root.diagram_pan_y) / root.diagram_zoom;
+    }
+    // The pointer coordinates the drag handles (`ManipulateModel`) work in: the unzoomed
+    // ones in the Diagram view -- where the handle positions are unzoomed too and
+    // `ManipulateOverlay` maps them back when it draws -- the raw ones everywhere else.
+    function manip_x(mouse_x: length) -> length {
+        return SolidPreviewModel.view_mode == 3 ? root.diagram_unzoomed_x(mouse_x) : mouse_x;
+    }
+    function manip_y(mouse_y: length) -> length {
+        return SolidPreviewModel.view_mode == 3 ? root.diagram_unzoomed_y(mouse_y) : mouse_y;
+    }
+    // Rust sizes the handle hit radius by the zoom (a marker keeps its size on screen).
+    changed diagram_zoom => {
+        ManipulateModel.view_zoom = root.diagram_zoom;
+    }
+    // Keeps a zoomed-in diagram from being dragged entirely off-screen -- clamps
+    // to the extra width/height `diagram_zoom` adds beyond the viewport's own
+    // size, on each side.
+    function clamp_diagram_pan(value: length, extent: length, zoom: float) -> length {
+        return max(-(extent * (zoom - 1)), min(extent * (zoom - 1), value));
+    }
+
+    background: Theme.viewport-bg;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+
+    // Slint has no built-in way to report a widget's rendered size back to Rust (see
+    // `bridge::render_thread::context::RenderContext`'s own `width`/`height` doc
+    // comment on the same limitation for the Live Render viewport) -- push this
+    // component's own layout size straight into the global on every change so
+    // `gui::editor::view::refresh_viewport` sizes the rasterizer to exactly the
+    // logical size, never the render resolution.
+    //
+    // #26: this size push must be observed, or dragging the dock splitter or
+    // maximising the window leaves the shown image simply rescaled/letterboxed to
+    // the new size, with the pick buffer (still sized to the OLD frame) misaligned
+    // from the cursor until the next orbit/zoom redraw. `resize_pulse` bumps on
+    // every width/height change; a 50ms poll timer fires `viewport_resized()` once
+    // that pulse has stopped moving for a tick, so a drag-resize coalesces to one
+    // redraw request rather than one per intermediate layout pass. Handled in
+    // `gui::mod::build_main_window` (`on_viewport_resized`), which calls
+    // `render::camera_lighting::resubmit_at_current_pose`.
+    property <int> resize_pulse: 0;
+    property <int> resize_pulse_seen: 0;
+    changed width => { SolidPreviewModel.viewport_width = self.width; root.resize_pulse += 1; }
+    changed height => { SolidPreviewModel.viewport_height = self.height; root.resize_pulse += 1; }
+    // Also pushed once on mount -- same reasoning as `gem_viewport.slint`'s own
+    // `init` size push (see that file's own comment): a fresh instance (this
+    // component sits inside a conditional elsewhere -- a view-mode switch
+    // remounts it) never fires the two `changed` handlers above for its OWN
+    // first size, which can otherwise leave `SolidPreviewModel.viewport_*`
+    // reading a stale size from whatever WAS mounted before.
+    init => {
+        SolidPreviewModel.viewport_width = self.width;
+        SolidPreviewModel.viewport_height = self.height;
+        ManipulateModel.view_zoom = root.diagram_zoom;
+        // A re-plan at the size this instance settles at, always: coming back from the Live Render
+        // tab mounts a fresh viewport, and the tab switch's own re-plan can run before it has been
+        // laid out, leaving the Edit raster at the size of whatever was mounted before (a smaller
+        // picture, centred and cut by straight edges).
+        root.resize_pulse += 1;
+    }
+
+    // #116: a global's own property can't get a `changed` handler outside the
+    // file that declares it -- mirrored into this plain local property so a
+    // view-mode switch can clear whichever tooltip belonged to the OLD mode
+    // (Diagram's `diagram_hover_text` vs every other mode's `hover_text`)
+    // instead of leaving it on screen, naming a facet that may not even exist
+    // in the new mode's own facet space.
+    property <int> hover_view_mode: SolidPreviewModel.view_mode;
+    changed hover_view_mode => {
+        SolidPreviewModel.hover_text = "";
+        SolidPreviewModel.diagram_hover_text = "";
+    }
+    // Whichever path changes the enlarged panel (a pill, a double-click, Escape),
+    // the new picture is a different image, so a zoom/pan set on the old one would
+    // leave it off-centre: reset both. Mirrored into a plain local property for the
+    // same reason as `hover_view_mode` above (a global's own property can't get a
+    // `changed` handler here).
+    // The picture on screen, mirrored like `hover_view_mode` above: when a new frame lands under
+    // a resting pointer (the replan after a handle drag, a solve, an undo) the hover text is read
+    // again from the new frame's tables. It used to keep the text of the frame the pointer last
+    // moved over -- "34.5 deg" for a facet just dragged to 78.9.
+    property <image> hover_image: SolidPreviewModel.view_mode == 3 ? SolidPreviewModel.diagram_image : SolidPreviewModel.image;
+    changed hover_image => {
+        root.refresh_hover();
+    }
+    function refresh_hover() {
+        if (!drag_area.has-hover || root.is_dragging || root.handle_dragging || root.axis_dragging || root.slice_dragging) {
+            return;
+        }
+        if (SolidPreviewModel.view_mode == 3) {
+            SolidPreviewModel.diagram_facet_hover(root.diagram_unzoomed_x(drag_area.mouse-x), root.diagram_unzoomed_y(drag_area.mouse-y));
+        } else {
+            SolidPreviewModel.facet_hover(drag_area.mouse-x, drag_area.mouse-y);
+        }
+    }
+    property <int> seen_enlarged_panel: SolidPreviewModel.diagram_enlarged_panel;
+    changed seen_enlarged_panel => {
+        root.diagram_zoom = 1.0;
+        root.diagram_pan_x = 0px;
+        root.diagram_pan_y = 0px;
+    }
+    Timer {
+        interval: 50ms;
+        running: true;
+        triggered => {
+            if (root.resize_pulse != root.resize_pulse_seen) {
+                root.resize_pulse_seen = root.resize_pulse;
+                SolidPreviewModel.viewport_resized();
+            }
+        }
+    }
+
+    // #229: wraps `drag_area` so the viewport can take keyboard focus (on a
+    // left-`down`, alongside the existing drag bookkeeping) and clear the tier
+    // selection with Escape -- the same "back to nothing selected" effect a
+    // click that misses the silhouette now has (see `diagram_facet_click`'s own
+    // doc comment in `solid_preview::diagram_wiring`, and `tier_actions.rs`'s
+    // `setup_solid_facet_click_callback` for the Solid-view half, which is not
+    // this pass's file to touch). Setting `EditorModel.selected_tier_index`
+    // directly, exactly like `editor_inspector.slint`'s "New" button and
+    // `editor_tier_table.slint`'s delete path already do, is enough: `changed
+    // selected_tier_index` in `models/editor.slint` fires `selected_tier_changed`
+    // on its own, which re-seeds/clears the inspector form and the 3D
+    // highlight.
+    // Forwards Up/Down/PageUp/PageDown straight to `EditorModel.
+    // selected_tier_index` so a cutter watching the 3D view can step through
+    // tiers without switching focus to the tier table.
+    // Mirrors `editor_tier_table.slint`'s own FocusScope arithmetic (clamped to
+    // `[0, tiers.length - 1]`, `-1` treated as "start from the top") but writes
+    // `selected_tier_index` directly rather than calling a local `tier_selected`
+    // callback: `EditorTierTable` has its own `keyboard_focus_index` cursor to
+    // keep in step with a click, but this viewport has no such cursor of its
+    // own, and `changed selected_tier_index` in `models/editor.slint` already
+    // re-seeds the inspector form and the 3D highlight on its own.
+    function step_selection(delta: int) {
+        if EditorModel.tiers.length <= 0 {
+            return;
+        }
+        if EditorModel.selected_tier_index < 0 {
+            EditorModel.selected_tier_index = delta >= 0 ? 0 : EditorModel.tiers.length - 1;
+            return;
+        }
+        EditorModel.selected_tier_index = Math.max(0, Math.min(EditorModel.tiers.length - 1, EditorModel.selected_tier_index + delta));
+    }
+    // Ends whichever pointer gesture is still flagged as running after the pointer
+    // state says none can be: the orbit/pan, a handle drag (cancelled through the
+    // same `ManipulateModel.drag_cancel` Escape uses, which undoes the gesture's
+    // step and closes its coalescing run) and a slice line (`slice_cancel`). A no-op
+    // when nothing is running, so the normal `up` path, which already cleared the
+    // flags by the time this queued handler runs, is unaffected.
+    function end_lost_gestures() {
+        if (root.handle_dragging) {
+            root.handle_dragging = false;
+            ManipulateModel.drag_cancel();
+        }
+        if (root.slice_dragging) {
+            root.slice_dragging = false;
+            ManipulateModel.slice_cancel();
+        }
+        if (root.axis_dragging) {
+            root.axis_dragging = false;
+            CrystalAxisModel.drag_cancel();
+        }
+        if (root.is_dragging) {
+            root.is_dragging = false;
+            ViewportModel.camera_drag_end();
+        }
+    }
+    viewport_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                // A handle drag in progress is cancelled first (the design goes
+                // back to how it was at the press); only a plain Escape clears
+                // the selection.
+                if (ManipulateModel.dragging) {
+                    root.handle_dragging = false;
+                    ManipulateModel.drag_cancel();
+                    return accept;
+                }
+                // The same for a crystal-axis handle drag.
+                if (CrystalAxisModel.dragging) {
+                    root.axis_dragging = false;
+                    CrystalAxisModel.drag_cancel();
+                    return accept;
+                }
+                // Slice tool, innermost first: a line being drawn is dropped; then
+                // a provisional tier is discarded; then Slice mode itself is left.
+                if (root.slice_dragging) {
+                    root.slice_dragging = false;
+                    ManipulateModel.slice_cancel();
+                    return accept;
+                }
+                if (ManipulateModel.provisional_active) {
+                    ManipulateModel.slice_discard();
+                    return accept;
+                }
+                if (ManipulateModel.slice_mode) {
+                    ManipulateModel.slice_mode = false;
+                    ManipulateModel.slice_toggled();
+                    return accept;
+                }
+                // Diagram mode: an enlarged panel goes back to all three before
+                // Escape clears the selection.
+                if (SolidPreviewModel.view_mode == 3 && SolidPreviewModel.diagram_enlarged_panel >= 0) {
+                    SolidPreviewModel.diagram_enlarged_panel = -1;
+                    return accept;
+                }
+                EditorModel.selected_tier_index = -1;
+                return accept;
+            } else if event.text == Key.Return && ManipulateModel.provisional_active {
+                // Enter keeps the provisional slice tier (one undo step).
+                ManipulateModel.slice_keep();
+                return accept;
+            } else if (event.text == "f" || event.text == "F") && ManipulateModel.provisional_active && !event.modifiers.control && !event.modifiers.meta {
+                ManipulateModel.slice_flip();
+                return accept;
+            } else if (event.text == "s" || event.text == "S") && !ManipulateModel.dragging && !root.handle_dragging && !root.slice_dragging && !event.modifiers.control && !event.modifiers.meta && SolidPreviewModel.view_mode != 3 {
+                ManipulateModel.slice_mode = !ManipulateModel.slice_mode;
+                ManipulateModel.slice_toggled();
+                return accept;
+            } else if event.text == Key.DownArrow {
+                root.step_selection(1);
+                return accept;
+            } else if event.text == Key.UpArrow {
+                root.step_selection(-1);
+                return accept;
+            } else if event.text == Key.PageDown {
+                root.step_selection(10);
+                return accept;
+            } else if event.text == Key.PageUp {
+                root.step_selection(-10);
+                return accept;
+            }
+            reject
+        }
+
+    drag_area := TouchArea {
+        // Matches `GemViewportView`'s own `touch_area.enabled` guard --
+        // without this, an orbit-drag or scroll-to-zoom could still reach the
+        // viewport underneath the (fully covering) Tilt Curve dialog.
+        enabled: !TiltModel.dialog_open;
+        pointer-event(event) => {
+            // #29: Diagram mode now drags too -- panning the zoomed-in diagram --
+            // so `down`/`up` are tracked exactly like every other view mode.
+            //
+            // #124: only the LEFT button starts an orbit/pan drag. Muscle memory
+            // from the Live tab's Gem viewport (right-drag moves the light, see
+            // `gem_viewport.slint`'s own `is_right_drag`) could otherwise rotate
+            // the stone here instead -- there is no light to move in this
+            // viewport, so a right or middle drag does nothing rather than
+            // surprise-orbiting.
+            //
+            // Direct manipulation (`ManipulateModel`): a left press on a drag
+            // handle's tip grabs the handle instead of starting an orbit, and
+            // while it is held the pointer moves (with `event.modifiers.shift`
+            // for fine snapping) drive the handle. `PointerEventKind.move`, not
+            // the `moved` callback below, carries the modifiers.
+            //
+            // Slint's `moved` callback fires ONLY while a button is held (the
+            // TouchArea docs say so, and i-slint-core 1.18 implements exactly
+            // that), so the plain hover paths -- the handle highlight and the facet /
+            // diagram tooltip -- live here on `move`, which fires for every pointer
+            // motion. `moved` keeps the orbit and the diagram pan; nothing is driven
+            // from both, and nothing hovers while a handle drag, a slice line or an
+            // orbit is in progress.
+            if (event.kind == PointerEventKind.move) {
+                if (root.handle_dragging) {
+                    ManipulateModel.drag_move(root.manip_x(drag_area.mouse-x), root.manip_y(drag_area.mouse-y), event.modifiers.shift);
+                } else if (root.axis_dragging) {
+                    CrystalAxisModel.drag_move(root.manip_x(drag_area.mouse-x), root.manip_y(drag_area.mouse-y));
+                } else if (root.slice_dragging) {
+                    ManipulateModel.slice_move(drag_area.mouse-x, drag_area.mouse-y);
+                } else if (!root.is_dragging) {
+                    // In the Diagram view this also moves the handles onto the panel the
+                    // pointer entered.
+                    if (ManipulateModel.handles_visible) {
+                        ManipulateModel.handle_hover(root.manip_x(drag_area.mouse-x), root.manip_y(drag_area.mouse-y));
+                    }
+                    if (CrystalAxisModel.overlay_visible) {
+                        CrystalAxisModel.hover(root.manip_x(drag_area.mouse-x), root.manip_y(drag_area.mouse-y));
+                    }
+                    if (SolidPreviewModel.view_mode == 3) {
+                        SolidPreviewModel.diagram_facet_hover(root.diagram_unzoomed_x(drag_area.mouse-x), root.diagram_unzoomed_y(drag_area.mouse-y));
+                    } else {
+                        // Only picking, not dragging -- the hover tooltip.
+                        SolidPreviewModel.facet_hover(drag_area.mouse-x, drag_area.mouse-y);
+                    }
+                }
+            } else if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                root.swallow_click = false;
+                // The crystal axis's own handles come first: they sit on the stone, over
+                // the facet handles' fan.
+                if (CrystalAxisModel.overlay_visible && !ManipulateModel.slice_mode) {
+                    let axis_hit = CrystalAxisModel.hit_test(root.manip_x(drag_area.mouse-x), root.manip_y(drag_area.mouse-y));
+                    if (axis_hit >= 0) {
+                        CrystalAxisModel.drag_begin(axis_hit, root.manip_x(drag_area.mouse-x), root.manip_y(drag_area.mouse-y));
+                        // Rust sets `dragging` only when it grants the drag.
+                        root.axis_dragging = CrystalAxisModel.dragging;
+                    }
+                }
+                if (ManipulateModel.handles_visible && !root.axis_dragging) {
+                    let hit = ManipulateModel.handle_hit_test(root.manip_x(drag_area.mouse-x), root.manip_y(drag_area.mouse-y));
+                    if (hit >= 0) {
+                        ManipulateModel.drag_begin(hit, root.manip_x(drag_area.mouse-x), root.manip_y(drag_area.mouse-y));
+                        // Rust sets `dragging` only when it grants the drag; a
+                        // refused press falls through to the orbit below.
+                        root.handle_dragging = ManipulateModel.dragging;
+                    }
+                }
+                // Slice mode: a press that did not grab a handle (the provisional
+                // tier's handles stay grabbable) draws a line instead of orbiting.
+                if (!root.handle_dragging && !root.axis_dragging && SolidPreviewModel.view_mode != 3 && ManipulateModel.slice_mode) {
+                    ManipulateModel.slice_begin(drag_area.mouse-x, drag_area.mouse-y);
+                    root.slice_dragging = true;
+                }
+                if (root.handle_dragging || root.axis_dragging || root.slice_dragging) {
+                    root.swallow_click = true;
+                } else {
+                    root.last_mouse_x = drag_area.mouse-x;
+                    root.last_mouse_y = drag_area.mouse-y;
+                    root.drag_distance = 0;
+                    root.is_dragging = true;
+                    ViewportModel.camera_drag_begin();
+                }
+                // #229: grabs keyboard focus so Escape (handled by the wrapping
+                // `viewport_focus` FocusScope above) works right after a click,
+                // without requiring a separate Tab into the viewport.
+                viewport_focus.focus();
+                // #116: an orbit/pan drag is about to start -- the tooltip's own
+                // guard below already hides it once `is_dragging` is true, but
+                // clearing the text too means a MID-drag `moved` (which never
+                // reaches the `else` branch below that would refresh it) can't
+                // leave a stale value sitting there for the instant between
+                // `down` and the drag threshold, nor for a click that lands
+                // exactly on `down`+`up` with no `moved` at all.
+                SolidPreviewModel.hover_text = "";
+                SolidPreviewModel.diagram_hover_text = "";
+            } else if ((event.kind == PointerEventKind.up && event.button == PointerEventButton.left) || event.kind == PointerEventKind.cancel) {
+                // Only the LEFT release ends a gesture: a right or middle click made
+                // while a handle is held must not drop it (a cancel carries no button).
+                if (root.handle_dragging) {
+                    root.handle_dragging = false;
+                    if (event.kind == PointerEventKind.up) {
+                        ManipulateModel.drag_end();
+                    } else {
+                        ManipulateModel.drag_cancel();
+                    }
+                }
+                if (root.axis_dragging) {
+                    root.axis_dragging = false;
+                    if (event.kind == PointerEventKind.up) {
+                        CrystalAxisModel.drag_end();
+                    } else {
+                        CrystalAxisModel.drag_cancel();
+                    }
+                }
+                if (root.slice_dragging) {
+                    root.slice_dragging = false;
+                    if (event.kind == PointerEventKind.up) {
+                        ManipulateModel.slice_end(drag_area.mouse-x, drag_area.mouse-y);
+                    } else {
+                        ManipulateModel.slice_cancel();
+                    }
+                }
+                if (root.is_dragging) {
+                    root.is_dragging = false;
+                    ViewportModel.camera_drag_end();
+                }
+            }
+        }
+        // Belt and braces for a release that never arrives as `up`/`cancel` (a lost
+        // grab, focus loss) or an area disabled mid-drag (the Tilt Curve dialog):
+        // whenever Slint's own pressed state drops, every gesture is over -- the
+        // orbit, and a handle drag or slice line too, which would otherwise leave
+        // `ManipulateModel.dragging` true and the gesture's coalescing run open. The
+        // handle drag and slice line take the same path as Escape (`drag_cancel`/
+        // `slice_cancel`): with no release there is no pointer value to keep.
+        changed pressed => {
+            if (!self.pressed) {
+                root.end_lost_gestures();
+            }
+        }
+        changed enabled => {
+            if (!self.enabled) {
+                root.end_lost_gestures();
+            }
+        }
+        // Lights no handle once the pointer has left the viewport.
+        changed has-hover => {
+            if (!drag_area.has-hover && !root.handle_dragging) {
+                ManipulateModel.handle_hover(-1px, -1px);
+            }
+            if (!drag_area.has-hover && !root.axis_dragging) {
+                CrystalAxisModel.hover(-1px, -1px);
+            }
+            // The readout belongs to the pointer: it must not outlive it (the chip is also gated on
+            // `has-hover`, but a pointer that left by a path with no leave event kept the old text).
+            if (!drag_area.has-hover) {
+                SolidPreviewModel.hover_text = "";
+                SolidPreviewModel.diagram_hover_text = "";
+            }
+        }
+        moved => {
+            if (root.handle_dragging || root.axis_dragging || root.slice_dragging) {
+                // The handle drag / axis drag / slice line owns the pointer: no orbit, no hover pick.
+                return;
+            }
+            if (SolidPreviewModel.view_mode == 3) {
+                if (root.is_dragging) {
+                    // #29: pan, clamped so the zoomed diagram can't be dragged
+                    // entirely off-screen.
+                    let dx = drag_area.mouse-x - root.last_mouse_x;
+                    let dy = drag_area.mouse-y - root.last_mouse_y;
+                    root.last_mouse_x = drag_area.mouse-x;
+                    root.last_mouse_y = drag_area.mouse-y;
+                    root.drag_distance += Math.abs(dx / 1px) + Math.abs(dy / 1px);
+                    root.diagram_pan_x = root.clamp_diagram_pan(root.diagram_pan_x + dx, root.width, root.diagram_zoom);
+                    root.diagram_pan_y = root.clamp_diagram_pan(root.diagram_pan_y + dy, root.height, root.diagram_zoom);
+                }
+            } else if (root.is_dragging) {
+                let dx = (drag_area.mouse-x - root.last_mouse_x) / 1px;
+                let dy = (drag_area.mouse-y - root.last_mouse_y) / 1px;
+                root.last_mouse_x = drag_area.mouse-x;
+                root.last_mouse_y = drag_area.mouse-y;
+                root.drag_distance += Math.abs(dx) + Math.abs(dy);
+                ViewportModel.camera_orbit(dx, dy);
+            }
+        }
+        clicked => {
+            if (SolidPreviewModel.view_mode == 3) {
+                // #29: a pan drag ends in a `clicked` too, exactly like an orbit
+                // drag in every other mode -- only forward it as a real pick when
+                // the pointer barely moved between down and up, so panning the
+                // diagram never also re-triggers a facet pick.
+                if (root.drag_distance < 3 && !root.swallow_click) {
+                    SolidPreviewModel.diagram_facet_click(root.diagram_unzoomed_x(drag_area.mouse-x), root.diagram_unzoomed_y(drag_area.mouse-y));
+                }
+            } else if (root.drag_distance < 3 && !root.swallow_click) {
+                // An orbit drag ends in a `clicked` too -- only forward it as a real
+                // pick when the pointer barely moved between down and up, so
+                // rotating the stone never also re-selects whatever facet ends up
+                // under the cursor.
+                SolidPreviewModel.facet_click(drag_area.mouse-x, drag_area.mouse-y);
+            }
+        }
+        // Diagram mode: double-click enlarges the panel under the pointer, or goes
+        // back to all three (`SolidPreviewModel.diagram_double_click`). The two
+        // `clicked`s that come with a double-click still run (the first may pick a
+        // facet, as in the web app); a double-click after a pan drag is ignored.
+        double-clicked => {
+            if (SolidPreviewModel.view_mode == 3 && root.drag_distance < 3 && !root.swallow_click) {
+                SolidPreviewModel.diagram_double_click(root.diagram_unzoomed_x(drag_area.mouse-x), root.diagram_unzoomed_y(drag_area.mouse-y));
+            }
+        }
+        // Scroll-to-zoom (#27, and #29 for Diagram mode): the same shared orbit
+        // camera `gem_viewport.slint`'s Live Render viewport already zooms with
+        // `ViewportModel.camera_zoom` -- this viewport had no wheel handler at all,
+        // so inspecting a small facet (a girdle break, the culet) meant switching
+        // tabs, scrolling there, and switching back. Diagram mode has no shared
+        // camera to zoom (see this component's own doc comment), so it zooms its
+        // own `diagram_zoom` instead, clamped to `[1.0, 6.0]`.
+        scroll-event(event) => {
+            if (SolidPreviewModel.view_mode != 3) {
+                ViewportModel.camera_zoom(event.delta-y / 1px);
+                return accept;
+            }
+            // A handle drag in the Diagram view keeps the picture still: zooming under it
+            // would move the unzoomed point the pointer is over.
+            if (root.handle_dragging || root.axis_dragging) {
+                return accept;
+            }
+            root.diagram_zoom = max(1.0, min(6.0, root.diagram_zoom - (event.delta-y / 1px) * 0.003));
+            accept
+        }
+    }
+    } // FocusScope (viewport_focus)
+
+    // The pictures, the refusal card and the placeholder (`solid_viewport/layers.slint`),
+    // under the overlays and the toolbar below. Handles no pointer event.
+    SolidViewportLayers {
+        width: 100%;
+        height: 100%;
+        is_dragging: root.is_dragging;
+        diagram_zoom: root.diagram_zoom;
+        diagram_pan_x: root.diagram_pan_x;
+        diagram_pan_y: root.diagram_pan_y;
+    }
+
+    // The angle/depth/index drag handles of the selected facet, above the images
+    // (`ManipulateModel`, pushed by `gui::editor::manipulate`). Pointer input is
+    // never handled here: `drag_area` above stays the only TouchArea.
+    // In the Diagram view the overlay maps the model's unzoomed positions through this
+    // component's zoom and pan.
+    if ManipulateModel.handles_visible: ManipulateOverlay {
+        zoom: SolidPreviewModel.view_mode == 3 ? root.diagram_zoom : 1.0;
+        pan_x: SolidPreviewModel.view_mode == 3 ? root.diagram_pan_x : 0px;
+        pan_y: SolidPreviewModel.view_mode == 3 ? root.diagram_pan_y : 0px;
+    }
+
+    // The crystal axis (and a biaxial stone's Second Axis) over the stone, with their drag
+    // handles (`CrystalAxisModel`, pushed by `gui::editor::manipulate::crystal_axis_overlay`).
+    // Pointer input is never handled here: `drag_area` above stays the only TouchArea. In the
+    // Diagram view the overlay maps the model's unzoomed positions through the zoom and pan.
+    if CrystalAxisModel.overlay_visible: CrystalAxisOverlay {
+        zoom: SolidPreviewModel.view_mode == 3 ? root.diagram_zoom : 1.0;
+        pan_x: SolidPreviewModel.view_mode == 3 ? root.diagram_pan_x : 0px;
+        pan_y: SolidPreviewModel.view_mode == 3 ? root.diagram_pan_y : 0px;
+    }
+    // Tells Rust when something the crystal axis depends on changed.
+    CrystalAxisWatcher { }
+
+    // The Show Surface Finish marks (`SurfaceModel`, pushed by
+    // `gui::editor::manipulate::surface_overlay`); never handles pointer input.
+    if SurfaceModel.overlay_visible: SurfaceFinishOverlay { }
+    SurfaceFinishWatcher { }
+
+    // The Slice tool's rubber band while a line is being drawn.
+    if ManipulateModel.slice_line_visible && SolidPreviewModel.view_mode != 3: SliceLineOverlay { }
+
+    // The one-line hint under the toolbar row (with the Slice tool's buttons at its
+    // right end); hidden while it has nothing to say.
+    if ManipulateModel.hint_text != "" || ManipulateModel.provisional_active: ManipulateHintBar { toolbar_height: toolbar.top_height; }
+
+    // A small hover tooltip panel, bottom-left of the image -- see `hover_text`'s own
+    // doc comment above.
+    //
+    // #116: gated on `drag_area.has-hover && !root.is_dragging` too, not just a
+    // non-empty string -- the pointer-event handler above cleared the text on
+    // `down` and on a view-mode switch, but the mouse leaving for the tier
+    // table (no `has-hover`) or an orbit drag in progress (`is_dragging`) used
+    // to leave the LAST hover's text on screen since nothing else re-ran
+    // `facet_hover`/`diagram_facet_hover` to refresh or clear it.
+    if root.hover_text != "" && drag_area.has-hover && !root.is_dragging: Rectangle {
+        x: 10px;
+        y: parent.height - self.height - 46px;
+        width: hover_label.preferred-width + 16px;
+        height: hover_label.preferred-height + 10px;
+        background: Theme.bg-elevated;
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: Theme.border-subtle;
+
+        hover_label := Text {
+            text: root.hover_text;
+            font-size: 11px;
+            color: Theme.text-primary;
+            x: 8px;
+            y: 5px;
+        }
+    }
+
+    // --- Mode toggle: Solid | Path-traced, camera pose pills, Tilt Curve/
+    // Preform toggles and the status strip -- see `SolidViewportToolbar`'s own
+    // doc comment (`solid_viewport/toolbar.slint`) for why this is split out.
+    // `diagram_zoom`/`diagram_pan_x`/`diagram_pan_y` stay on THIS component
+    // (its own Image rendering and drag handling above read them too) and are
+    // shared two-way so the toolbar's "Reset View" pill can reset them.
+    // `toolbar.top_height` (28px in one row, more when the toolbar wraps) positions
+    // the hint strip above under the toolbar's rows.
+    toolbar := SolidViewportToolbar {
+        diagram_zoom <=> root.diagram_zoom;
+        diagram_pan_x <=> root.diagram_pan_x;
+        diagram_pan_y <=> root.diagram_pan_y;
+    }
+
+    // The focus ring: drawn while the viewport itself has keyboard focus (Tab, or a click
+    // on the picture), which is when Up/Down step through the tiers, Escape clears the
+    // selection and S turns the Slice tool on. No pointer handling, so every event still
+    // reaches `drag_area` underneath.
+    if viewport_focus.has-focus: Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        border-radius: Theme.radius-md;
+        border-width: 2px;
+        border-color: Theme.border-accent;
+    }
+
+    // The tutorial outline: drawn while the open step is about the picture. Like the focus
+    // ring it handles no pointer events.
+    if GuideModel.highlight_target == "solid_viewport": Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        background: transparent;
+        border-radius: Theme.radius-md;
+        border-width: 2px;
+        border-color: Theme.accent-cyan;
+    }
+
+    // The Tilt Curve dialog and the material editor are no longer mounted here:
+    // both live at window size in `GlobalDialogsOverlay`
+    // (`components/app/global_dialogs.slint`), since this viewport can be only
+    // 170-260px tall in the narrow stack.
+}

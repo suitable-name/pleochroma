@@ -1,0 +1,244 @@
+import { Theme } from "../../theme.slint";
+import { ScrollView } from "std-widgets.slint";
+import { RoughPlanModel, RoughStoneRow } from "../../models/rough_plan.slint";
+import { RoughField, RoughPill, ElidedText, WrapText, ScrollFade } from "fields.slint";
+import { RuleEditor } from "rule_editor.slint";
+
+// One stone of the selected result: how its crystal axis sits to the table, whether it follows
+// the rule, and what you can do with it: turn it to another of its four box poses, re-fit its
+// piece, turn it freely (a single-stone fit), lock it so a re-plan cuts the rest of the rough
+// around it, or give a Reason. Each is one undo step.
+component StoneRowItem inherits Rectangle {
+    in property <RoughStoneRow> entry;
+    in property <bool> editable: true;
+    in property <bool> reason_open: false;
+    in-out property <string> reason_text;
+
+    background: Theme.surface-control;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    border-color: root.entry.locked ? Theme.accent-cyan : Theme.border-subtle;
+
+    VerticalLayout {
+        padding: 6px;
+        spacing: 4px;
+
+        HorizontalLayout {
+            spacing: 6px;
+            ElidedText {
+                text: root.entry.title;
+                font_size: 11px;
+                font_weight: 700;
+            }
+            if root.entry.locked: Text {
+                text: "Locked";
+                font-size: 10px;
+                color: Theme.accent-cyan;
+                vertical-alignment: center;
+            }
+            if root.entry.status != "": Text {
+                text: root.entry.status;
+                font-size: 10px;
+                font-weight: 700;
+                color: root.entry.status_level == 1 ? Theme.success
+                    : (root.entry.status_level == 2 ? Theme.accent-amber
+                    : (root.entry.status_level == 3 ? Theme.accent-purple : Theme.text-secondary));
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+
+        WrapText {
+            text: root.entry.angle_text;
+            font_size: 10px;
+            text_color: Theme.text-secondary;
+        }
+
+        if root.entry.color_text != "": WrapText {
+            text: root.entry.color_text;
+            font_size: 10px;
+            text_color: Theme.text-secondary;
+        }
+
+        // The pose choice on a row of its own and the actions on the next: all of them on one
+        // row were wider than the column and ran past its edge.
+        if root.entry.can_pose: HorizontalLayout {
+            spacing: 4px;
+            alignment: start;
+
+            Text {
+                text: "Pose";
+                font-size: 10px;
+                color: Theme.text-muted;
+                vertical-alignment: center;
+            }
+            RoughPill {
+                text: "1";
+                hint: "The stone as the planner placed it.";
+                active: root.entry.pose == 0;
+                enabled: root.editable;
+                clicked => { RoughPlanModel.stone_action(root.entry.stone, 0, "0"); }
+            }
+            RoughPill {
+                text: "2";
+                hint: "Turn the stone a half turn about its first box axis. The piece and the weight stay; only the crystal axis angle changes.";
+                active: root.entry.pose == 1;
+                enabled: root.editable;
+                clicked => { RoughPlanModel.stone_action(root.entry.stone, 0, "1"); }
+            }
+            RoughPill {
+                text: "3";
+                hint: "Turn the stone a half turn about its second box axis. The piece and the weight stay; only the crystal axis angle changes.";
+                active: root.entry.pose == 2;
+                enabled: root.editable;
+                clicked => { RoughPlanModel.stone_action(root.entry.stone, 0, "2"); }
+            }
+            RoughPill {
+                text: "4";
+                hint: "Turn the stone a half turn about its third box axis. The piece and the weight stay; only the crystal axis angle changes.";
+                active: root.entry.pose == 3;
+                enabled: root.editable;
+                clicked => { RoughPlanModel.stone_action(root.entry.stone, 0, "3"); }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 4px;
+            alignment: start;
+
+            if root.entry.can_refit: RoughPill {
+                text: "Re-Fit";
+                hint: "Fit the best stone of this design into the same piece again, under the rule, without moving the saw cuts.";
+                enabled: root.editable;
+                clicked => { RoughPlanModel.stone_action(root.entry.stone, 2, ""); }
+            }
+            if root.entry.can_free: RoughPill {
+                text: RoughPlanModel.free_stone == root.entry.stone ? "Done Turning" : "Free Orientation";
+                hint: RoughPlanModel.free_stone == root.entry.stone
+                    ? "Stop turning the stone."
+                    : "Turn the stone by hand in the 3D view: drag it, and the planner sizes it to the largest stone that fits in the new position.";
+                active: RoughPlanModel.free_stone == root.entry.stone;
+                enabled: root.editable;
+                clicked => { RoughPlanModel.stone_action(root.entry.stone, 1, ""); }
+            }
+            RoughPill {
+                text: root.entry.locked ? "Unlock" : "Lock";
+                hint: root.entry.locked
+                    ? "Let the next plan use this stone's piece again."
+                    : "Keep this stone. The next plan cuts the rest of the rough around it.";
+                active: root.entry.locked;
+                enabled: root.editable;
+                clicked => { RoughPlanModel.stone_action(root.entry.stone, 3, ""); }
+            }
+        }
+
+        RoughField {
+            label: "Reason";
+            hint: "Why this stone is set up differently. It is saved with the plan and printed on the cutting sheet.";
+            placeholder: "e.g. avoids the crack";
+            editable: root.editable;
+            value <=> root.reason_text;
+            committed => { RoughPlanModel.stone_action(root.entry.stone, 4, root.reason_text); }
+        }
+    }
+
+    init => { root.reason_text = root.entry.reason; }
+}
+
+// The stones of the selected result with what the crystal axis says about them, and the rule of
+// the selected design.
+//
+// Nothing here may stretch: the section sits in a column whose results list takes the spare
+// height, and a stretching list or `Text` here swallowed part of it as a blank band (100 to
+// 175 px) between the heading and the first stone.
+export component StoneRows inherits VerticalLayout {
+    alignment: start;
+    vertical-stretch: 0;
+    spacing: 6px;
+
+    if RoughPlanModel.stone_rows.length > 0: VerticalLayout {
+        alignment: start;
+        spacing: 4px;
+
+        Text {
+            text: "STONES AND THE CRYSTAL AXIS";
+            font-size: 11px;
+            font-weight: 700;
+            color: Theme.text-muted;
+        }
+
+        if RoughPlanModel.stone_rows_note != "": WrapText {
+            text: RoughPlanModel.stone_rows_note;
+            font_size: 10px;
+            text_color: Theme.accent-amber;
+        }
+
+        // At most about two stones tall; the rest scrolls, and the fade at the bottom edge
+        // says so when a stone is cut off there.
+        Rectangle {
+            height: min(240px, rows_layout.preferred-height);
+            vertical-stretch: 0;
+
+            stone_scroll := ScrollView {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+                vertical-stretch: 0;
+
+                rows_layout := VerticalLayout {
+                    alignment: start;
+                    spacing: 4px;
+                    // The scroll bar is drawn over the right edge: leave it room.
+                    padding-right: 12px;
+
+                    for stone_row in RoughPlanModel.stone_rows: StoneRowItem {
+                        entry: stone_row;
+                        editable: !RoughPlanModel.running;
+                    }
+                }
+            }
+
+            ScrollFade {
+                y: parent.height - self.height;
+                width: parent.width - 12px;
+                tint: Theme.bg-dark;
+                more: stone_scroll.content-height + stone_scroll.content-y - stone_scroll.visible-height > 2px;
+            }
+        }
+    }
+
+    // The rule of the design row that is selected: its own, or the plan's.
+    if RoughPlanModel.design_rule_entry >= 0: VerticalLayout {
+        alignment: start;
+        spacing: 4px;
+
+        Text {
+            text: RoughPlanModel.design_rule_title;
+            font-size: 11px;
+            font-weight: 700;
+            color: Theme.text-muted;
+            overflow: elide;
+        }
+        RuleEditor {
+            entry: RoughPlanModel.design_rule_entry;
+            follow_text: "Follow the Plan";
+            follow_hint: "Use the plan's rule for this design.";
+            choice: RoughPlanModel.design_rule_choice;
+            kind <=> RoughPlanModel.design_rule_kind;
+            hold: RoughPlanModel.design_rule_hold;
+            tolerance <=> RoughPlanModel.design_rule_tolerance;
+            weight <=> RoughPlanModel.design_rule_weight;
+            tilt <=> RoughPlanModel.design_rule_tilt;
+            azimuth <=> RoughPlanModel.design_rule_azimuth;
+            reason <=> RoughPlanModel.design_rule_reason;
+            kind_names: RoughPlanModel.rule_kind_names;
+            editable: !RoughPlanModel.running;
+        }
+        WrapText {
+            text: "A rule you change here applies the next time you plan.";
+            font_size: 10px;
+            text_color: Theme.text-muted;
+        }
+    }
+}

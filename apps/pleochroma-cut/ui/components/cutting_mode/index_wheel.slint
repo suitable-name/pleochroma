@@ -1,0 +1,126 @@
+import { Theme } from "../../theme.slint";
+import { CmWheelMark, CmWheelScale } from "../../models/cutting_mode.slint";
+
+// The gear's index wheel with this step's indices marked: the ring of teeth (a long tick every
+// few teeth, numbered), a line from the centre to each marked index and a dot on the ring where
+// it sits, with its number outside. Position 0 is at the top and the numbers run clockwise.
+// A ticked index is green, one still to cut is cyan.
+//
+// The strokes are SVG path commands in a 200 x 200 box (`pleochroma_editor::cutting_mode::dial`);
+// the marks and numbers arrive as fractions of the wheel's square, so the picture scales with
+// whatever room it is given.
+export component CmIndexWheel inherits Rectangle {
+    // What the picture shows, in words, for a screen reader (the caption under the wheel).
+    in property <string> description;
+    in property <string> minor_ticks;
+    in property <string> major_ticks;
+    in property <string> spokes;
+    in property <[CmWheelMark]> marks;
+    in property <[CmWheelScale]> numbers;
+
+    accessible-role: AccessibleRole.image;
+    accessible-label: "Index Wheel";
+    accessible-description: root.description;
+
+    // The wheel is a square in the middle of whatever room there is.
+    property <length> side: Math.min(root.width, root.height);
+    property <length> origin_x: (root.width - root.side) / 2;
+    property <length> origin_y: (root.height - root.side) / 2;
+
+    // The ring the teeth sit on (radius 76 in the 200-unit box).
+    Path {
+        x: root.origin_x;
+        y: root.origin_y;
+        width: root.side;
+        height: root.side;
+        fit: fill;
+        viewbox-width: 200;
+        viewbox-height: 200;
+        commands: "M 24 100 A 76 76 0 1 1 176 100 A 76 76 0 1 1 24 100 Z";
+        stroke: Theme.border-medium;
+        stroke-width: 2px;
+        fill: transparent;
+    }
+    Path {
+        x: root.origin_x;
+        y: root.origin_y;
+        width: root.side;
+        height: root.side;
+        fit: fill;
+        viewbox-width: 200;
+        viewbox-height: 200;
+        commands: root.minor_ticks;
+        stroke: Theme.text-muted;
+        stroke-width: 1px;
+        fill: transparent;
+    }
+    Path {
+        x: root.origin_x;
+        y: root.origin_y;
+        width: root.side;
+        height: root.side;
+        fit: fill;
+        viewbox-width: 200;
+        viewbox-height: 200;
+        commands: root.major_ticks;
+        stroke: Theme.text-secondary;
+        stroke-width: 2px;
+        fill: transparent;
+    }
+    Path {
+        x: root.origin_x;
+        y: root.origin_y;
+        width: root.side;
+        height: root.side;
+        fit: fill;
+        viewbox-width: 200;
+        viewbox-height: 200;
+        commands: root.spokes;
+        stroke: Theme.accent-cyan;
+        stroke-width: 1px;
+        opacity: 0.55;
+        fill: transparent;
+    }
+
+    // The sizes follow the wheel: a wheel of 240 px or more gets full-size labels; a small one
+    // drops the scale numbers (or every other one) rather than letting them run together.
+    property <length> number_size: Math.clamp(root.side / 20, 10px, 16px);
+    property <length> mark_size: Math.clamp(root.side / 16, 12px, 20px);
+    property <length> dot_size: Math.clamp(root.side / 22, 12px, 20px);
+
+    for number[n] in root.numbers: Text {
+        visible: root.side >= 150px && (root.side >= 260px || Math.mod(n, 2) == 0);
+        text: number.label;
+        color: Theme.text-muted;
+        font-size: root.number_size;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: root.number_size * 3;
+        height: root.number_size * 1.5;
+        x: root.origin_x + number.x * root.side - self.width / 2;
+        y: root.origin_y + number.y * root.side - self.height / 2;
+    }
+
+    for mark in root.marks: Rectangle {
+        width: root.dot_size;
+        height: root.dot_size;
+        border-radius: root.dot_size / 2;
+        background: mark.ticked ? Theme.success : Theme.accent-cyan;
+        border-width: 2px;
+        border-color: Theme.bg-darkest;
+        x: root.origin_x + mark.x * root.side - self.width / 2;
+        y: root.origin_y + mark.y * root.side - self.height / 2;
+    }
+    for mark in root.marks: Text {
+        text: mark.label;
+        color: mark.ticked ? Theme.success : Theme.text-primary;
+        font-size: root.mark_size;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: root.mark_size * 3;
+        height: root.mark_size * 1.5;
+        x: root.origin_x + mark.label_x * root.side - self.width / 2;
+        y: root.origin_y + mark.label_y * root.side - self.height / 2;
+    }
+}

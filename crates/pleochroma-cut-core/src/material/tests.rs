@@ -1,0 +1,689 @@
+//! Tests for the specific-gravity table, [`MaterialSelection`] resolution, and
+//! [`MaterialCatalogue`].
+
+use super::*;
+use crate::optics_hints::critical_angle_deg;
+use pleochroma::optics::materials::GemMaterial;
+
+#[test]
+fn known_preset_names_resolve() {
+    for name in [
+        "Diamond",
+        "Sapphire",
+        "Ruby",
+        "Emerald",
+        "Zircon",
+        "Alexandrite",
+        "Topaz",
+        "Spinel",
+        "Quartz",
+        "Tourmaline",
+        "Tanzanite",
+        "Synthetic Moissanite",
+        "Cubic Zirconia",
+    ] {
+        let sg = built_in_specific_gravity(name)
+            .unwrap_or_else(|| panic!("{name} must have a built-in SG"));
+        assert!(sg.representative > 0.0, "{name}: {sg:?}");
+        assert!(
+            sg.range.0 <= sg.representative && sg.representative <= sg.range.1,
+            "{name}: representative {} not inside its own range {:?}",
+            sg.representative,
+            sg.range
+        );
+    }
+}
+
+/// There is no "Garnet" preset (or any other name outside the thirteen above).
+#[test]
+fn unknown_names_including_garnet_resolve_to_none() {
+    assert_eq!(built_in_specific_gravity("Garnet"), None);
+    assert_eq!(built_in_specific_gravity("Not A Real Material"), None);
+    assert_eq!(built_in_specific_gravity(""), None);
+}
+
+#[test]
+fn none_selection_has_no_effective_sg() {
+    assert_eq!(MaterialSelection::none().effective_specific_gravity(), None);
+    assert_eq!(MaterialSelection::default(), MaterialSelection::none());
+}
+
+#[test]
+fn preset_alone_uses_its_representative_figure() {
+    let m = MaterialSelection {
+        name: Some("Diamond".to_string()),
+        specific_gravity_override: None,
+        refractive_index_override: None,
+        body_color_override: None,
+        body_color_bands_override: None,
+        absorption_path_scale_override: None,
+        color_pattern_override: None,
+        color_variant_override: None,
+    };
+    assert_eq!(m.effective_specific_gravity(), Some(3.52));
+}
+
+/// An override wins even when the preset name is also known -- the user's own
+/// number is always authoritative over the table.
+#[test]
+fn override_wins_over_a_known_preset() {
+    let m = MaterialSelection {
+        name: Some("Diamond".to_string()),
+        specific_gravity_override: Some(3.515),
+        refractive_index_override: None,
+        body_color_override: None,
+        body_color_bands_override: None,
+        absorption_path_scale_override: None,
+        color_pattern_override: None,
+        color_variant_override: None,
+    };
+    assert_eq!(m.effective_specific_gravity(), Some(3.515));
+}
+
+/// An override is exactly what makes a species with no preset (garnet) usable.
+#[test]
+fn override_alone_works_for_a_species_with_no_preset() {
+    let m = MaterialSelection {
+        name: Some("Garnet".to_string()),
+        specific_gravity_override: Some(3.90),
+        refractive_index_override: None,
+        body_color_override: None,
+        body_color_bands_override: None,
+        absorption_path_scale_override: None,
+        color_pattern_override: None,
+        color_variant_override: None,
+    };
+    assert_eq!(m.effective_specific_gravity(), Some(3.90));
+}
+
+// --- MaterialSelection::with_specific_gravity_override ---
+
+/// The one field named in the call must change; `name` and
+/// `refractive_index_override` must carry through untouched -- the exact
+/// property that makes this safe for a caller (the Yield form parser) that
+/// owns only the SG field to use without reconstructing the whole struct.
+#[test]
+fn with_specific_gravity_override_replaces_only_that_field() {
+    let original = MaterialSelection {
+        name: Some("Diamond".to_string()),
+        specific_gravity_override: Some(3.50),
+        refractive_index_override: Some(2.42),
+        body_color_override: None,
+        body_color_bands_override: None,
+        absorption_path_scale_override: None,
+        color_pattern_override: None,
+        color_variant_override: None,
+    };
+    let updated = original.with_specific_gravity_override(Some(3.55));
+    assert_eq!(updated.specific_gravity_override, Some(3.55));
+    assert_eq!(updated.name, original.name);
+    assert_eq!(
+        updated.refractive_index_override,
+        original.refractive_index_override
+    );
+}
+
+/// Passing `None` clears the override (back to "use the preset's own figure")
+/// while still leaving `name`/`refractive_index_override` alone.
+#[test]
+fn with_specific_gravity_override_can_clear_the_override() {
+    let original = MaterialSelection {
+        name: Some("Quartz".to_string()),
+        specific_gravity_override: Some(2.70),
+        refractive_index_override: Some(1.55),
+        body_color_override: None,
+        body_color_bands_override: None,
+        absorption_path_scale_override: None,
+        color_pattern_override: None,
+        color_variant_override: None,
+    };
+    let updated = original.with_specific_gravity_override(None);
+    assert_eq!(updated.specific_gravity_override, None);
+    assert_eq!(updated.name, Some("Quartz".to_string()));
+    assert_eq!(updated.refractive_index_override, Some(1.55));
+}
+
+// --- MaterialSelection::resolve / built_in_refractive_index ---
+
+#[test]
+fn resolve_a_known_preset_returns_that_material_and_its_own_n_d() {
+    let m = MaterialSelection {
+        name: Some("Quartz".to_string()),
+        specific_gravity_override: None,
+        refractive_index_override: None,
+        body_color_override: None,
+        body_color_bands_override: None,
+        absorption_path_scale_override: None,
+        color_pattern_override: None,
+        color_variant_override: None,
+    };
+    let resolved = m.resolve(&BuiltinMaterials);
+    assert_eq!(
+        resolved.gem.name,
+        GemMaterial::by_name("Quartz").unwrap().name
+    );
+    let expected_n_d = f64::from(
+        GemMaterial::by_name("Quartz")
+            .unwrap()
+            .dispersion
+            .evaluate(589.3),
+    );
+    assert!((resolved.n_d - expected_n_d).abs() < 1e-9);
+    assert!((resolved.critical_angle_deg - critical_angle_deg(expected_n_d)).abs() < 1e-9);
+}
+
+/// No selection at all (a brand-new design) resolves to diamond.
+#[test]
+fn resolve_with_no_name_falls_back_to_diamond() {
+    let resolved = MaterialSelection::none().resolve(&BuiltinMaterials);
+    assert_eq!(resolved.gem.name, GemMaterial::diamond().name);
+}
+
+/// A name `BuiltinMaterials` does not recognize falls back to diamond too,
+/// rather than panicking or silently doing nothing.
+#[test]
+fn resolve_with_an_unrecognized_name_falls_back_to_diamond() {
+    let m = MaterialSelection {
+        name: Some("Garnet".to_string()),
+        specific_gravity_override: None,
+        refractive_index_override: None,
+        body_color_override: None,
+        body_color_bands_override: None,
+        absorption_path_scale_override: None,
+        color_pattern_override: None,
+        color_variant_override: None,
+    };
+    let resolved = m.resolve(&BuiltinMaterials);
+    assert_eq!(resolved.gem.name, GemMaterial::diamond().name);
+}
+
+/// `refractive_index_override` must win over the resolved material's own `n_D`.
+#[test]
+fn resolve_refractive_index_override_wins_over_the_resolved_material() {
+    let m = MaterialSelection {
+        name: Some("Diamond".to_string()),
+        specific_gravity_override: None,
+        refractive_index_override: Some(1.70),
+        body_color_override: None,
+        body_color_bands_override: None,
+        absorption_path_scale_override: None,
+        color_pattern_override: None,
+        color_variant_override: None,
+    };
+    let resolved = m.resolve(&BuiltinMaterials);
+    assert!((resolved.n_d - 1.70).abs() < 1e-12);
+    assert!((resolved.critical_angle_deg - critical_angle_deg(1.70)).abs() < 1e-9);
+}
+
+#[test]
+fn built_in_refractive_index_matches_the_material_own_dispersion_curve() {
+    let expected = f64::from(GemMaterial::diamond().dispersion.evaluate(589.3));
+    assert!((built_in_refractive_index("Diamond").unwrap() - expected).abs() < 1e-9);
+    assert_eq!(built_in_refractive_index("Garnet"), None);
+    assert_eq!(built_in_refractive_index("Not A Real Material"), None);
+}
+
+// --- MaterialLookup::specific_gravity / effective_specific_gravity_with ---
+
+/// [`BuiltinMaterials::specific_gravity`] must agree with
+/// [`built_in_specific_gravity`] for every known preset.
+#[test]
+fn builtin_materials_specific_gravity_matches_the_table() {
+    assert_eq!(BuiltinMaterials.specific_gravity("Diamond"), Some(3.52));
+    assert_eq!(BuiltinMaterials.specific_gravity("Garnet"), None);
+}
+
+/// A [`MaterialLookup`] that never overrides [`MaterialLookup::specific_gravity`]
+/// keeps compiling and simply reports `None` -- the default-method contract
+/// [`MaterialLookup::specific_gravity`]'s own doc comment promises.
+#[test]
+fn a_lookup_with_no_sg_override_reports_none() {
+    struct LookupWithNoSg;
+    impl MaterialLookup for LookupWithNoSg {
+        fn lookup(&self, name: &str) -> Option<GemMaterial> {
+            GemMaterial::by_name(name)
+        }
+    }
+    assert_eq!(LookupWithNoSg.specific_gravity("Diamond"), None);
+}
+
+/// [`MaterialSelection::effective_specific_gravity_with`] must match the
+/// built-ins-only [`MaterialSelection::effective_specific_gravity`] when the
+/// catalogue is [`BuiltinMaterials`].
+#[test]
+fn effective_specific_gravity_with_matches_built_ins_only_path() {
+    let m = MaterialSelection {
+        name: Some("Quartz".to_string()),
+        specific_gravity_override: None,
+        refractive_index_override: None,
+        body_color_override: None,
+        body_color_bands_override: None,
+        absorption_path_scale_override: None,
+        color_pattern_override: None,
+        color_variant_override: None,
+    };
+    assert_eq!(
+        m.effective_specific_gravity_with(&BuiltinMaterials),
+        m.effective_specific_gravity()
+    );
+}
+
+/// The per-design override still wins over whatever the catalogue reports.
+#[test]
+fn effective_specific_gravity_with_override_wins_over_the_catalogue() {
+    let m = MaterialSelection {
+        name: Some("Diamond".to_string()),
+        specific_gravity_override: Some(3.515),
+        refractive_index_override: None,
+        body_color_override: None,
+        body_color_bands_override: None,
+        absorption_path_scale_override: None,
+        color_pattern_override: None,
+        color_variant_override: None,
+    };
+    assert_eq!(
+        m.effective_specific_gravity_with(&BuiltinMaterials),
+        Some(3.515)
+    );
+}
+
+/// A catalogue that DOES know a custom material's SG (unlike the built-ins-only
+/// path, which has no such entry) must have it reach the effective figure.
+#[test]
+fn effective_specific_gravity_with_resolves_a_custom_material_the_built_in_table_cannot() {
+    struct CustomOnlyLookup;
+    impl MaterialLookup for CustomOnlyLookup {
+        fn lookup(&self, name: &str) -> Option<GemMaterial> {
+            GemMaterial::by_name(name)
+        }
+        fn specific_gravity(&self, name: &str) -> Option<f64> {
+            (name == "My Garnet").then_some(3.90)
+        }
+    }
+    let m = MaterialSelection {
+        name: Some("My Garnet".to_string()),
+        specific_gravity_override: None,
+        refractive_index_override: None,
+        body_color_override: None,
+        body_color_bands_override: None,
+        absorption_path_scale_override: None,
+        color_pattern_override: None,
+        color_variant_override: None,
+    };
+    assert_eq!(m.effective_specific_gravity(), None);
+    assert_eq!(
+        m.effective_specific_gravity_with(&CustomOnlyLookup),
+        Some(3.90)
+    );
+}
+
+// --- MaterialCatalogue ---
+
+/// Every one of `GemMaterial::all_materials()`'s built-ins must appear, in that
+/// function's own order -- the whole point of this type: a species available on
+/// the render side can no longer be missing from a picker built off this
+/// catalogue.
+#[test]
+fn catalogue_lists_every_builtin_in_all_materials_order() {
+    let catalogue = MaterialCatalogue::build(&[]);
+    let expected: Vec<String> = GemMaterial::all_materials()
+        .into_iter()
+        .map(|m| m.name)
+        .collect();
+    assert_eq!(catalogue.names(), expected);
+    assert!(
+        catalogue
+            .entries()
+            .iter()
+            .all(|e| e.kind == MaterialKind::BuiltIn)
+    );
+}
+
+/// Customs are appended after every built-in, sorted by name case-insensitively
+/// -- not in `custom`'s own (arbitrary, load-order) sequence.
+#[test]
+fn catalogue_appends_customs_sorted_by_name_after_every_builtin() {
+    let mut a = GemMaterial::diamond();
+    a.name = "Zircon-ish Garnet".to_string();
+    let mut b = GemMaterial::diamond();
+    b.name = "amber quartz".to_string();
+    let catalogue = MaterialCatalogue::build(&[a, b]);
+    let names = catalogue.names();
+    let builtin_count = GemMaterial::all_materials().len();
+    assert_eq!(names.len(), builtin_count + 2);
+    // Case-insensitive sort: "amber quartz" sorts before "Zircon-ish Garnet"
+    // despite its lowercase leading letter.
+    assert_eq!(names[builtin_count], "amber quartz");
+    assert_eq!(names[builtin_count + 1], "Zircon-ish Garnet");
+    assert_eq!(
+        catalogue.entries()[builtin_count].kind,
+        MaterialKind::Custom
+    );
+}
+
+#[test]
+fn catalogue_find_is_case_insensitive() {
+    let catalogue = MaterialCatalogue::build(&[]);
+    let found = catalogue.find("diamond").expect("Diamond must resolve");
+    assert_eq!(found.name, "Diamond");
+    assert!(catalogue.find("Not A Real Material").is_none());
+}
+
+/// Every built-in entry's `ri_d`/`birefringent` must agree with the resolved
+/// `GemMaterial` itself -- the catalogue must describe the real material, not an
+/// approximation of it.
+#[test]
+fn catalogue_entries_carry_the_real_material_ri_and_birefringence() {
+    let catalogue = MaterialCatalogue::build(&[]);
+    let diamond = catalogue.find("Diamond").unwrap();
+    assert!((diamond.ri_d - 2.417).abs() < 0.01);
+    assert!(!diamond.birefringent, "Diamond is isotropic");
+    assert!(!diamond.has_absorption, "Diamond has no absorption bands");
+
+    let sapphire = catalogue.find("Sapphire").unwrap();
+    assert!(sapphire.birefringent, "Sapphire is uniaxial");
+    assert!(
+        sapphire.has_absorption,
+        "Sapphire carries real absorption bands"
+    );
+}
+
+/// A built-in the SG table covers reports it; a custom material with no SG side
+/// channel reports `None` rather than a fabricated figure.
+#[test]
+fn catalogue_sg_is_populated_for_known_builtins_and_none_for_an_unrecorded_custom() {
+    let mut custom = GemMaterial::diamond();
+    custom.name = "My Garnet".to_string();
+    let catalogue = MaterialCatalogue::build(&[custom]);
+    assert_eq!(catalogue.find("Diamond").unwrap().sg, Some(3.52));
+    assert_eq!(catalogue.find("My Garnet").unwrap().sg, None);
+}
+
+/// [`MaterialCatalogue::build_with_sg`] resolves a custom entry's SG from the
+/// caller-supplied side channel, case-insensitively.
+#[test]
+fn catalogue_build_with_sg_resolves_a_custom_materials_specific_gravity() {
+    let mut custom = GemMaterial::diamond();
+    custom.name = "My Garnet".to_string();
+    let sg_entries = [("my garnet".to_string(), 3.90)];
+    let catalogue = MaterialCatalogue::build_with_sg(&[custom], &sg_entries);
+    assert_eq!(catalogue.find("My Garnet").unwrap().sg, Some(3.90));
+}
+
+// --- body-color override ---
+
+#[test]
+fn with_body_color_sets_only_the_override_and_none_clears_it() {
+    let base = MaterialSelection {
+        name: Some("Sapphire".to_string()),
+        specific_gravity_override: Some(4.0),
+        refractive_index_override: Some(1.77),
+        body_color_override: None,
+        body_color_bands_override: None,
+        absorption_path_scale_override: None,
+        color_pattern_override: None,
+        color_variant_override: None,
+    };
+    assert!(!base.has_body_color_override());
+    let yellow = base.clone().with_body_color(Some([0.2, 0.4, 2.8]));
+    assert!(yellow.has_body_color_override());
+    assert_eq!(yellow.name, base.name);
+    assert_eq!(
+        yellow.specific_gravity_override,
+        base.specific_gravity_override
+    );
+    assert_eq!(
+        yellow.refractive_index_override,
+        base.refractive_index_override
+    );
+    assert_eq!(yellow.body_color_label(), Some("Yellow"));
+    assert_eq!(yellow.with_body_color(None), base);
+    assert_eq!(MaterialSelection::none().body_color_label(), None);
+    assert_eq!(
+        MaterialSelection::none()
+            .with_body_color(Some([0.5, 0.5, 0.5]))
+            .body_color_label(),
+        Some("custom color")
+    );
+}
+
+/// `apply_overrides` with nothing set returns the material untouched; with a color
+/// set only the absorption changes (name, and so every lookup keyed by it, stays).
+#[test]
+fn apply_overrides_changes_only_the_absorption_for_a_color() {
+    let sapphire = GemMaterial::sapphire();
+    let plain = MaterialSelection {
+        name: Some("Sapphire".to_string()),
+        ..MaterialSelection::none()
+    };
+    assert_eq!(plain.apply_overrides(sapphire.clone()), sapphire);
+
+    let rgb = [0.2f32, 0.4, 2.8];
+    let colored = plain
+        .with_body_color(Some(rgb))
+        .apply_overrides(sapphire.clone());
+    assert_eq!(colored, sapphire.clone().with_body_color(rgb));
+    assert_eq!(colored.name, sapphire.name);
+    assert_eq!(colored.dispersion, sapphire.dispersion);
+    assert_ne!(colored.absorption, sapphire.absorption);
+}
+
+/// The N-band colour wins over the triple stored next to it, sets the path scale, and an
+/// empty band list falls back to the triple.
+#[test]
+fn apply_overrides_prefers_the_bands_and_their_path_scale() {
+    let sapphire = GemMaterial::sapphire();
+    let rows = vec![[460.0f32, 45.0, 0.25], [620.0, 45.0, 0.5]];
+    let selection = MaterialSelection::none().with_body_color_bands(
+        Some([0.2, 0.4, 2.8]),
+        Some(rows.clone()),
+        Some(24.5),
+    );
+    let banded = selection.apply_overrides(sapphire.clone());
+    assert_eq!(banded, sapphire.clone().with_body_color_bands(&rows, 24.5));
+    assert!((banded.absorption_path_scale - 24.5).abs() < f32::EPSILON);
+    assert_ne!(banded, sapphire.clone().with_body_color([0.2, 0.4, 2.8]));
+
+    let empty = MaterialSelection::none().with_body_color_bands(
+        Some([0.2, 0.4, 2.8]),
+        Some(Vec::new()),
+        Some(24.5),
+    );
+    assert_eq!(
+        empty.apply_overrides(sapphire.clone()),
+        sapphire.with_body_color([0.2, 0.4, 2.8])
+    );
+    let text = format!("{selection:?}");
+    assert!(text.contains("body_color_bands_override") && text.contains("24.5"));
+}
+
+/// A zoned material's colour is its zones: a body-colour override (triple or N-band) must not
+/// touch its zoning, its absorption, its `PerMm` unit or its path scale (the zone kernel maps
+/// model units to millimetres with that scale), while the refractive-index override still applies.
+#[test]
+fn apply_overrides_leaves_a_zoned_material_colour_alone() {
+    use glam::DVec3;
+    use pleochroma::optics::{
+        absorption::{AbsorptionBand, AbsorptionTensor},
+        materials::AbsorptionUnit,
+        zoning::{Zone, ZoneAbsorption, ZoneShape, ZonedAbsorption},
+    };
+    let absorber = |centre_nm: f32, peak: f32| {
+        ZoneAbsorption::per_mm(AbsorptionTensor::isotropic(vec![AbsorptionBand::new(
+            centre_nm, 40.0, peak,
+        )]))
+    };
+    let mut zoning = ZonedAbsorption::new(absorber(480.0, 0.05));
+    zoning.zones.push(Zone {
+        shape: ZoneShape::HalfSpace {
+            normal: DVec3::Y,
+            offset: 1.0,
+        },
+        absorption: absorber(600.0, 0.9),
+    });
+    let mut zoned = GemMaterial::sapphire().with_zoning(zoning);
+    zoned.absorption_path_scale = 1.7;
+
+    let triple = MaterialSelection::none().with_body_color(Some([0.2, 0.4, 2.8]));
+    let bands = MaterialSelection::none().with_body_color_bands(
+        Some([0.2, 0.4, 2.8]),
+        Some(vec![[460.0f32, 45.0, 0.25]]),
+        Some(24.5),
+    );
+    for selection in [triple, bands] {
+        let out = selection.apply_overrides(zoned.clone());
+        assert_eq!(out, zoned, "the colour override must be a no-op");
+        assert!(out.zoning.is_some());
+        assert_eq!(out.absorption, zoned.absorption);
+        assert_eq!(out.absorption_unit, AbsorptionUnit::PerMm);
+        assert_eq!(
+            out.absorption_path_scale.to_bits(),
+            zoned.absorption_path_scale.to_bits(),
+            "a recolour never changes the zone path scale"
+        );
+    }
+
+    // The refractive-index override still applies, and only it.
+    let ri = MaterialSelection {
+        refractive_index_override: Some(1.7),
+        ..MaterialSelection::none()
+    }
+    .with_body_color(Some([0.2, 0.4, 2.8]));
+    let out = ri.apply_overrides(zoned.clone());
+    assert!((out.dispersion.n_d() - 1.7).abs() < 1e-6);
+    assert_eq!(out.zoning, zoned.zoning);
+    assert_eq!(out.absorption, zoned.absorption);
+    assert_eq!(out.absorption_unit, AbsorptionUnit::PerMm);
+    assert_eq!(
+        out.absorption_path_scale.to_bits(),
+        zoned.absorption_path_scale.to_bits()
+    );
+}
+
+/// A selection that only carries a refractive-index override.
+fn ri_override(n_d: f64) -> MaterialSelection {
+    MaterialSelection {
+        refractive_index_override: Some(n_d),
+        ..MaterialSelection::none()
+    }
+}
+
+/// An RI override is one typed index: the extraordinary curve goes flat with the ordinary
+/// one, so quartz keeps its positive D-line birefringence instead of reading `n_e` = 1.55
+/// against an overridden `n_o` = 1.80.
+#[test]
+fn an_ri_override_flattens_the_extraordinary_curve_too() {
+    let quartz = GemMaterial::by_name("Quartz").expect("Quartz");
+    assert!(quartz.uniaxial_extraordinary_dispersion.is_some());
+    let out = ri_override(1.80).apply_overrides(quartz.clone());
+    assert!(out.uniaxial_extraordinary_dispersion.is_none());
+    let ordinary_blue = out.dispersion.evaluate(450.0);
+    let ordinary_red = out.dispersion.evaluate(650.0);
+    assert!(
+        (ordinary_blue - 1.80).abs() < 1e-6,
+        "n_o(450) = {ordinary_blue}"
+    );
+    assert!(
+        (ordinary_red - 1.80).abs() < 1e-6,
+        "n_o(650) = {ordinary_red}"
+    );
+    let expected_e = 1.80 + quartz.birefringence_delta;
+    let extraordinary_blue = out.extraordinary_index_at(450.0, ordinary_blue);
+    let extraordinary_red = out.extraordinary_index_at(650.0, ordinary_red);
+    assert!(
+        (extraordinary_blue - expected_e).abs() < 1e-6,
+        "n_e(450) = {extraordinary_blue}"
+    );
+    assert!(
+        (extraordinary_red - expected_e).abs() < 1e-6,
+        "n_e(650) = {extraordinary_red}"
+    );
+    assert!((extraordinary_blue - extraordinary_red).abs() < 1e-6);
+    assert_eq!(out.birefringence_delta, quartz.birefringence_delta);
+}
+
+/// The same for a biaxial stone: the `n_alpha` / `n_gamma` curves are dropped with the
+/// override, so the triplet is the achromatic one around the typed `n_beta`.
+#[test]
+fn an_ri_override_flattens_the_biaxial_curves_too() {
+    let alexandrite = GemMaterial::by_name("Alexandrite").expect("Alexandrite");
+    assert!(alexandrite.biaxial_principal_dispersion.is_some());
+    let delta_beta_alpha = alexandrite
+        .biaxial_delta_beta_alpha
+        .expect("Alexandrite is biaxial");
+    let out = ri_override(1.75).apply_overrides(alexandrite.clone());
+    assert!(out.biaxial_principal_dispersion.is_none());
+    let blue = out.biaxial_indicatrix(450.0).expect("biaxial at 450 nm");
+    let red = out.biaxial_indicatrix(650.0).expect("biaxial at 650 nm");
+    assert!((blue.n_alpha - red.n_alpha).abs() < 1e-6);
+    assert!((blue.n_beta - red.n_beta).abs() < 1e-6);
+    assert!((blue.n_gamma - red.n_gamma).abs() < 1e-6);
+    for indicatrix in [&blue, &red] {
+        assert!((indicatrix.n_beta - 1.75).abs() < 1e-6);
+        assert!(
+            (indicatrix.n_gamma - indicatrix.n_alpha - alexandrite.birefringence_delta).abs()
+                < 1e-6
+        );
+        assert!((indicatrix.n_beta - indicatrix.n_alpha - delta_beta_alpha).abs() < 1e-6);
+        assert!(indicatrix.n_alpha <= indicatrix.n_beta && indicatrix.n_beta <= indicatrix.n_gamma);
+    }
+}
+
+/// Without an RI override nothing about the optics changes: the curves stay exactly the
+/// catalogue's.
+#[test]
+fn no_override_leaves_every_curve_untouched() {
+    for name in ["Quartz", "Alexandrite"] {
+        let catalogue = GemMaterial::by_name(name).expect(name);
+        let out = MaterialSelection::none().apply_overrides(catalogue.clone());
+        assert_eq!(out, catalogue, "{name}");
+        assert_eq!(
+            out.uniaxial_extraordinary_dispersion,
+            catalogue.uniaxial_extraordinary_dispersion
+        );
+        assert_eq!(
+            out.biaxial_principal_dispersion,
+            catalogue.biaxial_principal_dispersion
+        );
+    }
+}
+
+/// The override keeps the D-line spread, so the sign of a uniaxial stone's birefringence
+/// survives it.
+#[test]
+fn an_ri_override_keeps_the_birefringence_sign() {
+    let tourmaline =
+        ri_override(1.70).apply_overrides(GemMaterial::by_name("Tourmaline").expect("Tourmaline"));
+    let n_o = tourmaline.dispersion.evaluate(550.0);
+    let n_e = tourmaline.extraordinary_index_at(550.0, n_o);
+    assert!(n_e - n_o < 0.0, "tourmaline stays optically negative");
+
+    let quartz = ri_override(1.70).apply_overrides(GemMaterial::by_name("Quartz").expect("Quartz"));
+    let n_o = quartz.dispersion.evaluate(550.0);
+    let n_e = quartz.extraordinary_index_at(550.0, n_o);
+    assert!(n_e - n_o > 0.0, "quartz stays optically positive");
+}
+
+/// The hand-written `Debug` prints exactly the pre-color field list when no color
+/// is set (the desktop's identity pins hash these dumps), and names the color when
+/// one is.
+#[test]
+fn debug_omits_an_unset_body_color_and_prints_a_set_one() {
+    let plain = MaterialSelection {
+        name: Some("Quartz".to_string()),
+        specific_gravity_override: None,
+        refractive_index_override: Some(1.55),
+        body_color_override: None,
+        body_color_bands_override: None,
+        absorption_path_scale_override: None,
+        color_pattern_override: None,
+        color_variant_override: None,
+    };
+    assert_eq!(
+        format!("{plain:?}"),
+        "MaterialSelection { name: Some(\"Quartz\"), specific_gravity_override: None, \
+         refractive_index_override: Some(1.55) }"
+    );
+    let colored = plain.with_body_color(Some([0.2, 0.4, 2.8]));
+    assert!(format!("{colored:?}").contains("body_color_override: [0.2, 0.4, 2.8]"));
+}

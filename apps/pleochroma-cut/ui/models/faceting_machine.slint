@@ -1,0 +1,37 @@
+// The Faceting Machine preference: where the polishing scratches on a facet point. Cutters' machines
+// differ, so this is a per-user preference (`AppSettings::faceting_machine`), never part of a saved
+// design; the same design renders for each cutter's machine. Rust seeds it from the settings file and
+// saves and applies every change (`gui::render::faceting_machine_ui`). The Preferences dialog's
+// Faceting Machine section writes it (`components/faceting_machine_section.slint`).
+export global FacetingMachineModel {
+    // The angle in degrees between the dop arm and the radial line through the contact point.
+    in-out property <float> arm_offset_deg: 0.0;
+    // The radius of the lap in millimetres.
+    in-out property <float> lap_radius_mm: 100.0;
+    // The distance in millimetres of the line of the dop arm from the lap centre. 0 means the arm
+    // points at the lap centre.
+    in-out property <float> mast_distance_mm: 0.0;
+    // The contact radii of the last polishing pass, in millimetres.
+    in-out property <float> sweep_inner_mm: 40.0;
+    in-out property <float> sweep_outer_mm: 80.0;
+    // The sweep as a name: 0 Narrow, 1 Typical, 2 Wide, 3 Custom. Rust keeps it in step with the
+    // two radii.
+    in-out property <int> sweep_preset: 1;
+    // The scratch angles the sweep gives, as one plain line ("Scratches run 0 to 18 degrees from
+    // the girdle."). Rust writes it after every change.
+    in property <string> angles_text: "";
+
+    // The top view of the lap, in a 200 by 200 box (the lap centre at 100, 100, the lap radius 90):
+    // SVG path commands for the lap's outline, the swept band, the dop arm and the scratch ticks.
+    in property <string> lap_commands: "";
+    in property <string> band_commands: "";
+    in property <string> arm_commands: "";
+    in property <string> scratch_commands: "";
+
+    // Any of the numbers above (not the preset) changed by hand.
+    callback value_changed();
+    // A sweep name was picked (0 Narrow, 1 Typical, 2 Wide, 3 Custom).
+    callback sweep_preset_chosen(int);
+    // "Reset to the Plain Machine".
+    callback reset_requested();
+}

@@ -1,0 +1,200 @@
+import { Theme } from "../../theme.slint";
+import { CrystalAxisModel } from "../../models/crystal_axis.slint";
+import { RenderEffectsModel } from "../../models/render_effects.slint";
+import { SettingsModel } from "../../models/settings.slint";
+import { ViewportModel } from "../../models/viewport.slint";
+import { SolidPreviewModel } from "../../models/solid_preview.slint";
+import { ManipulateModel } from "../../models/manipulate.slint";
+
+// The marker at the end of an axis line: a circle with the axis's letter beside it. The marker
+// the pointer is over or is dragging is drawn larger and brighter. Purely presentational: the
+// pointer events all reach `SolidViewportView`'s `drag_area` underneath, like `ManipulateOverlay`.
+// Everything scales with `ManipulateModel.handle_scale` (the "Larger handles" preference), which
+// the Rust hit test multiplies its radius by too.
+component AxisMarker inherits Rectangle {
+    in property <length> tip_x;
+    in property <length> tip_y;
+    in property <color> marker_color;
+    in property <string> letter;
+    in property <bool> active: false;
+
+    property <length> marker_size: (root.active ? 18px : 14px) * ManipulateModel.handle_scale;
+
+    x: root.tip_x - root.marker_size / 2;
+    y: root.tip_y - root.marker_size / 2;
+    width: root.marker_size;
+    height: root.marker_size;
+    background: root.active ? root.marker_color.brighter(0.5) : root.marker_color;
+    border-radius: root.marker_size / 2;
+    border-width: 1.5px * ManipulateModel.handle_scale;
+    border-color: Theme.bg-darkest;
+
+    Text {
+        text: root.letter;
+        x: root.width + 3px;
+        y: -10px * ManipulateModel.handle_scale;
+        font-size: 11px * (1.0 + (ManipulateModel.handle_scale - 1.0) * 0.5);
+        font-weight: 700;
+        color: root.marker_color;
+    }
+}
+
+// The Crystal Axis (and the Second Axis of a biaxial stone) drawn over the stone: a line across
+// it with a drag handle at the upper end. Positions come from `CrystalAxisModel` in the
+// viewport's logical coordinates (UNZOOMED in the Diagram view, where `zoom`, `pan_x` and
+// `pan_y` map them to the screen like `ManipulateOverlay` does). Drawn in the Solid,
+// Path-Traced, Ray-Traced and Both views and on the Diagram's profile panel.
+export component CrystalAxisOverlay inherits Rectangle {
+    // Explicit geometry, like `ManipulateOverlay`: an overlay positioned by default would
+    // propagate its constraints to the viewport.
+    x: 0px;
+    y: 0px;
+    width: 100%;
+    height: 100%;
+
+    in property <bool> live: false;
+    in property <float> zoom: 1.0;
+    in property <length> pan_x: 0px;
+    in property <length> pan_y: 0px;
+
+    property <color> axis_color: Theme.accent-purple;
+    property <color> second_color: Theme.accent-emerald;
+
+    property <length> axis_sx0: root.live ? CrystalAxisModel.live_axis_x0 : CrystalAxisModel.axis_x0 * root.zoom + root.pan_x;
+    property <length> axis_sy0: root.live ? CrystalAxisModel.live_axis_y0 : CrystalAxisModel.axis_y0 * root.zoom + root.pan_y;
+    property <length> axis_sx1: root.live ? CrystalAxisModel.live_axis_x1 : CrystalAxisModel.axis_x1 * root.zoom + root.pan_x;
+    property <length> axis_sy1: root.live ? CrystalAxisModel.live_axis_y1 : CrystalAxisModel.axis_y1 * root.zoom + root.pan_y;
+    property <length> axis_tx: root.live ? CrystalAxisModel.live_axis_x1 : CrystalAxisModel.axis_tip_x * root.zoom + root.pan_x;
+    property <length> axis_ty: root.live ? CrystalAxisModel.live_axis_y1 : CrystalAxisModel.axis_tip_y * root.zoom + root.pan_y;
+    property <length> second_sx0: root.live ? CrystalAxisModel.live_second_x0 : CrystalAxisModel.second_x0 * root.zoom + root.pan_x;
+    property <length> second_sy0: root.live ? CrystalAxisModel.live_second_y0 : CrystalAxisModel.second_y0 * root.zoom + root.pan_y;
+    property <length> second_sx1: root.live ? CrystalAxisModel.live_second_x1 : CrystalAxisModel.second_x1 * root.zoom + root.pan_x;
+    property <length> second_sy1: root.live ? CrystalAxisModel.live_second_y1 : CrystalAxisModel.second_y1 * root.zoom + root.pan_y;
+    property <length> second_tx: root.live ? CrystalAxisModel.live_second_x1 : CrystalAxisModel.second_tip_x * root.zoom + root.pan_x;
+    property <length> second_ty: root.live ? CrystalAxisModel.live_second_y1 : CrystalAxisModel.second_tip_y * root.zoom + root.pan_y;
+
+    // The line of each axis. The viewbox equals the element's size, so path coordinates are
+    // plain logical pixels.
+    Path {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: self.width / 1px;
+        viewbox-height: self.height / 1px;
+        stroke: root.axis_color.transparentize(0.15);
+        stroke-width: 2px * ManipulateModel.handle_scale;
+        MoveTo {
+            x: root.axis_sx0 / 1px;
+            y: root.axis_sy0 / 1px;
+        }
+        LineTo {
+            x: root.axis_sx1 / 1px;
+            y: root.axis_sy1 / 1px;
+        }
+    }
+    if (root.live ? CrystalAxisModel.live_second_visible : CrystalAxisModel.second_visible): Path {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: self.width / 1px;
+        viewbox-height: self.height / 1px;
+        stroke: root.second_color.transparentize(0.15);
+        stroke-width: 2px * ManipulateModel.handle_scale;
+        MoveTo {
+            x: root.second_sx0 / 1px;
+            y: root.second_sy0 / 1px;
+        }
+        LineTo {
+            x: root.second_sx1 / 1px;
+            y: root.second_sy1 / 1px;
+        }
+    }
+
+    // The silk directions (Stone tab, Inclusions): one thin line per family, no handle.
+    for line in (root.live ? [] : RenderEffectsModel.silk_lines): Path {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: self.width / 1px;
+        viewbox-height: self.height / 1px;
+        stroke: Theme.accent-amber.transparentize(0.1);
+        stroke-width: 1.5px * ManipulateModel.handle_scale;
+        MoveTo {
+            x: (line.x0 * root.zoom + root.pan_x) / 1px;
+            y: (line.y0 * root.zoom + root.pan_y) / 1px;
+        }
+        LineTo {
+            x: (line.x1 * root.zoom + root.pan_x) / 1px;
+            y: (line.y1 * root.zoom + root.pan_y) / 1px;
+        }
+    }
+
+    AxisMarker {
+        tip_x: root.axis_tx;
+        tip_y: root.axis_ty;
+        marker_color: root.axis_color;
+        letter: root.live ? "c-axis" : "Axis";
+        active: !root.live && CrystalAxisModel.hovered == 0;
+    }
+    if (root.live ? CrystalAxisModel.live_second_visible : CrystalAxisModel.second_visible): AxisMarker {
+        tip_x: root.second_tx;
+        tip_y: root.second_ty;
+        marker_color: root.second_color;
+        letter: "2nd";
+        active: !root.live && CrystalAxisModel.hovered == 1;
+    }
+}
+
+// Tells Rust when anything the Crystal Axis depends on changed (the design's axis controls, the
+// material, the toolbar toggle, the view), so it recomputes the Stone tab's section, the readouts
+// and the overlay. A global's own property cannot get a `changed` handler outside the file that
+// declares it, so each input is mirrored into a plain local property here. Zero-sized and
+// invisible; mounted once in each viewport (the Edit tab's and the Live Render tab's).
+export component CrystalAxisWatcher inherits Rectangle {
+    x: 0px;
+    y: 0px;
+    width: 0px;
+    height: 0px;
+
+    property <bool> axis_on: SettingsModel.c_axis_override_enabled;
+    property <float> tilt: SettingsModel.c_axis_tilt_deg;
+    property <float> azimuth: SettingsModel.c_axis_azimuth_deg;
+    property <bool> second_on: CrystalAxisModel.second_set;
+    property <float> second_turn: CrystalAxisModel.second_deg;
+    property <bool> available: SettingsModel.c_axis_override_available;
+    property <string> material: ViewportModel.traced_material_name;
+    property <bool> shown: CrystalAxisModel.show_axis;
+    property <int> view_mode: SolidPreviewModel.view_mode;
+    property <int> live_mode: ViewportModel.live_view_mode;
+    property <length> live_width: SolidPreviewModel.live_viewport_width;
+    property <length> live_height: SolidPreviewModel.live_viewport_height;
+    property <image> rendered_image: ViewportModel.render_image;
+
+    changed axis_on => { CrystalAxisModel.overlay_changed(); }
+    changed tilt => { CrystalAxisModel.overlay_changed(); }
+    changed azimuth => { CrystalAxisModel.overlay_changed(); }
+    changed second_on => { CrystalAxisModel.overlay_changed(); }
+    changed second_turn => { CrystalAxisModel.overlay_changed(); }
+    changed available => { CrystalAxisModel.overlay_changed(); }
+    changed material => { CrystalAxisModel.overlay_changed(); }
+    changed shown => { CrystalAxisModel.overlay_changed(); }
+    changed view_mode => { CrystalAxisModel.overlay_changed(); }
+    changed live_mode => { CrystalAxisModel.live_overlay_changed(); }
+    changed live_width => { CrystalAxisModel.live_overlay_changed(); }
+    changed live_height => { CrystalAxisModel.live_overlay_changed(); }
+    changed rendered_image => {
+        if (CrystalAxisModel.show_axis && SettingsModel.c_axis_override_available) {
+            CrystalAxisModel.live_overlay_changed();
+        }
+    }
+    init => { CrystalAxisModel.overlay_changed(); }
+}

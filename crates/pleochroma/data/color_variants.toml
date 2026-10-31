@@ -1,0 +1,44 @@
+# Built-in color variants per material (loaded once by
+# `optics::materials::variants`, parsed lazily like `chromophores.toml`).
+#
+# Schema (data_version 1):
+#
+#   data_version = 1
+#
+#   [[variant]]
+#   material          = "Sapphire"          # exact name of a built-in material (GemMaterial::built_in)
+#   key               = "sapphire.pink"     # "<slug>.<name>": slug = lowercase material name with every
+#                                           # non-alphanumeric character replaced by "_"; name is not
+#                                           # empty and not "default" (reserved for the Material Default,
+#                                           # which is built from the material itself, never listed here)
+#   label             = "Pink"              # Title Case
+#   unit              = "per_mm"            # "per_mm" | "model_unit"
+#   reference_path_mm = 7.0                 # stone WIDTH (mm) the numbers are calibrated for, never the optical path
+#                                           # (the face-up path is variants::face_up_swatch_path(unit, width))
+#   estimated         = true                # true when the spectrum shape is not a measured spectrum of the variety OR the
+#                                           # strength is not anchored (no concentration, no published color, a factor chosen
+#                                           # for the look); the first `sources` line is one short plain sentence saying which
+#                                           # part is estimated (the UI tooltip)
+#   sources           = ["..."]             # citations, at least one
+#   fit_record        = "..."               # optional link to the calibration record
+#
+#   [variant.absorption]
+#   pleochroic = true                       # AbsorptionTensor::is_pleochroic, stored as given
+#   o_ray = [                               # ordinary ray / alpha; inline tables on one line each
+#     { center_nm = 562.0, width_nm = 634.0, peak = 2.0, shape = "energy" },
+#   ]
+#   e_ray = [ ... ]                         # extraordinary ray / gamma
+#   beta_ray = [ ... ]                      # optional, biaxial (trichroic) variants only
+#
+# Band rows are exactly `AbsorptionBand`s: shape = "wavelength" (sigma in nm) or "energy"
+# (sigma in cm^-1; NOT the FWHM), width_nm is that sigma, peak is the absorption coefficient at the
+# centre in the entry's unit. At most 8 bands per ray (the GPU material buffer). A colorless
+# variant is stored with empty o_ray and e_ray and pleochroic = false: an all-empty tensor has no
+# pleochroism to lose and is valid on any host (the earlier `pleochroic = true` trick is no longer needed).
+# Every entry is validated against its material at load (rank, finite, nonnegative, band count).
+#
+# The entries live in one file per material group, `data/color_variants/<group>.toml`; this file
+# carries the schema only. (The two estimated seed entries sapphire.pink and sapphire.yellow were
+# replaced by measured ones in `color_variants/corundum_spinel_chrysoberyl.toml`.)
+
+data_version = 1

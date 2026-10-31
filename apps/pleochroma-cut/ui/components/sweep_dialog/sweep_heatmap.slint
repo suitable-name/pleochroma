@@ -1,0 +1,178 @@
+// The Angle Sweep dialog's heat map (Two Tiers): one image with a block per angle pair, drawn
+// by Rust (`gui::editor::sweep::heatmap`), and the marks on top of it: a ring on the design's
+// own pair, a star on the best pair of the figure, an outline on the selected pair and a
+// lighter one under the pointer.
+//
+// The image is shown with its own aspect ratio, centered in the space it is given, so the
+// pointer positions Rust receives are fractions of the image itself. Moving the pointer reads
+// off a pair, a click selects it; with the keyboard, Tab reaches the map, the arrow keys move
+// the selection and Enter uses the pair.
+import { Theme } from "../../theme.slint";
+import { SweepModel } from "../../models/sweep.slint";
+
+export component SweepHeatmap inherits Rectangle {
+    // No frame of its own: the frame and the focus ring are drawn on the map (the image's own
+    // rectangle), so there are no dark letterbox bars either side of the square.
+    clip: true;
+
+    // The image's width over its height, never zero.
+    property <float> aspect: max(SweepModel.heat_aspect, 0.1);
+
+    map := Rectangle {
+        background: Theme.chart-bg;
+        border-radius: Theme.radius-sm;
+        clip: true;
+        width: min(root.width, root.height * root.aspect);
+        height: self.width / root.aspect;
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+
+        // One cell, in logical pixels.
+        property <length> cell_w: self.width * SweepModel.heat_cell_w;
+        property <length> cell_h: self.height * SweepModel.heat_cell_h;
+
+        Image {
+            width: 100%;
+            height: 100%;
+            source: SweepModel.heatmap_image;
+            image-fit: fill;
+            image-rendering: pixelated;
+        }
+
+        // The frame of the map.
+        Rectangle {
+            border-width: 1px;
+            border-color: Theme.chart-border;
+            border-radius: Theme.radius-sm;
+        }
+
+        // The pair under the pointer.
+        if SweepModel.heat_hover_x >= 0: Rectangle {
+            x: map.width * SweepModel.heat_hover_x - map.cell_w / 2;
+            y: map.height * SweepModel.heat_hover_y - map.cell_h / 2;
+            width: map.cell_w;
+            height: map.cell_h;
+            border-width: 1px;
+            border-color: Theme.chart-crosshair;
+        }
+
+        // The design's own pair: a ring with a dark edge, so it shows on every color.
+        if SweepModel.heat_current_x >= 0: Rectangle {
+            property <length> size: max(min(map.cell_w, map.cell_h) * 0.7, 6px);
+            x: map.width * SweepModel.heat_current_x - self.size / 2;
+            y: map.height * SweepModel.heat_current_y - self.size / 2;
+            width: self.size;
+            height: self.size;
+            border-radius: self.size / 2;
+            border-width: 3px;
+            border-color: Theme.chart-bg;
+            Rectangle {
+                x: 1px;
+                y: 1px;
+                width: parent.width - 2px;
+                height: parent.height - 2px;
+                border-radius: self.width / 2;
+                border-width: 1.5px;
+                border-color: Theme.text-primary;
+            }
+        }
+
+        // The best pair of the figure: a star.
+        if SweepModel.heat_best_x >= 0: Path {
+            property <length> size: max(min(map.cell_w, map.cell_h) * 0.8, 8px);
+            x: map.width * SweepModel.heat_best_x - self.size / 2;
+            y: map.height * SweepModel.heat_best_y - self.size / 2;
+            width: self.size;
+            height: self.size;
+            fit: fill;
+            commands: "M 50 4 L 62 37 L 97 38 L 69 59 L 79 93 L 50 73 L 21 93 L 31 59 L 3 38 L 38 37 Z";
+            viewbox-width: 100;
+            viewbox-height: 100;
+            fill: Theme.accent-amber;
+            stroke: Theme.chart-bg;
+            stroke-width: 1.5px;
+        }
+
+        // The selected pair.
+        if SweepModel.heat_selected_x >= 0: Rectangle {
+            x: map.width * SweepModel.heat_selected_x - map.cell_w / 2;
+            y: map.height * SweepModel.heat_selected_y - map.cell_h / 2;
+            width: map.cell_w;
+            height: map.cell_h;
+            border-width: 3px;
+            border-color: Theme.chart-bg;
+            Rectangle {
+                x: 1px;
+                y: 1px;
+                width: parent.width - 2px;
+                height: parent.height - 2px;
+                border-width: 2px;
+                border-color: Theme.accent-cyan-hover;
+            }
+        }
+
+        heat_touch := TouchArea {
+            mouse-cursor: pointer;
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.move {
+                    SweepModel.heat_pointer(self.mouse-x / self.width, self.mouse-y / self.height, 0);
+                }
+            }
+            changed has-hover => {
+                if !self.has-hover {
+                    SweepModel.heat_pointer(-1.0, -1.0, 2);
+                }
+            }
+            clicked => {
+                heat_focus.focus();
+                SweepModel.heat_pointer(self.mouse-x / self.width, self.mouse-y / self.height, 1);
+            }
+        }
+    }
+
+    // Arrow keys move the selected pair, Enter uses it; the readout below follows, exactly as
+    // for a click.
+    heat_focus := FocusScope {
+        accessible-role: AccessibleRole.slider;
+        accessible-label: "Angle Pair on the Heat Map";
+        accessible-description: "The arrow keys choose the neighboring angle pair. Enter makes the chosen pair the angles of the two tiers.";
+        accessible-value: SweepModel.selected_cell_text;
+        accessible-value-minimum: 0;
+        accessible-value-maximum: max(SweepModel.heat_cols * SweepModel.heat_rows - 1, 0);
+        accessible-value-step: 1;
+        accessible-action-increment => { SweepModel.heat_key(1); }
+        accessible-action-decrement => { SweepModel.heat_key(0); }
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow {
+                SweepModel.heat_key(0);
+                return accept;
+            } else if event.text == Key.RightArrow {
+                SweepModel.heat_key(1);
+                return accept;
+            } else if event.text == Key.UpArrow {
+                SweepModel.heat_key(2);
+                return accept;
+            } else if event.text == Key.DownArrow {
+                SweepModel.heat_key(3);
+                return accept;
+            } else if event.text == Key.Return {
+                SweepModel.heat_key(4);
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    // The keyboard focus ring, drawn over the map (not over the letterbox space around it).
+    if heat_focus.has-focus: Rectangle {
+        x: map.x;
+        y: map.y;
+        width: map.width;
+        height: map.height;
+        border-width: 2px;
+        border-color: Theme.accent-cyan-hover;
+        border-radius: Theme.radius-sm;
+    }
+
+    Tooltip { text: @markdown("Move the pointer over the map to read off an angle pair, and click to select it. With the keyboard, Tab to the map, then the arrow keys choose a pair and Enter uses it."); }
+}

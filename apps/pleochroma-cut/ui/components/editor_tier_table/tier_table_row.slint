@@ -1,0 +1,656 @@
+import { EditorTierItem } from "../../types.slint";
+import { Theme } from "../../theme.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { RelationModel } from "../../models/relation.slint";
+import { TierAngleCell } from "tier_angle_cell.slint";
+import { TierSurfaceMenu } from "tier_surface_menu.slint";
+import { CompactButton } from "../compact_controls.slint";
+import { TierRowActions } from "tier_row_actions.slint";
+
+// The tier's code at exactly 0 degrees, where clicking it flips the facet to the other block. It is
+// drawn exactly like the plain code of the other rows (the same text, no chip) and shows a hover
+// look, a tooltip and a focus ring; for a screen reader it is a button labelled with the code, as
+// the `CompactButton` it replaces was.
+component CodeFlip inherits Rectangle {
+    in property <string> text;
+    in property <string> hint;
+    in property <bool> enabled: true;
+    in property <bool> reachable: false;
+    callback clicked();
+
+    border-radius: 3px;
+    background: (code_touch.has-hover && root.enabled) ? Theme.overlay-hover : transparent;
+    border-width: code_focus.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.text;
+    accessible-description: root.hint;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    Tooltip { text: @markdown("\{root.hint}"); }
+
+    code_focus := FocusScope {
+        enabled: root.enabled && root.reachable;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    Text {
+        text: root.text;
+        font-size: 10px;
+        font-weight: 600;
+        color: Theme.text-muted;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    code_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
+}
+
+// One row of `EditorTierTable`'s tier list. Column widths are passed straight
+// through from `EditorTierTable`'s own `col_*_width` properties (see that
+// component's own top doc comment on why they live there, named, rather than
+// as literals repeated in header and row) so the header and this row can
+// never drift out of sync.
+//
+// While the worked-example guide locks the tier table
+// (`GuideModel.allows_tier_table()`, see `GuideAllow`), every action here that
+// changes the design -- the 0-degree block flip, Complete orbit, Adopt, Pin,
+// Detach/Reattach, Add Anchor, Move, Duplicate, Delete, and the angle cell's
+// double-click/F2 edit and wheel nudge -- is disabled and dimmed, and its tooltip
+// explains the lock. Row selection (click, Ctrl/Shift+click, the Select-mode
+// checkbox) stays usable: it changes no design data.
+export component TierTableRow inherits Rectangle {
+    // Named `item`, not `row` -- `row` is a reserved `GridLayout`
+    // cell-placement property every element inherits, so declaring a
+    // same-named custom property fails with "Cannot override property 'row'"
+    // (see `EditorInspector`'s own `tier_row`/`row` doc comment for the same
+    // trap, in `editor_inspector/tier_form_tab.slint`).
+    in property <EditorTierItem> item;
+    // Mirrors `EditorTierTable.keyboard_focus_index` two-way: a click here
+    // moves the shared cursor, and the shared cursor's own movement (arrow
+    // keys, `focus_row`) is reflected back into this row's highlight.
+    in-out property <int> keyboard_focus_index: -1;
+    in property <bool> table_focused: false;
+    in property <bool> select_mode: false;
+    in property <int> inline_edit_target: -1;
+    in property <int> inline_edit_pulse: 0;
+
+    in property <length> col_hash_width;
+    in property <length> col_warn_width;
+    in property <length> col_block_width;
+    in property <length> col_angle_width;
+    in property <length> col_name_min_width;
+    in property <length> col_indices_min_width;
+    in property <length> col_meets_width;
+    in property <length> col_mast_width;
+    in property <length> col_solve_width;
+    in property <length> col_margin_width;
+    in property <length> col_orbit_width;
+    // The pinned action group at the row's right end (`TierRowActions`): the data columns reserve
+    // this much room at their end, and the group itself stays at the right edge of the table's
+    // visible area (`pane_width` less the scroll gutter) however far the table is scrolled sideways.
+    in property <length> col_actions_width;
+    // The room of the group's Adopt / Pin / Add Anchor slot (`EditorTierTable.col_slot_width`).
+    in property <length> col_slot_width: 44px;
+    in property <length> pane_width;
+    in property <length> pane_x;
+    in property <length> scroll_gutter: 14px;
+    // Fired by a Shift+wheel over the row: the table scrolls sideways by this much.
+    callback scroll_sideways(length);
+
+    // Fired on a plain click (non-Ctrl/Shift) and by the angle cell's own
+    // select() -- reports which tier was selected; forwarded to
+    // `EditorTierTable.tier_selected` at the call site.
+    callback tier_selected(int);
+    // Fired once the inline angle editor closes, so the caller can reclaim
+    // keyboard focus on the tier list's own `FocusScope` (`table_focus`,
+    // declared in `EditorTierTable`, not reachable directly from here).
+    callback request_focus_return();
+
+    // Whether `row` matches the search/filter box. Slint has no substring
+    // operation, so the case-insensitive test runs in Rust via
+    // `EditorModel.tier_matches_filter`. Matches name/indices/block/strategy/
+    // meets-text jointly, so "pavilion" or "g1" both find what's expected.
+    function row_matches(candidate: EditorTierItem) -> bool {
+        // The Simple interface hides the filter box, so a filter typed earlier does nothing.
+        return !GuideModel.shows_advanced() || EditorModel.tier_filter_text == ""
+            || EditorModel.tier_matches_filter(candidate.name + " " + candidate.indices + " " + candidate.block + " " + candidate.strategy + " " + candidate.constraint_text + " " + candidate.tool_line, EditorModel.tier_filter_text);
+    }
+
+    // `false` while the worked-example guide locks the tier table -- see this
+    // component's own doc comment.
+    property <bool> unlocked: GuideModel.allows_tier_table();
+    // The Simple interface leaves out the MAST, SOLVE and ORBIT columns and the Adopt, Pin and Detach buttons
+    // (`TierTableHeader` leaves out the same ones); their state is untouched.
+    property <bool> advanced: GuideModel.shows_advanced();
+    // Tab stops: only the row that holds the keyboard cursor offers its buttons to Tab, so a
+    // long table is not hundreds of stops. Tab from the list walks the cursor row's buttons.
+    property <bool> reachable: root.item.index == root.keyboard_focus_index;
+
+    // The width of this row's pinned group: the table's, or wider when the row offers two slot
+    // buttons (Adopt and Add Anchor together).
+    property <length> group_width: max(root.col_actions_width, row_actions.needed_width);
+    // Where the group starts in this row's own coordinates, less a 4 px gap. A data value that
+    // would run under it is hidden whole instead of cut through a digit: MARGIN and ORBIT are
+    // behind the group in a ~600 px dock until the table is scrolled sideways.
+    property <length> data_limit: root.pane_width - root.scroll_gutter - root.group_width - 6px - root.pane_x;
+
+    height: 28px;
+    accessible-role: AccessibleRole.list-item;
+    accessible-label: "Tier " + (root.item.index + 1) + ", " + (root.item.name == "" ? "unnamed" : root.item.name)
+        + ", angle " + root.item.angle_deg + ", " + root.item.block
+        + (root.item.kind == 1 ? ", concave" : "") + (root.item.frosting_text != "" ? ", " + root.item.frosting_text : "")
+        + (root.item.multi_selected ? ", in the selection" : "");
+    accessible-item-selectable: true;
+    accessible-item-selected: root.item.index == EditorModel.selected_tier_index;
+    accessible-action-default => {
+        root.keyboard_focus_index = root.item.index;
+        root.tier_selected(root.item.index);
+    }
+                    // Dimmed (not removed) when it fails the filter test, so
+                    // Up/Down/Home/End arithmetic stays keyed on tiers.length.
+                    opacity: root.row_matches(root.item) ? 1.0 : 0.35;
+                    // Also the backdrop of the pinned action group, so it hides the data columns
+                    // that scroll beneath it.
+                    property <color> row_bg: root.item.index == EditorModel.selected_tier_index
+                        ? Theme.primary-glow
+                        // `angle_cell.hovered` keeps the highlight from dropping
+                        // while the pointer is over the ANGLE cell's TouchArea.
+                        : ((row_touch.has-hover || angle_cell.hovered) ? Theme.bg-card-hover : (Math.mod(root.item.index, 2) == 0 ? Theme.bg-input : Theme.bg-card));
+                    background: root.row_bg;
+                    border-radius: 2px;
+                    // Keyboard cursor ring is cyan only while `table_focus` has focus.
+                    // Multi-select gets its own amber so a batched-edit group is
+                    // never confused with the single cursor row.
+                    border-width: root.item.index == root.keyboard_focus_index ? 1.5px : (root.item.multi_selected ? 1px : 0px);
+                    border-color: root.item.index == root.keyboard_focus_index
+                        ? (root.table_focused ? Theme.accent-cyan : Theme.border-subtle)
+                        : (root.item.multi_selected ? Theme.accent-amber : transparent);
+
+                    // `ctrl_down`/`shift_down` record the LAST press's modifier
+                    // state (from `pointer-event`, the only place `TouchArea`
+                    // exposes `KeyboardModifiers`) so `clicked` -- which carries no
+                    // event/modifier argument of its own -- can still tell a plain
+                    // click from a Ctrl+click or a Shift+click.
+                    property <bool> ctrl_down: false;
+                    property <bool> shift_down: false;
+                    row_touch := TouchArea {
+                        // Shift+wheel turns the table sideways (a plain wheel scrolls the list
+                        // and a sideways wheel or touchpad swipe reaches the `ScrollView`).
+                        scroll-event(event) => {
+                            if event.modifiers.shift && event.delta-y != 0 {
+                                root.scroll_sideways(event.delta-y);
+                                return accept;
+                            }
+                            reject
+                        }
+                        pointer-event(event) => {
+                            if event.kind == PointerEventKind.down {
+                                parent.ctrl_down = event.modifiers.control || event.modifiers.meta;
+                                parent.shift_down = event.modifiers.shift;
+                            }
+                        }
+                        clicked => {
+                            root.keyboard_focus_index = root.item.index;
+                            // Shift+click range select is checked before Ctrl+click so
+                            // Shift+Ctrl+click resolves to one clear behavior. A concave
+                            // row only ever selects (`kind == 1`): the multi-select group
+                            // and its batch actions are flat-tier operations.
+                            if root.item.kind == 0 && parent.shift_down {
+                                EditorModel.select_tier_range(root.item.index);
+                            } else if root.item.kind == 0 && parent.ctrl_down {
+                                EditorModel.toggle_multi_select(root.item.index);
+                            } else {
+                                root.tier_selected(root.item.index);
+                            }
+                            // A TouchArea takes no focus: hand it to the list, so the keys a
+                            // selected row answers to (Alt+Up/Down, Delete, F2, arrows) work
+                            // right after the click.
+                            root.request_focus_return();
+                        }
+                    }
+
+                    // Right-click: Surface Finish for this tier (a flat tier only).
+                    TierSurfaceMenu {
+                        tier_index: root.item.index;
+                        available: root.unlocked && root.item.kind == 0;
+                        select_tier(index) => {
+                            root.keyboard_focus_index = index;
+                            root.tier_selected(index);
+                        }
+                    }
+
+                    HorizontalLayout {
+                        padding-left: 4px;
+                        // Room for the pinned action group, which is drawn over this end.
+                        padding-right: root.col_actions_width + 8px;
+                        // The other half of multi-select treatment: an amber tint
+                        // plus check icon (replaces row number), distinct from
+                        // the cyan cursor ring.
+                        Rectangle {
+                            width: root.col_hash_width;
+                            height: 100%;
+                            background: root.item.multi_selected ? Theme.accent-amber-glow : (root.select_mode && hash_touch.has-hover ? Theme.bg-card-hover : transparent);
+                            // The row number; a tick (multi-selected) or an empty box
+                            // ("Select" mode) replaces it. Both are drawn, not typed:
+                            // the UI font has no tick or box symbols.
+                            if !root.item.multi_selected && !root.select_mode: Text {
+                                width: parent.width;
+                                height: parent.height;
+                                text: "" + (root.item.index + 1);
+                                font-size: 11px;
+                                color: Theme.text-muted;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            if root.item.multi_selected: Image {
+                                source: @image-url("../../icons/check.svg");
+                                colorize: Theme.accent-amber;
+                                width: 11px;
+                                height: 11px;
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                image-fit: contain;
+                            }
+                            if root.select_mode && !root.item.multi_selected: Rectangle {
+                                width: 11px;
+                                height: 11px;
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                border-width: 1px;
+                                border-color: Theme.text-muted;
+                                border-radius: 2px;
+                            }
+                            // When "Select" mode is on, clicking toggles multi-select
+                            // the same way Ctrl+click does, with no modifier key
+                            // needed. Enabled only in Select mode so plain clicks
+                            // stay unchanged outside it.
+                            hash_touch := TouchArea {
+                                enabled: root.select_mode && root.item.kind == 0;
+                                clicked => { EditorModel.toggle_multi_select(root.item.index); }
+                            }
+                            if root.select_mode: Tooltip { text: @markdown("Click to add/remove this row from the multi-select\ngroup. From the keyboard, press Space on the row."); }
+                            // In Select mode the cell is a tick box for a screen reader.
+                            if root.select_mode && root.item.kind == 0: Rectangle {
+                                accessible-role: AccessibleRole.checkbox;
+                                accessible-checkable: true;
+                                accessible-checked: root.item.multi_selected;
+                                accessible-label: "Add Tier "+ (root.item.index + 1) + " to the selection";
+                                accessible-action-default => { EditorModel.toggle_multi_select(root.item.index); }
+                            }
+                        }
+                        // This tier's manufacturability warning(s), badged right on
+                        // the row. "" hides the badge, matching Adopt/Detach columns.
+                        Rectangle {
+                            width: root.col_warn_width;
+                            height: 100%;
+                            if root.item.warning_text != "": Image {
+                                source: @image-url("../../icons/warning.svg");
+                                colorize: Theme.accent-amber;
+                                width: 12px;
+                                height: 12px;
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                image-fit: contain;
+                            }
+                            if root.item.warning_text != "": Tooltip { text: @markdown("\{root.item.warning_text}"); }
+                        }
+                        // The tier's code (`EditorTierItem::code`: P1, G1, C1, T, Culet), the
+                        // label the cutting sheet prints; a row with no code shows its block's
+                        // one letter (`EditorTierItem::block`).
+                        // A facet at exactly 0 degrees has no discoverable way to
+                        // declare its side except by typing "-0" by hand.
+                        // `EditorModel.inline_set_angle` applies text verbatim, so
+                        // clicking this badge sends "0" or "-0" to flip at the
+                        // boundary. Only offered at zero; negating a non-boundary
+                        // angle would move the facet to a different depth.
+                        block_cell := Rectangle {
+                            property <bool> zero_angle: root.item.angle_deg == "0.00" || root.item.angle_deg == "-0.00";
+                            property <string> code_text: root.item.code != ""
+                                ? root.item.code
+                                : (root.item.block == "Crown" ? "C" : (root.item.block == "Pavilion" ? "P" : "G"));
+                            property <string> flip_hint: !self.zero_angle
+                                ? root.item.block + " facet, " + self.code_text + "."
+                                : (root.item.block == "Pavilion"
+                                    ? "Pavilion facet at 0\u{b0} -- click to flip to Crown."
+                                    : "Crown facet at 0\u{b0} -- click to flip to Pavilion.");
+                            width: root.col_block_width;
+                            height: 100%;
+                            // The code is plain text, except at exactly 0 degrees, where it
+                            // is a small button: clicking it flips the facet to the other
+                            // block (see above). One `Tooltip` per element, so the plain
+                            // case keeps the cell's and the button carries its own.
+                            if !block_cell.zero_angle: Text {
+                                width: parent.width;
+                                height: parent.height;
+                                text: block_cell.code_text;
+                                font-size: 10px;
+                                font-weight: 600;
+                                color: Theme.text-muted;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                accessible-role: AccessibleRole.text;
+                                // Never the bare block name: "Pavilion" and "Crown" are also the
+                                // labels of the diagram toolbar's pills, and one name on two
+                                // controls is ambiguous for a screen reader and for a lookup.
+                                accessible-label: "Code " + block_cell.code_text + ", " + root.item.block + " tier";
+                            }
+                            if !block_cell.zero_angle: Tooltip { text: @markdown("\{block_cell.flip_hint} The code is the tier's label on the cutting\nsheet: P is pavilion, G is girdle, C is crown and T is the\ntable, each numbered in cutting order. See the glossary."); }
+                            if block_cell.zero_angle: compact-button-code-text := CodeFlip {
+                                x: 1px;
+                                width: parent.width - 2px;
+                                height: parent.height;
+                                text: block_cell.code_text;
+                                hint: root.unlocked ? block_cell.flip_hint : GuideModel.locked_hint;
+                                enabled: root.unlocked && root.item.kind == 0;
+                                reachable: root.reachable;
+                                clicked => {
+                                    EditorModel.inline_set_angle(root.item.index, root.item.block == "Pavilion" ? "0" : "-0");
+                                }
+                            }
+                        }
+                        angle_cell := TierAngleCell {
+                            width: root.col_angle_width;
+                            value: root.item.angle_deg;
+                            full_value: root.item.angle_full;
+                            proposed: root.item.proposed_angle;
+                            index: root.item.index;
+                            focus_target: root.inline_edit_target;
+                            focus_pulse: root.inline_edit_pulse;
+                            // A concave tier's angle is authored in the inspector's concave
+                            // form, so its cell is read-only here.
+                            editable: root.unlocked && root.item.kind == 0;
+                            locked_text: root.item.kind == 1
+                                ? "Concave tier -- edit its angle in the inspector (click to select this row)."
+                                : GuideModel.locked_hint;
+                            // A tier whose angle follows a relation shows a link icon and
+                            // opens no editor; double-click and F2 say why instead.
+                            relation: root.item.relation_text;
+                            explain_driven() => { RelationModel.explain_driven_angle(); }
+                            select() => {
+                                root.keyboard_focus_index = root.item.index;
+                                root.tier_selected(root.item.index);
+                            }
+                            commit(text) => { EditorModel.inline_set_angle(root.item.index, text); }
+                            nudge(idx, delta) => { EditorModel.nudge_angle(idx, delta); }
+                            // Reclaim keyboard focus after inline edit closes, so
+                            // Up/Down/Delete work immediately. Required for all
+                            // close paths (Enter, focus loss, Escape).
+                            closed() => { root.request_focus_return(); }
+                        }
+                        HorizontalLayout {
+                            horizontal-stretch: 1;
+                            min-width: root.col_name_min_width;
+                            // The same preferred width as the header's NAME cell, so both take the
+                            // same share of the spare room and the columns stay under their headings.
+                            preferred-width: root.col_name_min_width;
+                            spacing: 4px;
+                            // A gap before INDICES, which starts right after this column.
+                            padding-right: 6px;
+                            Text {
+                                horizontal-stretch: 1;
+                                min-width: 0px;
+                                text: root.item.name == "" ? "(unnamed)" : root.item.name;
+                                font-size: 11px;
+                                color: Theme.text-secondary;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                            // The frost mark: the tier (or some of its facets) is cut frosted.
+                            if root.item.frosting_text != "": Rectangle {
+                                width: 12px;
+                                horizontal-stretch: 0;
+                                accessible-role: AccessibleRole.text;
+                                accessible-label: root.item.frosting_text;
+                                Image {
+                                    source: @image-url("../../icons/frost.svg");
+                                    colorize: Theme.accent-cyan;
+                                    width: 11px;
+                                    height: 11px;
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    image-fit: contain;
+                                }
+                                Tooltip { text: @markdown("\{root.item.frosting_text}. Frosted facets are cut with a matte, light-scattering finish."); }
+                            }
+                        }
+                        HorizontalLayout {
+                            horizontal-stretch: 1;
+                            min-width: root.col_indices_min_width;
+                            preferred-width: root.col_indices_min_width;
+                            // A gap before MEETS, which starts right after this column.
+                            padding-right: 6px;
+                            Text {
+                                min-width: 0px;
+                                text: root.item.indices;
+                                font-size: 11px;
+                                color: Theme.text-secondary;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                        }
+                        // What this tier's constraint is: an exact authored scale
+                        // value (pin glyph), named facets, an unspecified meet, or
+                        // an authored depth/girdle-thickness/table-width target
+                        // (`EditorTierItem::constraint_kind`/`constraint_text` --
+                        // kinds 3/4/5, led by an arrow icon for "resolves to"). The
+                        // adjacent MAST/MAST(mm) columns show the target's own
+                        // resolved scale reference once the design has solved.
+                        Rectangle {
+                            width: root.col_meets_width;
+                            height: 100%;
+                            visible: self.x + self.width <= root.data_limit;
+                            // A concave tier has no meet constraint: this cell carries its
+                            // tool badge instead, with the whole tool line (tool code,
+                            // theta, displacement, D/W and motion) as the tooltip.
+                            if root.item.kind == 1: Rectangle {
+                                x: 0px;
+                                y: (parent.height - self.height) / 2;
+                                width: parent.width - 4px;
+                                height: 18px;
+                                background: Theme.accent-cyan-surface;
+                                border-radius: 3px;
+                                Text {
+                                    text: "Tool";
+                                    font-size: 9px;
+                                    font-weight: 700;
+                                    color: Theme.accent-cyan;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                                Tooltip { text: @markdown("\{root.item.tool_line}"); }
+                            }
+                            // The pin and the arrow are icons (the UI font has neither).
+                            if root.item.kind == 0: HorizontalLayout {
+                                spacing: 3px;
+                                // A gap before MAST, which starts right after this column.
+                                padding-right: 6px;
+                                if root.item.constraint_kind == 2 || root.item.constraint_kind >= 3: VerticalLayout {
+                                    alignment: center;
+                                    Image {
+                                        source: root.item.constraint_kind == 2 ? @image-url("../../icons/pin.svg") : @image-url("../../icons/arrow-right.svg");
+                                        colorize: Theme.text-muted;
+                                        width: 9px;
+                                        height: 9px;
+                                        image-fit: contain;
+                                    }
+                                }
+                                Text {
+                                    horizontal-stretch: 1;
+                                    min-width: 0px;
+                                    text: root.item.constraint_kind == 2
+                                        ? root.item.constraint_text
+                                        : root.item.constraint_kind == 1 ? ("meets " + root.item.constraint_text)
+                                        : root.item.constraint_kind == 3 ? (root.item.constraint_text + " mm depth")
+                                        : root.item.constraint_kind == 4 ? ("girdle " + root.item.constraint_text + " mm")
+                                        : root.item.constraint_kind == 5 ? ("table " + root.item.constraint_text + " mm")
+                                        : "meet";
+                                    font-size: 10px;
+                                    color: Theme.text-muted;
+                                    overflow: elide;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            // Exactly one `Tooltip` child, its own text picked
+                            // by which condition applies -- Slint allows only a
+                            // single `Tooltip` per element, even conditionally.
+                            if root.item.kind == 0 && ((root.item.constraint_kind == 1 && root.item.constraint_text != "") || root.item.constraint_kind >= 3): Tooltip {
+                                text: root.item.constraint_kind >= 3
+                                    ? @markdown("Authored target: resolves to a real scale reference just before\nsolving. See the MAST column for the resolved value once solved.")
+                                    : @markdown("Meets: \{root.item.constraint_text}");
+                            }
+                        }
+                        // Cell is in model units (what the solver's constraints use),
+                        // but tooltip shows millimetres a cutter dials into a mast
+                        // gauge. Tooltip not a layout child, so wrapper is needed.
+                        if root.advanced: Rectangle {
+                            width: root.col_mast_width;
+                            visible: self.x + self.width <= root.data_limit;
+                            // Exactly one `Tooltip` (Slint allows one per element, even
+                            // conditionally): the millimetre figure when there is one.
+                            Tooltip {
+                                text: root.item.mast_mm != ""
+                                    ? @markdown("Mast: \{root.item.mast_mm}. See the glossary.")
+                                    : @markdown("Mast: how deep this facet's plane sits, in the design's own units.\nSet a Girdle Diameter to see it in millimetres. See the glossary.");
+                            }
+                            Text {
+                                width: parent.width - 4px;
+                                height: parent.height;
+                                text: root.item.mast;
+                                font-size: 11px;
+                                color: Theme.text-secondary;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                        }
+                        // Solve-strategy badge: `DependencyOrder`/`JointGroup`
+                        // (a real vertex-derived mast) reads normally;
+                        // `LeastSquaresFallback`/`Failed`/no-anchor-yet is
+                        // flagged in amber (`EditorTierItem::strategy_is_uncertain`).
+                        // `strategy_detail` (either the one-block missing-anchor
+                        // remedy or `SolvedTier::detail`'s prose -- see that field's
+                        // own doc comment) is shown verbatim as this cell's tooltip
+                        // when there is one, rather than thrown away.
+                        if root.advanced: Rectangle {
+                            width: root.col_solve_width;
+                            height: 100%;
+                            visible: self.x + self.width <= root.data_limit;
+                            Tooltip {
+                                text: root.item.strategy_detail != ""
+                                    ? @markdown("\{root.item.strategy_detail}")
+                                    : @markdown("How the solver worked out this tier's mast.\nAmber means it could not be derived exactly.");
+                            }
+                            Text {
+                                width: parent.width - 4px;
+                                height: parent.height;
+                                text: root.item.strategy;
+                                font-size: 10px;
+                                font-weight: root.item.strategy_is_uncertain ? 700 : 400;
+                                color: root.item.strategy_is_uncertain ? Theme.accent-amber : Theme.text-muted;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                        }
+                        // Margin over the critical angle + risk badge -- ""
+                        // / -1 (crown/girdle, or no material resolved)
+                        // reads as a plain dash, nothing to flag.
+                        Text {
+                            width: root.col_margin_width;
+                            // Shown only when the whole value is clear of the pinned group.
+                            visible: self.x + min(self.width, self.preferred-width) <= root.data_limit;
+                            text: root.item.margin_text == "" ? "-" : root.item.margin_text;
+                            font-size: 10px;
+                            font-weight: root.item.risk_level >= 1 ? 700 : 400;
+                            color: root.item.risk_level == 2 ? Theme.accent-ruby : (root.item.risk_level == 1 ? Theme.accent-amber : (root.item.risk_level == 0 ? Theme.accent-emerald : Theme.text-muted));
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+                        // This tier's orbit shape (`EditorTierItem::orbit_status`)
+                        // -- emerald for a complete orbit (or several
+                        // folded together), amber for incomplete/
+                        // inconsistent, muted with a trailing "*" once the
+                        // row is detached (still shown, no longer
+                        // auto-followed). Clickable ("Complete orbit") whenever
+                        // amber and not detached -- fills in the missing
+                        // symmetric positions the schedule already implies
+                        // (`Design::add_orbit_member`) instead of leaving the
+                        // amber badge as the only, unactionable, sign of it.
+                        // In the Simple interface this column is left out.
+                        if root.advanced: orbit_cell := Rectangle {
+                            property <bool> completable: root.item.kind == 0 && root.item.orbit_incomplete && !root.item.is_detached;
+                            width: root.col_orbit_width;
+                            height: 100%;
+                            visible: self.x + self.width <= root.data_limit;
+                            if !orbit_cell.completable: Text {
+                                width: parent.width - 2px;
+                                height: parent.height;
+                                text: root.item.orbit_status == "" ? "" : (root.item.is_detached ? root.item.orbit_status + " *" : root.item.orbit_status);
+                                font-size: 10px;
+                                font-weight: (root.item.orbit_incomplete && !root.item.is_detached) ? 700 : 400;
+                                color: root.item.is_detached ? Theme.text-muted : (root.item.orbit_incomplete ? Theme.accent-amber : Theme.accent-emerald);
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                            if !orbit_cell.completable && root.item.orbit_status != "": Tooltip { text: @markdown("Orbit: \{root.item.orbit_status}. An orbit is the set of facets\nthat the stone's symmetry says belong together. A\nstar means the tier is detached. See the glossary."); }
+                            // An amber orbit that can be completed is a button.
+                            if orbit_cell.completable: compact-button-item := CompactButton {
+                                x: 0px;
+                                y: (parent.height - self.height) / 2;
+                                width: parent.width - 2px;
+                                text: root.item.orbit_status;
+                                ink: Theme.accent-amber;
+                                hint: root.unlocked ? "Complete this tier's orbit: add the missing symmetric facets. See the glossary." : GuideModel.locked_hint;
+                                enabled: root.unlocked;
+                                reachable: root.reachable;
+                                clicked => { EditorModel.complete_orbit(root.item.index); }
+                            }
+                        }
+                    }
+
+                    // The action buttons stay at the right edge of the table's visible area while
+                    // the data columns scroll sideways beneath them: this row sits in the scrolled
+                    // content, so the group is shifted back by the scroll offset (`pane_x`, <= 0).
+                    // An opaque base first: the selected row's `primary-glow` is translucent, and on
+                    // its own it let the scrolled data columns show through the buttons.
+                    Rectangle {
+                        x: root.pane_width - root.scroll_gutter - root.group_width - 2px - root.pane_x;
+                        y: 2px;
+                        width: root.group_width;
+                        height: root.height - 4px;
+                        // The table's own background, which the row's colour is laid over -- the group
+                        // then reads as the same colour as the rest of the row, with no seam where
+                        // the translucent selection tint meets it.
+                        background: Theme.bg-darkest;
+                        row_actions := TierRowActions {
+                            x: 0px;
+                            y: 0px;
+                            width: parent.width;
+                            height: parent.height;
+                            background: root.row_bg;
+                            slot_width: root.col_slot_width;
+                            item: root.item;
+                            reachable: root.reachable;
+                            tier_selected(idx) => { root.tier_selected(idx); }
+                        }
+                    }
+}

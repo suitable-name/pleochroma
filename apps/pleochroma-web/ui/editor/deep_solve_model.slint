@@ -1,0 +1,38 @@
+// Deep Solve's state (modelled on the desktop's `EditorModel.deep_solve_*`), pushed by
+// `src/editor/deep_solve`. A global is only a Rust type if `app.slint`'s export block
+// names it.
+
+// One row of the table behind a verdict: a tier whose verified mast differs from the
+// plain solve's. `tier-index` is the 0-based `Design::tiers` position the Pin button
+// sends back; the other fields are display text.
+export struct DeepSolveRow {
+    tier-index: int,
+    tier-number: string,
+    name: string,
+    before: string,
+    after: string,
+    delta: string,
+}
+
+export global DeepSolveModel {
+    // -- State ----------------------------------------------------------------------------
+    // Whether the design has printed proportions and something to repair, and the
+    // explanatory hint either way (`pleochroma_editor::deep_solve::availability`).
+    in property <bool> available: false;
+    in property <string> hint: "";
+    in property <bool> running: false;
+    // Cancel was asked and the Worker is stopping; the next press is "Stop now".
+    in property <bool> cancelling: false;
+    // The live status line while running, the verdict after.
+    in property <string> status: "";
+    in property <bool> status-is-problem: false;
+    // The result on screen was computed for an older design: the tab badges it "Stale:
+    // design changed" with a Recompute, and the rows cannot be pinned.
+    in property <bool> result-stale: false;
+    in property <[DeepSolveRow]> rows: [];
+
+    callback run();
+    callback cancel();
+    // Pins the tier (0-based index) to the mast Deep Solve verified for it.
+    callback pin(int);
+}

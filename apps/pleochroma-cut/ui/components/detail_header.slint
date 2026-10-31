@@ -1,0 +1,849 @@
+import { LineEdit, ComboBox } from "std-widgets.slint";
+import { DiagramDetailData } from "../types.slint";
+import { Theme } from "../theme.slint";
+import { LibraryModel } from "../models/library.slint";
+import { EditorModel } from "../models/editor.slint";
+import { BuildDesignModel } from "../models/build_design.slint";
+import { GuideModel } from "../models/guide.slint";
+import { HelpTopics } from "../models/help.slint";
+import { HelpButton } from "help_button.slint";
+import { TouchButton } from "touch_button.slint";
+
+// Keyboard and screen reader notes for this header: every icon is a button that Tab reaches
+// (focus ring from the theme), Space or Enter presses, and a screen reader hears its name and
+// what it does. Each chip is one text item ("Gear: 60-index") rather than two. The Simple
+// interface leaves out the Gem Cut Studio export; Advanced shows it.
+
+// A single "label: value" metric chip -- 20px tall, 11px font, compact enough
+// to fit the header's single-row layout. Shared by both `DesignChipsRow`
+// instances below (inline and wrapped) so the
+// eight simple chips (everything except Shape, which carries its own edit-pencil/combo
+// flow) are defined once. `hint` says in plain words what the figure is.
+component MetricChip inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <string> hint;
+    in property <color> value_color: Theme.text-primary;
+    height: 20px;
+    background: Theme.bg-input;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+    // One text item for a screen reader, not a label and a value.
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.label + " " + root.value;
+    accessible-description: root.hint;
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 3px;
+        Text { text: root.label; font-size: 11px; color: Theme.text-muted; vertical-alignment: center; accessible-role: AccessibleRole.none; }
+        Text {
+            max-width: 160px;
+            text: root.value;
+            font-size: 11px;
+            font-weight: 600;
+            color: root.value_color;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: AccessibleRole.none;
+        }
+    }
+}
+
+// The smaller chip of the one-line (compact) header.
+component CompactChip inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <string> hint;
+    in property <color> value_color: Theme.text-primary;
+    in property <bool> italic: false;
+    background: Theme.bg-input;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.label + " " + root.value;
+    accessible-description: root.hint;
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    HorizontalLayout {
+        padding-left: 6px; padding-right: 6px; padding-top: 3px; padding-bottom: 3px; spacing: 3px;
+        Text { text: root.label; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; accessible-role: AccessibleRole.none; }
+        Text {
+            text: root.value;
+            font-size: 10px;
+            font-italic: root.italic;
+            font-weight: 600;
+            color: root.value_color;
+            vertical-alignment: center;
+            overflow: elide;
+            accessible-role: AccessibleRole.none;
+        }
+    }
+}
+
+// One icon (or short word) button of the header. Square by default; `button_width` widens it
+// for a word ("Yes", "No"). `flat` drops the fill and the border (the chevron and the pencils).
+// Never smaller than 20 px each way.
+component HeaderAction inherits Rectangle {
+    in property <image> icon;
+    // A short word shown instead of the icon ("gcs", "Yes", "No").
+    in property <string> word;
+    // What a screen reader calls it.
+    in property <string> label;
+    // One plain sentence: what pressing it does. Tooltip and screen-reader description.
+    in property <string> hint;
+    in property <bool> enabled: true;
+    in property <bool> flat: false;
+    in property <length> size: 28px;
+    in property <length> button_width: root.size;
+    in property <length> glyph: 12px;
+    in property <color> ink: Theme.text-secondary;
+    in property <color> edge: Theme.border-subtle;
+    // The panel this button opens or closes (the header's collapse chevron).
+    in property <bool> expandable: false;
+    in property <bool> expanded: false;
+    callback clicked();
+
+    width: root.button_width;
+    height: root.size;
+    border-radius: root.flat ? 4px : Theme.radius-sm;
+    opacity: root.enabled ? 1.0 : 0.5;
+    background: root.flat
+        ? (act_touch.has_hover && root.enabled ? Theme.bg-elevated : transparent)
+        : (act_touch.has_hover && root.enabled ? Theme.bg-elevated : Theme.bg-input);
+    border-width: root.flat ? 0px : 1px;
+    border-color: root.edge;
+
+    if root.word == "": Image {
+        source: root.icon;
+        colorize: root.ink;
+        width: root.glyph;
+        height: root.glyph;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        image-fit: contain;
+    }
+    if root.word != "": Text {
+        text: root.word;
+        font-size: root.word == "gcs" ? 9px : 10px;
+        font-weight: root.word == "gcs" ? 700 : 600;
+        color: root.ink;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        accessible-role: AccessibleRole.none;
+    }
+
+    act_touch := TouchButton {
+        label: root.label;
+        hint: root.hint;
+        enabled: root.enabled;
+        expandable: root.expandable;
+        expanded: root.expanded;
+        ring_radius: root.flat ? 4px : Theme.radius-sm;
+        clicked => { root.clicked(); }
+    }
+}
+
+// The icon actions of the selected design. Instantiated TWICE by `DetailHeaderView` (the
+// one-line header and the full header) so the buttons are defined once. `with_metadata` adds
+// the metadata editor (the full header only).
+//
+// Delete asks first: the trash icon turns into "Delete? Yes No". Pressing it from the keyboard
+// leaves Yes and No one Tab away.
+component DetailActions inherits HorizontalLayout {
+    in property <DiagramDetailData> detail;
+    in property <bool> with_metadata: false;
+    in-out property <bool> confirming_delete: false;
+    callback open_url(string);
+    callback copy_url(string);
+    callback export_asc();
+    callback export_gcs();
+    callback edit_metadata();
+    callback delete_diagram();
+
+    spacing: 4px;
+    alignment: end;
+
+    if root.detail.url != "" && !root.detail.is_local: HeaderAction {
+        icon: @image-url("../icons/globe.svg");
+        label: "Open on the Web";
+        hint: "Open this design's page on the web, in your browser.";
+        clicked => { root.open_url(root.detail.url); }
+    }
+
+    if root.detail.url != "" && !root.detail.is_local: HeaderAction {
+        icon: @image-url("../icons/clipboard.svg");
+        label: "Copy Link";
+        hint: "Copy the web address of this design to the clipboard.";
+        clicked => { root.copy_url(root.detail.url); }
+    }
+
+    // This exports the ORIGINAL file stored in the catalogue (not the user's in-editor
+    // changes) -- `editor_view.slint`'s "Export Edited .asc" is the other, unrelated ".asc"
+    // export. The hint below is the disambiguator between the two.
+    HeaderAction {
+        icon: @image-url("../icons/save.svg");
+        label: "Export .asc";
+        hint: "Save the original .asc file stored in the catalogue. Your own edits are not in it.";
+        clicked => { root.export_asc(); }
+    }
+
+    // The catalogue's cutting instructions as a Gem Cut Studio file
+    // (`gui::library::local::export`); experimental, see the hint. Advanced only.
+    if GuideModel.shows_advanced(): HeaderAction {
+        word: "gcs";
+        label: "Export as Gem Cut Studio File";
+        hint: "Save the cutting instructions as a Gem Cut Studio (.gcs) file. Experimental: it follows the published Gem Cut Studio 1.1 file description, and chiral designs are untested.";
+        clicked => { root.export_gcs(); }
+    }
+
+    // "Build this design": turns this design into a step-by-step lesson that rebuilds it from
+    // an empty design, one tier at a time, and finishes by comparing the rebuild with the
+    // original (`BuildDesignModel`, Rust: `gui::editor::guide::build_design`). Works for local
+    // and remote designs.
+    HeaderAction {
+        icon: @image-url("../icons/steps.svg");
+        label: "Build This Design";
+        hint: "A step-by-step lesson that rebuilds this design from an empty design, one tier at a time.";
+        enabled: !BuildDesignModel.busy;
+        clicked => { BuildDesignModel.start_selected(); }
+    }
+
+    // Metadata editor: title, designer, shape, refractive index, index gear, facet count,
+    // symmetry order, mirror symmetry, and the proportion ratios -- everything the inline
+    // title/shape pencils don't already cover. Local designs only (see
+    // `gui::detail::setup_save_metadata_callback`'s doc comment for why editing is
+    // local-only).
+    if root.with_metadata && root.detail.is_local: HeaderAction {
+        icon: @image-url("../icons/info.svg");
+        label: "Edit Metadata";
+        hint: "Edit the title, designer, shape, refractive index, gear, facet count and proportions.";
+        clicked => { root.edit_metadata(); }
+    }
+
+    if !root.confirming_delete: HeaderAction {
+        icon: @image-url("../icons/trash.svg");
+        label: "Delete This Design";
+        hint: "Delete this design. You are asked to confirm first.";
+        clicked => { root.confirming_delete = true; }
+    }
+    if root.confirming_delete: Text {
+        text: "Delete?";
+        font-size: 10px;
+        color: Theme.accent-amber;
+        vertical-alignment: center;
+        accessible-role: AccessibleRole.text;
+    }
+    if root.confirming_delete: HeaderAction {
+        word: "Yes";
+        button_width: 44px;
+        ink: Theme.accent-ruby;
+        edge: Theme.accent-ruby;
+        label: "Yes, Delete This Design";
+        hint: "Delete this design now.";
+        clicked => { root.confirming_delete = false; root.delete_diagram(); }
+    }
+    if root.confirming_delete: HeaderAction {
+        word: "No";
+        button_width: 44px;
+        label: "No, Keep This Design";
+        hint: "Do not delete. The design stays in the library.";
+        clicked => { root.confirming_delete = false; }
+    }
+}
+
+// All nine metric chips (Shape, Gear, Facets, L/W, H/W, C/W, P/W, Vol/W3, R.I.) as one
+// row. Instantiated TWICE by `DetailHeaderView` below -- inline in the main row on a
+// wide window, and alone on a wrapped second line on a narrow one (`root.narrow`) --
+// rather than duplicating each chip's markup by hand in both places.
+component DesignChipsRow inherits HorizontalLayout {
+    in property <DiagramDetailData> detail;
+    in property <bool> is_local;
+    in property <bool> editing_shape;
+    in property <[string]> shape_options;
+    in property <int> shape_current_index;
+    // 0 = every chip in one row; 1 = Shape to H/W; 2 = C/W to Material. A narrow window shows
+    // parts 1 and 2 as two rows, so no chip reaches past the window's edge.
+    in property <int> part: 0;
+    callback edit_shape_requested();
+    callback shape_selected(string);
+    callback shape_edit_cancelled();
+
+    spacing: 4px;
+
+    if root.part != 2 && (root.detail.shape != "" || root.is_local) && !root.editing_shape: Rectangle {
+        height: 20px;
+        background: Theme.bg-input;
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: Theme.border-subtle;
+        HorizontalLayout {
+            padding-left: 6px;
+            padding-right: 2px;
+            spacing: 3px;
+            Rectangle {
+                accessible-role: AccessibleRole.text;
+                accessible-label: "Shape " + (root.detail.shape != "" ? root.detail.shape : "not set");
+                accessible-description: "The outline of the stone, for example Round or Oval.";
+                Tooltip { text: @markdown("The outline of the stone, for example Round or Oval."); }
+                HorizontalLayout {
+                    spacing: 3px;
+                    Text { text: "Shape:"; font-size: 11px; color: Theme.text-muted; vertical-alignment: center; accessible-role: AccessibleRole.none; }
+                    Text {
+                        text: root.detail.shape != "" ? root.detail.shape : "Unset";
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: root.detail.shape != "" ? Theme.accent-cyan : Theme.text-muted;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        accessible-role: AccessibleRole.none;
+                    }
+                }
+            }
+            // Local designs only -- `import_asc` never classifies a shape it isn't
+            // sure of (see `library::classify_shape`'s doc comment), so this is how
+            // the user corrects or fills that in.
+            if root.is_local: HeaderAction {
+                flat: true;
+                size: 20px;
+                glyph: 10px;
+                icon: @image-url("../icons/pencil.svg");
+                label: "Correct the Shape";
+                hint: "Correct the shape that was detected automatically, or fill it in.";
+                clicked => { root.edit_shape_requested(); }
+            }
+        }
+    }
+
+    if root.part != 2 && root.editing_shape: Rectangle {
+        height: 24px;
+        background: Theme.bg-input;
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: Theme.accent-cyan;
+        HorizontalLayout {
+            padding-left: 6px;
+            padding-right: 2px;
+            spacing: 3px;
+            Text { text: "Shape:"; font-size: 11px; color: Theme.text-muted; vertical-alignment: center; }
+            ComboBox {
+                width: 110px;
+                model: root.shape_options;
+                current-index: root.shape_current_index;
+                accessible-label: "Shape";
+                accessible-description: "Pick the shape of this design.";
+                selected(val) => { root.shape_selected(val); }
+            }
+            HeaderAction {
+                flat: true;
+                size: 20px;
+                glyph: 9px;
+                icon: @image-url("../icons/close.svg");
+                label: "Cancel the Shape Change";
+                hint: "Leave the shape as it was.";
+                clicked => { root.shape_edit_cancelled(); }
+            }
+        }
+    }
+
+    if root.part != 2 && root.detail.gear != "": MetricChip {
+        label: "Gear:";
+        value: root.detail.gear;
+        hint: "The index gear the design is cut on. See the glossary.";
+        value_color: Theme.accent-cyan;
+    }
+    if root.part != 2 && root.detail.facets != "": MetricChip {
+        label: "Facets:";
+        value: root.detail.facets;
+        hint: "How many facets the finished stone has.";
+        value_color: Theme.accent-amber;
+    }
+    if root.part != 2 && root.detail.lw_ratio != "": MetricChip {
+        label: "L/W:";
+        value: root.detail.lw_ratio;
+        hint: "Length divided by width. 1.0 is round or square.";
+    }
+    // H/W, C/W, P/W: derived alongside L/W and Volume (see
+    // `gui::library::apply_measured_metadata`). Same "hide the chip when unknown"
+    // convention as every other optional
+    // field here, and same 3-decimal display formatting as L/W/Volume
+    // (`gui::detail::format_proportion`) -- the stored value itself is never rounded,
+    // only what's shown here.
+    if root.part != 2 && root.detail.hw_ratio != "": MetricChip {
+        label: "H/W:";
+        value: root.detail.hw_ratio;
+        hint: "Total height divided by width.";
+    }
+    if root.part != 1 && root.detail.cw_ratio != "": MetricChip {
+        label: "C/W:";
+        value: root.detail.cw_ratio;
+        hint: "Crown height divided by width.";
+    }
+    if root.part != 1 && root.detail.pw_ratio != "": MetricChip {
+        label: "P/W:";
+        value: root.detail.pw_ratio;
+        hint: "Pavilion depth divided by width.";
+    }
+    if root.part != 1 && root.detail.volume != "": MetricChip {
+        label: "Vol/W³:";
+        value: root.detail.volume;
+        hint: "Volume divided by width cubed: how much stone there is for its width.";
+    }
+    if root.part != 1 && root.detail.ri != "": MetricChip {
+        label: "R.I.:";
+        value: root.detail.ri;
+        hint: "Refractive index: how strongly the material bends light. See the glossary.";
+        value_color: Theme.accent-emerald;
+    }
+    // A guess, not a fact -- see `DiagramDetailData.material_guess`'s own doc
+    // comment.
+    if root.part != 1 && root.detail.material_guess != "": MetricChip {
+        label: "Material:";
+        value: root.detail.material_guess;
+        hint: "A guess made from the design's data, not a recorded fact.";
+        value_color: Theme.accent-amber;
+    }
+}
+
+export component DetailHeaderView inherits Rectangle {
+    in property <DiagramDetailData> detail: LibraryModel.current_detail;
+    // Edit mode's title/chips collapse into one row (see this component's
+    // `if root.effective_compact` branch below) so the tier table gets the vertical
+    // room the full-height header would otherwise take -- see `app.slint`'s Edit-mode
+    // layout doc comment.
+    in property <bool> compact: false;
+    // The window's own current height (`MainWindow.height`, bound by `app.slint`),
+    // feeding `user_collapsed`'s default below. A live binding while untouched (a
+    // resize keeps the default in sync), but see that property's own doc comment for
+    // why an explicit toggle click permanently overrides it.
+    in property <length> window_height: 1080px;
+    // The DEFAULT (`!effective_compact`) layout below is already a single compact
+    // row on its own, so this toggle is kept as an EXTRA for users who want the
+    // absolute minimum (Edit mode's own one-line form, reused here) rather than
+    // as the thing that makes the default fit. One click away via the chevron in
+    // either branch below, independent of `compact` (which stays entirely
+    // Edit-mode-driven). No persisted settings-store property fits this
+    // component's own model surface (`ui/models/library.slint`/
+    // `ui/models/tilt.slint` only), so this defaults to collapsed on a short window (<900 logical px,
+    // the fallback for short screens) and stays a session-only,
+    // non-persisted toggle otherwise -- the `root.window_height < 900px` initializer
+    // is a plain Slint property binding, live until the FIRST imperative assignment
+    // (the chevron's `clicked` handlers below), at which point it becomes a sticky
+    // user choice.
+    in-out property <bool> user_collapsed: root.window_height < 900px;
+    // What the two top-level `if` branches below actually gate on: either the
+    // Edit-mode-forced `compact`, or the user's own collapse choice.
+    property <bool> effective_compact: root.compact || root.user_collapsed;
+    // The window's own current width (`MainWindow.width`, bound by `app.slint`,
+    // mirroring `window_height` above) -- NOT `root.width`: this component's own width
+    // is derived FROM its content's layout constraints, and that content (the chips,
+    // via `narrow` below) would need to know `root.width` to decide whether to
+    // include itself in that same content, which the Slint compiler correctly rejects
+    // as a binding loop (`layoutinfo-h -> layout-cache -> width -> ... -> narrow ->
+    // layoutinfo-h`). `MainWindow.width` has no such cycle (see `app.slint`'s own
+    // "Sizing notes" doc comment on why the window's size is exempted from its
+    // content's constraints).
+    in property <length> window_width: 1600px;
+    // Below this window width, the metadata chips no longer fit on the same row as
+    // the title/designer/action buttons and wrap to their own second line instead
+    // (see `DesignChipsRow`'s two instantiations below) -- never a
+    // permanently-reserved second row, since the `if` below contributes zero height
+    // while wide. The threshold is generous (a window, not this column alone) since
+    // `window_width` still includes the library panel/gaps/padding this column
+    // doesn't get; a bit of early wrapping is preferable to a binding loop.
+    property <bool> narrow: root.window_width < 1300px;
+    // Below this the chips split over two rows (`DesignChipsRow.part`).
+    property <bool> very_narrow: root.window_width < 1100px;
+    // Below 800px the one-line header also leaves out L/W (the outline chip says nearly as much):
+    // with Linux fonts (DejaVu/Noto) R.I. still ran past the window edge at the 720px minimum.
+    property <bool> tiny: root.window_width < 800px;
+    // Shape picker's option list and which entry matches `detail.shape` (-1 for
+    // unclassified) -- see `library::build_shape_picker_options`'s doc comment.
+    // Local designs only: the pencil below is gated on `detail.is_local`.
+    in property <[string]> shape_options: LibraryModel.shape_picker_options;
+    in property <int> shape_current_index: LibraryModel.shape_picker_current_index;
+
+    callback open_url(string);
+    open_url(url) => { LibraryModel.open_diagram_url(url); }
+    callback copy_url(string);
+    copy_url(url) => { LibraryModel.copy_text(url); }
+    callback copy_title(string);
+    copy_title(title) => { LibraryModel.copy_text(title); }
+    // Organize: rename/delete the selected diagram, export a reconstructed `.asc`
+    // when it has no original file attached (see `apps/pleochroma-cut`'s
+    // `gui::library` module).
+    callback rename_diagram(string);
+    rename_diagram(name) => { LibraryModel.rename_diagram(name); }
+    callback set_shape(string);
+    set_shape(shape) => { LibraryModel.set_shape(shape); }
+    callback delete_diagram();
+    delete_diagram => { LibraryModel.delete_diagram(); }
+    callback export_asc();
+    export_asc => { LibraryModel.export_asc(); }
+    callback export_gcs();
+    export_gcs => { LibraryModel.export_gcs(); }
+    // Opens the metadata editor modal (`metadata_editor_dialog.slint`, hosted at
+    // `app.slint`'s root -- see that file for why it isn't hosted here: this
+    // component's own `Rectangle` is only as tall as its content, not the full
+    // window, and a modal backdrop needs the latter). Local designs only -- see the
+    // "Edit Metadata" button in `DetailActions`.
+    callback edit_metadata();
+    edit_metadata => { LibraryModel.metadata_editor_open = true; }
+
+    // Local, transient UI state for the inline rename/delete-confirm/shape-edit
+    // affordances below -- reset whenever the selected diagram changes.
+    property <bool> renaming: false;
+    property <string> rename_draft: "";
+    property <bool> confirming_delete: false;
+    property <bool> editing_shape: false;
+    changed detail => {
+        root.renaming = false;
+        root.confirming_delete = false;
+        root.editing_shape = false;
+    }
+
+    background: Theme.bg-card;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+    vertical-stretch: 0;
+    accessible-role: AccessibleRole.groupbox;
+    accessible-label: "Design Details";
+
+    // A layout parent for the two conditional branches: `if` children of a plain
+    // `Rectangle` contribute nothing to its layout constraints (the compiler
+    // skips repeated/conditional elements there), so without this the header's
+    // preferred height was 0 and, with `vertical-stretch: 0`, it was given no
+    // room at all. A `VerticalLayout` computes its constraints at runtime from
+    // whichever branch is instantiated.
+    VerticalLayout {
+        // Edit-mode-forced (or user-collapsed) one-line form: title + up to five
+        // chips + the icon action cluster, 40px tall. The catalogue tab pills live
+        // in `app.slint`'s own shared tab/view-pill row -- this header does not
+        // drive `active_tab` at all.
+        if root.effective_compact: HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            height: 40px;
+            spacing: 10px;
+
+            // Expand chevron -- only interactive/shown when this collapse was the
+            // USER's own choice (`!root.compact`): while Edit mode forces `compact`,
+            // there is no expanded form to go back to from here (see `app.slint`'s own
+            // `compact: root.render_view_tab == 1 && EditorModel.enabled` binding).
+            if !root.compact: VerticalLayout {
+                alignment: center;
+                HeaderAction {
+                    flat: true;
+                    size: 20px;
+                    glyph: 10px;
+                    icon: @image-url("../icons/chevron-right.svg");
+                    label: "Design Header";
+                    hint: "Show the full design header, with the designer and every figure.";
+                    expandable: true;
+                    expanded: false;
+                    clicked => { root.user_collapsed = false; }
+                }
+            }
+
+            if root.detail.title != "": Text {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                text: root.detail.title;
+                font-size: 14px;
+                font-weight: 700;
+                color: Theme.text-primary;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            // Compact mode only ever runs while a design is being edited (see
+            // `app.slint`'s `compact: root.render_view_tab == 1 && EditorModel.enabled`
+            // binding), so an empty catalogue title here means "an unsaved or
+            // not-yet-catalogued design", not "nothing selected" -- the editor's own
+            // label (falling back to its own "Untitled design" default) is the
+            // accurate wording, not the catalogue's browsing prompt.
+            if root.detail.title == "": Text {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                text: EditorModel.enabled ? EditorModel.design_label : "Select a diagram from catalog";
+                font-size: 14px;
+                font-weight: 700;
+                color: Theme.text-primary;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            // Condensed metric chips -- same data as `DesignChipsRow` below, smaller
+            // padding/font so the whole row fits in 40px, and fewer of them (5, not
+            // all 9) since this branch has no wrap escape hatch for narrow windows.
+            if root.detail.shape != "": CompactChip {
+                label: "Shape:";
+                value: root.detail.shape;
+                hint: "The outline of the stone, for example Round or Oval.";
+                value_color: Theme.accent-cyan;
+            }
+            if root.detail.gear != "": CompactChip {
+                label: "Gear:";
+                value: root.detail.gear;
+                hint: "The index gear the design is cut on. See the glossary.";
+                value_color: Theme.accent-cyan;
+            }
+            if root.detail.facets != "": CompactChip {
+                label: "Facets:";
+                value: root.detail.facets;
+                hint: "How many facets the finished stone has.";
+                value_color: Theme.accent-amber;
+            }
+            if root.detail.lw_ratio != "" && !root.tiny: CompactChip {
+                label: "L/W:";
+                value: root.detail.lw_ratio;
+                hint: "Length divided by width. 1.0 is round or square.";
+            }
+            if root.detail.ri != "": CompactChip {
+                label: "R.I.:";
+                value: root.detail.ri;
+                hint: "Refractive index: how strongly the material bends light. See the glossary.";
+                value_color: Theme.accent-emerald;
+            }
+            // A guess, not a fact -- see `DiagramDetailData.material_guess`'s own
+            // doc comment.
+            // Left out below ~1100 px: the one-line header has no second row to wrap onto, and
+            // this last, longest chip is the one that ran past the window's edge at 720 px
+            // (the full header shows it in its own row there).
+            if root.detail.material_guess != "" && !root.very_narrow: CompactChip {
+                label: "Material:";
+                value: root.detail.material_guess;
+                hint: "A guess made from the design's data, not a recorded fact.";
+                value_color: Theme.accent-amber;
+                italic: true;
+            }
+
+            Rectangle { horizontal-stretch: 1; }
+
+            // The right-hand action cluster, compacted into the same row instead of
+            // dropped -- see this component's own `compact` doc comment.
+            if root.detail.title != "": DetailActions {
+                detail: root.detail;
+                confirming_delete <=> root.confirming_delete;
+                open_url(url) => { root.open_url(url); }
+                copy_url(url) => { root.copy_url(url); }
+                export_asc => { root.export_asc(); }
+                export_gcs => { root.export_gcs(); }
+                delete_diagram => { root.delete_diagram(); }
+            }
+        }
+
+        // DEFAULT layout: one row (title + designer + chips + action buttons)
+        // meets the size target WITHOUT relying on `user_collapsed`. Chips wrap
+        // to their own second line only below `root.narrow` (760px) -- see
+        // `DesignChipsRow` above.
+        if !root.effective_compact: VerticalLayout {
+            // Never shorter than the 40px one-line form above, so the tab row below does not
+            // jump when Edit (compact) and Live Render (this branch) swap.
+            min-height: 40px;
+            padding-left: 12px;
+            padding-right: 12px;
+            padding-top: 6px;
+            padding-bottom: 6px;
+            spacing: 4px;
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: space-between;
+
+                // Left cluster: collapse chevron, title (+ rename), designer,
+                // competition badge, and -- while not `narrow` -- the chips inline.
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+
+                    // Collapse chevron -- the other half of the expand chevron in the
+                    // `effective_compact` branch above; always shown here since this
+                    // branch only renders at all when NOT already collapsed.
+                    VerticalLayout {
+                        alignment: center;
+                        HeaderAction {
+                            flat: true;
+                            size: 20px;
+                            glyph: 10px;
+                            icon: @image-url("../icons/chevron-down.svg");
+                            label: "Design Header";
+                            hint: "Collapse the design header to one line.";
+                            expandable: true;
+                            expanded: true;
+                            clicked => { root.user_collapsed = true; }
+                        }
+                    }
+
+                    if !root.renaming: Text {
+                        // A design can be under edit (Live Render/Diagram tab, so
+                        // this header still shows) with no catalogue row of its own --
+                        // show the editor's own label rather than a "go pick
+                        // something" prompt that doesn't apply here.
+                        text: root.detail.title != "" ? root.detail.title : (EditorModel.enabled ? EditorModel.design_label : "Select a diagram from catalog");
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+
+                    if root.renaming: LineEdit {
+                        width: 200px;
+                        text <=> root.rename_draft;
+                        accessible-label: "Design Title";
+                        accessible-description: "Type the new title, then press Enter to save it.";
+                        accepted => {
+                            root.rename_diagram(root.rename_draft);
+                            root.renaming = false;
+                        }
+                    }
+
+                    if root.detail.title != "" && !root.renaming: VerticalLayout {
+                        alignment: center;
+                        HeaderAction {
+                            flat: true;
+                            size: 20px;
+                            glyph: 11px;
+                            icon: @image-url("../icons/pencil.svg");
+                            label: "Rename This Design";
+                            hint: "Change the title of this design.";
+                            clicked => {
+                                root.rename_draft = root.detail.title;
+                                root.renaming = true;
+                            }
+                        }
+                    }
+
+                    if root.renaming: HorizontalLayout {
+                        spacing: 4px;
+                        VerticalLayout {
+                            alignment: center;
+                            HeaderAction {
+                                flat: true;
+                                size: 20px;
+                                glyph: 11px;
+                                icon: @image-url("../icons/check.svg");
+                                ink: Theme.accent-emerald;
+                                label: "Save the New Title";
+                                hint: "Save the new title.";
+                                clicked => {
+                                    root.rename_diagram(root.rename_draft);
+                                    root.renaming = false;
+                                }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            HeaderAction {
+                                flat: true;
+                                size: 20px;
+                                glyph: 11px;
+                                icon: @image-url("../icons/close.svg");
+                                label: "Cancel the Rename";
+                                hint: "Keep the old title.";
+                                clicked => { root.renaming = false; }
+                            }
+                        }
+                    }
+
+                    // Designer, small and muted, right after the title -- was its own
+                    // line below the title; now inline so the row stays one line.
+                    Text {
+                        text: root.detail.designer != "" ? "by " + root.detail.designer : "";
+                        font-size: 11px;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+
+                    if root.detail.competition != "" && root.detail.competition != "0": Rectangle {
+                        background: Theme.badge-orange-bg;
+                        border-radius: 4px;
+                        height: 18px;
+                        accessible-role: AccessibleRole.text;
+                        accessible-label: "Competition Design";
+                        accessible-description: "The catalogue marks this design as a competition design.";
+                        Tooltip { text: @markdown("The catalogue marks this design as a competition design."); }
+                        HorizontalLayout {
+                            padding-left: 6px; padding-right: 6px; spacing: 4px;
+                            // Centred by a layout of its own: a fixed-size Image in the row sits at
+                            // the top of its cell.
+                            VerticalLayout {
+                                alignment: center;
+                                Image { source: @image-url("../icons/trophy.svg"); colorize: Theme.badge-orange-text; width: 10px; height: 10px; }
+                            }
+                            Text { text: "Competition Design"; font-size: 9px; font-weight: 700; color: Theme.badge-orange-text; vertical-alignment: center; accessible-role: AccessibleRole.none; }
+                        }
+                    }
+
+                    if !root.narrow && root.detail.title != "": DesignChipsRow {
+                        detail: root.detail;
+                        is_local: root.detail.is_local;
+                        editing_shape: root.editing_shape;
+                        shape_options: root.shape_options;
+                        shape_current_index: root.shape_current_index;
+                        edit_shape_requested => { root.editing_shape = true; }
+                        shape_selected(val) => { root.set_shape(val); root.editing_shape = false; }
+                        shape_edit_cancelled => { root.editing_shape = false; }
+                    }
+                }
+
+                // Right cluster: icon-first compact action buttons, 28px -- was a row
+                // of text `Button`s (each 32px+ with its own label); same actions,
+                // same reachability, just icon-only now that they share a row with
+                // everything else. The "?" at the end opens the manual page on the
+                // design details.
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+
+                    if root.detail.title != "": DetailActions {
+                        detail: root.detail;
+                        with_metadata: true;
+                        confirming_delete <=> root.confirming_delete;
+                        open_url(url) => { root.open_url(url); }
+                        copy_url(url) => { root.copy_url(url); }
+                        export_asc => { root.export_asc(); }
+                        export_gcs => { root.export_gcs(); }
+                        edit_metadata => { root.edit_metadata(); }
+                        delete_diagram => { root.delete_diagram(); }
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        HelpButton {
+                            topic: HelpTopics.library-details;
+                            hint: "Open the manual page on selecting and inspecting a design";
+                        }
+                    }
+                }
+            }
+
+            // Wrapped chips -- only rendered (and only then costing any height) below
+            // `root.narrow`; see `DesignChipsRow`'s own doc comment.
+            if root.narrow && root.detail.title != "": DesignChipsRow {
+                detail: root.detail;
+                is_local: root.detail.is_local;
+                editing_shape: root.editing_shape;
+                shape_options: root.shape_options;
+                shape_current_index: root.shape_current_index;
+                part: root.very_narrow ? 1 : 0;
+                edit_shape_requested => { root.editing_shape = true; }
+                shape_selected(val) => { root.set_shape(val); root.editing_shape = false; }
+                shape_edit_cancelled => { root.editing_shape = false; }
+            }
+            // Below ~1100 px the nine chips no longer fit one row: the rest go on a third line.
+            if root.very_narrow && root.detail.title != "": DesignChipsRow {
+                detail: root.detail;
+                is_local: root.detail.is_local;
+                editing_shape: root.editing_shape;
+                shape_options: root.shape_options;
+                shape_current_index: root.shape_current_index;
+                part: 2;
+            }
+        }
+    }
+}

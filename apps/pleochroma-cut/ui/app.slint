@@ -1,0 +1,807 @@
+import { DiagramItem, AngleItem, FileItem, DiagramDetailData, OpticalMetricsData, LightingPresetItem, WorkerItem, PreviewThumbnails, PerformanceFilterRow, EditorTierItem, OptimizeResultRow, OptimizeToneSwatches, GearRemapRow } from "types.slint";
+import { Theme } from "theme.slint";
+import { HeaderToolbar } from "components/header.slint";
+import { DiagramListView, CollapsedLibraryRail } from "components/diagram_list.slint";
+import { DetailHeaderView } from "components/detail_header.slint";
+import { CuttingTableView } from "components/cutting_table.slint";
+import { AttachmentsView } from "components/attachments_view.slint";
+import { Toast } from "components/toast.slint";
+import { CompareWindow } from "compare_window.slint";
+import { CompareModel, CompareMetricRow } from "models/compare.slint";
+import { RoughPlannerWindow } from "rough_planner_window.slint";
+import { LocateWindow } from "locate_window.slint";
+import { RigWindow, RigViewRow } from "rig_window.slint";
+import { RoughColourWindow, ImportSlot, ViewRow, ZoneListRow, ParamEditRow, ChipItem, LegendRow } from "rough_colour_window.slint";
+import { CanvasMarker, CanvasPath, PhotoSlot, ReportRow } from "components/locate/photo_canvas.slint";
+// Every import below that no code here uses is re-exported in the `export { ... }` block.
+import { RetargetRowItem } from "components/retarget_dialog.slint";
+import { UndoRedoLabels } from "components/editor_command_bar.slint";
+import { GuideOverlayLayer } from "components/guide_panel.slint";
+import { TabViewPillRow } from "components/app/tab_pill_row.slint";
+import { GlobalDialogsOverlay } from "components/app/global_dialogs.slint";
+import { WindowQuestionDialogs } from "components/app/window_dialogs.slint";
+import { WindowState } from "components/app/window_state.slint";
+import { ShortcutScope } from "components/app/shortcut_scope.slint";
+import { Tab3dContent } from "components/app/tab_3d_content.slint";
+
+import { SolidPreviewModel } from "models/solid_preview.slint";
+import { ManipulateModel } from "models/manipulate.slint";
+import { ActivityModel, ActivityItem } from "models/activity.slint";
+import { OpticalModel } from "models/optical.slint";
+import { ViewportModel } from "models/viewport.slint";
+import { PhysicscolorModel, PhysicsRow, PhysicsAddOption, PhysicsTreatment } from "models/physics_color.slint";
+import { DispersionEditorModel, DispersionView } from "models/dispersion_editor.slint";
+import { CrystalAxisEditorModel } from "components/material_editor/crystal_axis_row.slint";
+import { AxisCurvesModel } from "components/material_editor/axis_curves.slint";
+import { InclusionFamiliesModel, FamilyRow } from "components/material_editor/inclusion_families.slint";
+import { StructureParamsModel } from "components/material_editor/structure_params.slint";
+import { CrystalAxisModel } from "models/crystal_axis.slint";
+import { RenderEffectsModel, SilkLine } from "models/render_effects.slint";
+import { RetargetModel, RetargetCandidateItem } from "models/retarget.slint";
+import { ExportModel } from "models/export.slint";
+import { SettingsModel } from "models/settings.slint";
+import { ParametersModel } from "models/parameters.slint";
+import { ParametersDockMetrics } from "components/parameters_panel/parameters_dock.slint";
+import { ParametersPanel } from "components/parameters_panel/parameters_panel.slint";
+import { RemoteWorkerModel, RemoteAvailabilityItem } from "models/remote_worker.slint";
+import { BatchModel } from "models/batch.slint";
+import { TiltModel, TiltVideoExportModel } from "models/tilt.slint";
+import { LibraryModel } from "models/library.slint";
+import { EditorModel } from "models/editor.slint";
+import { GuideModel, GuideStepData, GuideAllow } from "models/guide.slint";
+import { TutorialsModel, TutorialRowData } from "models/tutorials.slint";
+import { BuildDesignModel } from "models/build_design.slint";
+import { ShortcutsModel, ShortcutItem } from "models/shortcuts.slint";
+import { PreferencesModel } from "models/preferences.slint";
+import { CommandPaletteModel, PaletteRow } from "models/command_palette.slint";
+import { VerdictModel, VerdictReasonData } from "models/verdict.slint";
+import { TemplateGalleryModel, TemplateCardData } from "models/templates.slint";
+import { DesignLightingModel } from "models/design_lighting.slint";
+import { HistoryModel, HistoryRowData, HistoryThumb } from "models/history.slint";
+import { VariantsModel, VariantRowData, VariantDiffRow } from "models/variants.slint";
+import { RelationModel } from "models/relation.slint";
+import { OptimizeModel, OptimizeRangeRow, OptimizeCandidateRow } from "models/optimize.slint";
+import { SliderModel, SliderSpec, SliderPreset } from "models/sliders.slint";
+import { TierTableModel } from "models/tier_table.slint";
+import { DesignSettingsModel } from "models/design_settings.slint";
+import { BodyColorEditorModel } from "models/body_color_editor.slint";
+import { ColorVariantsModel, ColorVariantRow } from "models/color_variants.slint";
+import { CuttingTableModel } from "models/cutting_table.slint";
+import { RawTextModel, RawTextDiffRow } from "models/raw_text.slint";
+import { HelpModel, HelpNavItem, HelpBlock, HelpSearchHit, GlossaryRow } from "models/help.slint";
+import { HelpWindow } from "components/help_window.slint";
+import { RoughPlanModel, RoughPlanResult, RoughPlanStoneGroup, RoughMetric, RoughCutRow, SavedRoughPlanRow, RoughStoneRow } from "models/rough_plan.slint";
+import { SweepModel, SweepCellItem, SweepRowItem, SweepColumnItem, SweepPathItem, SweepLegendItem } from "models/sweep.slint";
+import { BaselineModel, BaselineCell } from "models/baseline.slint";
+import { TrialsModel, TrialRow, TrialCellItem } from "models/trials.slint";
+import { TuneModel, TuneTierRow, TuneBand, TuneMetricRow } from "models/tune.slint";
+import { CuttingModeModel, CmChip, CmWheelMark, CmWheelScale, CmScheduleRow } from "models/cutting_mode.slint";
+import { CuttingModeScreen } from "components/cutting_mode/cutting_mode_screen.slint";
+import { RenderJobsModel, RenderJobRow } from "models/render_jobs.slint";
+import { ExportRunModel } from "models/export_run.slint";
+import { Zoning, MaterialZoneRow } from "models/zoning.slint";
+import { ColorPatternWindow } from "color_pattern_window.slint";
+import { ColorPatternModel, PatternZoneRow, PatternParamRow, PatternHandle } from "models/color_pattern.slint";
+import { UpdateModel } from "models/update.slint";
+import { RadvWorkaroundModel } from "models/radv_workaround.slint";
+import { UpdateBanner } from "components/update_banner.slint";
+import { SurfaceModel, SurfaceTick } from "models/surface.slint";
+import { FacetingMachineModel } from "models/faceting_machine.slint";
+
+export {
+    DiagramItem, AngleItem, FileItem, DiagramDetailData, OpticalMetricsData,
+    LightingPresetItem, WorkerItem, PerformanceFilterRow, EditorTierItem,
+    OptimizeResultRow, OptimizeToneSwatches, GearRemapRow, RetargetRowItem,
+    PhysicscolorModel, PhysicsRow, PhysicsAddOption, PhysicsTreatment,
+    DispersionEditorModel, DispersionView,
+    CrystalAxisEditorModel,
+    AxisCurvesModel, InclusionFamiliesModel, FamilyRow, StructureParamsModel,
+    CrystalAxisModel,
+    RenderEffectsModel, SilkLine,
+    SolidPreviewModel, ManipulateModel, OpticalModel, ViewportModel, RetargetModel, RetargetCandidateItem, ExportModel, SettingsModel,
+    // The Parameters dock's open/tab state -- see ui/models/parameters.slint.
+    ParametersModel,
+    // The one remote-availability value (configured / reachable and render-capable).
+    RemoteAvailabilityItem,
+    RemoteWorkerModel, BatchModel, TiltModel, TiltVideoExportModel, LibraryModel, EditorModel, UndoRedoLabels,
+    // ActivityModel: the app's background-activity/status model -- see ui/models/activity.slint.
+    ActivityModel, ActivityItem,
+    // Guidance globals: guide, keyboard shortcuts overlay, template gallery -- see each global's doc comment.
+    GuideModel, GuideStepData, GuideAllow, ShortcutsModel, ShortcutItem, TemplateGalleryModel, TemplateCardData,
+    // The tutorial browser's global and its row struct -- see ui/models/tutorials.slint.
+    TutorialsModel, TutorialRowData,
+    // Starts the "Build this design" lesson for a library design -- see ui/models/build_design.slint.
+    BuildDesignModel,
+    // A design's own remembered lighting -- see ui/models/design_lighting.slint.
+    DesignLightingModel,
+    // The History tab's global and its row structs -- see ui/models/history.slint.
+    HistoryModel, HistoryRowData, HistoryThumb,
+    // The Variants view's global and its row structs -- see ui/models/variants.slint.
+    VariantsModel, VariantRowData, VariantDiffRow,
+    // Tier relations: remove, explain, linked step series -- see ui/models/relation.slint.
+    RelationModel,
+    // The Optimize tab's global and its row structs -- see ui/models/optimize.slint.
+    OptimizeModel, OptimizeRangeRow, OptimizeCandidateRow,
+    // The sliders beside the Angle and Preform fields -- see ui/models/sliders.slint.
+    SliderModel, SliderSpec, SliderPreset,
+    // The tier table's and Tier form's number boxes -- see ui/models/tier_table.slint.
+    TierTableModel,
+    // The Design settings panel's note question -- see ui/models/design_settings.slint.
+    DesignSettingsModel,
+    // The L*C*h body-colour editor's state -- see ui/models/body_color_editor.slint.
+    BodyColorEditorModel,
+    // The material editor's Color Variants list and its row struct -- see ui/models/color_variants.slint.
+    ColorVariantsModel, ColorVariantRow,
+    // The library cutting table's keyboard cursor question -- see ui/models/cutting_table.slint.
+    CuttingTableModel,
+    // The Edit as Text dialog's global and its row struct -- see ui/models/raw_text.slint.
+    RawTextModel, RawTextDiffRow,
+    // The visual compare window and its model -- see ui/models/compare.slint.
+    CompareWindow, CompareModel, CompareMetricRow,
+    // The Rough Planner window, global and its row structs -- see ui/rough_planner_window.slint.
+    RoughPlannerWindow, RoughPlanModel, RoughPlanResult, RoughPlanStoneGroup, RoughMetric, RoughCutRow, SavedRoughPlanRow, RoughStoneRow,
+    // The photo-locating windows and their row structs -- see ui/locate_window.slint, ui/rig_window.slint.
+    LocateWindow, RigWindow, RigViewRow, CanvasMarker, CanvasPath, PhotoSlot, ReportRow,
+    // The Rough colour wizard window and its row structs -- see ui/rough_colour_window.slint.
+    RoughColourWindow, ImportSlot, ViewRow, ZoneListRow, ParamEditRow, ChipItem, LegendRow,
+    // The Angle Sweep dialog's global and its row structs -- see ui/models/sweep.slint.
+    SweepModel, SweepCellItem, SweepRowItem, SweepColumnItem, SweepPathItem, SweepLegendItem,
+    // The Baseline strip's global and its cell struct -- see ui/models/baseline.slint.
+    BaselineModel, BaselineCell,
+    // The Trials view's global and its row and cell structs -- see ui/models/trials.slint.
+    TrialsModel, TrialRow, TrialCellItem,
+    // The Optimize tab's Tune view: its global and its row and band structs -- see ui/models/tune.slint.
+    TuneModel, TuneTierRow, TuneBand, TuneMetricRow,
+    // Cutting mode's global and its chip and wheel structs -- see ui/models/cutting_mode.slint.
+    CuttingModeModel, CmChip, CmWheelMark, CmWheelScale, CmScheduleRow,
+    // The help window and its global, with the row structs -- see ui/models/help.slint.
+    HelpWindow, HelpModel, HelpNavItem, HelpBlock, HelpSearchHit, GlossaryRow,
+    // Preferences (ui/models/preferences.slint) and the colour tokens (ui/theme.slint, the
+    // high-contrast flag is set per window from `gui::preferences`).
+    PreferencesModel, Theme,
+    // The command palette's global and its row struct -- see ui/models/command_palette.slint.
+    CommandPaletteModel, PaletteRow,
+    // The overall verdict's global and its reason row -- see ui/models/verdict.slint.
+    VerdictModel, VerdictReasonData,
+    // The render queue's global and its row struct -- see ui/models/render_jobs.slint.
+    RenderJobsModel, RenderJobRow,
+    // The running-export flag and the header indicator's text -- see ui/models/export_run.slint.
+    ExportRunModel,
+    // The rough color and color zoning state and the material dialog's zone row -- see ui/models/zoning.slint.
+    Zoning, MaterialZoneRow,
+    // The Color Pattern Editor window, its global and its row structs -- see ui/color_pattern_window.slint.
+    ColorPatternWindow, ColorPatternModel, PatternZoneRow, PatternParamRow, PatternHandle,
+    // The new-version check's state and callbacks -- see ui/models/update.slint.
+    UpdateModel,
+    // The RADV shader workaround's question, switch and restart -- see ui/models/radv_workaround.slint.
+    RadvWorkaroundModel,
+    // Surface finish authoring (menu, inspector section, overlay) and the Faceting Machine preference
+    // -- see ui/models/surface.slint, ui/models/faceting_machine.slint.
+    SurfaceModel, SurfaceTick, FacetingMachineModel
+}
+
+// --- Sizing notes -----------------------------------------------------------
+// 1. No layout constraint computed in this file (or anything it pulls in) may reach
+//    `MainWindow` itself: the OS window's minimum AND maximum size derive from its content
+//    tree's constraints. A stray `min-height` deep in a child once forced the window bigger,
+//    and a component whose root is a plain `Rectangle` over fixed-size children inherits that
+//    layout's small MAXIMUM, so the window ended up with max-height == min-height, not
+//    resizable in height (`CollapsedLibraryRail`, 38px). The fix: the window's whole content
+//    is wrapped in a `Rectangle` positioned with explicit `x`/`y` (see `global_shortcuts`
+//    below) -- an explicitly positioned child is excluded from its parent's constraint
+//    computation -- and content that would overflow clips instead. Inside that wrapper the
+//    same rule applies to rows and columns: an overlay layout of fixed-size rows must not be a
+//    plain child of a viewport (`gem_viewport.slint`/`solid_viewport.slint` position theirs
+//    with `x`/`y`), and a stack of fixed-size children should use `alignment: start`.
+// 2. Resizable sections (the Edit sub-tab's viewport|dock split and its tier-table|inspector
+//    split) are sized by `SplitHandle` drags whose clamping lives in plain Slint expressions
+//    (`components/app/tab_3d_content.slint`, `editor_view.slint`); the result lands in
+//    `EditorModel.dock_width`/`inspector_height`.
+// -----------------------------------------------------------------------------
+export component MainWindow inherits Window {
+    /// Currently loaded design's display name (bare .asc file name or catalogue title).
+    /// Empty for brand-new, never-saved design. Set from native_io's Save/Open paths
+    /// and from tier_actions' New Design and Load Selected callbacks.
+    in property <string> loaded_design_name: "";
+
+    // Leading "* " marker while the Edit tab has unsaved changes (EditorModel.is_dirty).
+    title: (EditorModel.enabled && EditorModel.is_dirty ? "* " : "")
+        + "Pleochroma Cut"
+        + (root.loaded_design_name == "" ? "" : " — " + root.loaded_design_name);
+    // The titlebar/taskbar icon: the `.exe`'s embedded icon (build.rs) only covers Explorer, and
+    // winit registers its window class without one. Every other top-level window sets it too.
+    icon: @image-url("../assets/icon.png");
+    preferred-width: 1600px;
+    preferred-height: 900px;
+    // Kept below the stacking threshold so a narrow window still exercises the stacked layout
+    // rather than a side-by-side split it has no room for; `clip: true` keeps it readable.
+    min-width: 720px;
+    min-height: 480px;
+    background: Theme.bg-darkest;
+    default-font-family: "Segoe UI";
+
+    in-out property <int> active_tab: 0; // 0: 3D Gem, 1: Cutting Table, 2: Attachments
+    callback active_tab_changed(int);
+    in-out property <int> render_view_tab: 0;
+    callback render_view_tab_changed(int);
+    // Fired when the Edit sub-tab becomes the shown one, so the editor can take the
+    // shared 3D viewport back from a Library selection.
+    callback edit_view_entered();
+
+    callback open_user_manual();
+
+    // File > Open Recent: up to ten design-file paths, seeded at startup from
+    // `AppSettings.recent_native_files` and kept live by
+    // `gui::editor::native_io::record_recent_native_file` (never written back from Slint).
+    // `open_recent_native_file` fires with the clicked entry's own path text.
+    in property <[string]> recent_native_files: [];
+    callback open_recent_native_file(string);
+
+    // The window-close unsaved-changes guard: `gui::mod::build_main_window`'s `on_close_requested`
+    // sets this instead of closing outright when `EditorModel.is_dirty` is true; its own
+    // `close_confirm_save`/`close_confirm_discard` handlers do the actual close. Cancel only
+    // resets this property (`WindowQuestionDialogs`). The guard also stops a close that would
+    // only lose Rough Planner work: `close_confirm_message` then says what would be lost and
+    // `close_confirm_can_save` is false, so the dialog hides its Save button.
+    in-out property <bool> close_confirm_open: false;
+    in-out property <string> close_confirm_message: "Closing the window will discard the current design's unsaved changes.";
+    in-out property <bool> close_confirm_can_save: true;
+    callback close_confirm_save();
+    callback close_confirm_discard();
+
+    in property <string> toast_message: "";
+    in-out property <bool> toast_visible: false;
+    in property <string> toast_type: "info";
+    in-out property <int> toast_generation: 0;
+
+    // Brings the 3D tab forward and shows tab `tab` of the Parameters dock: the View menu and the
+    // keyboard shortcuts (the palette does the same in Rust, `gui::commands::run`).
+    function show_parameters(tab: int) {
+        if root.params_reachable {
+            if root.active_tab != 0 {
+                root.active_tab = 0;
+                root.active_tab_changed(0);
+            }
+            ParametersModel.show_tab(tab);
+        }
+    }
+    // Whether the dock can be brought up: it lives on the 3D tab, and while the worked-example
+    // guide locks the view tabs it is only reachable when that tab is already showing.
+    property <bool> params_reachable: root.active_tab == 0 || GuideModel.allows_view_tabs();
+
+    // Window-derived state (layout metrics, the library's width-driven auto-collapse, which
+    // dialogs are up and the keyboard hand-back) is `win_state`, mounted below -- see
+    // `components/app/window_state.slint`.
+
+    // The empty state's "Start from a library design" card bumps `library_search_pulse`
+    // (after opening the library panel): the cursor goes into the library's search box.
+    property <int> library_search_pulse: TutorialsModel.library_search_pulse;
+    changed library_search_pulse => { header_toolbar.focus_search(); }
+
+    changed render_view_tab => {
+        if root.render_view_tab == 1 { root.edit_view_entered(); }
+        // Hand focus to this persistent ancestor before the outgoing view subtree disappears.
+        // Slint only clears focus on removal when that item is still focused, so the old child
+        // cannot clear this scope afterward. Do this synchronously so later user focus (for
+        // example, Ctrl+F opening a filter or clicking a form field) is never stolen by a timer.
+        if !win_state.other_overlay_open && !CommandPaletteModel.open && !EditorModel.write_confirm_open {
+            global_shortcuts.focus();
+        }
+    }
+
+    // --- MENU BAR ---
+    // NOTE: `MenuBar` must be a direct child of a `Window`-inheriting component, so it cannot be
+    // split out like the other blocks.
+    MenuBar {
+        Menu {
+            title: "File";
+            // Accelerator texts are labels only; the key handling is `global_shortcuts` below, kept in
+            // lock-step by hand (a `MenuItem` has no accelerator property).
+            MenuItem {
+                // Matches the command bar's File menu entry of the same label -- both
+                // start a brand-new design (discarding the current one).
+                title: "New Design... (Ctrl+N)";
+                enabled: EditorModel.enabled && GuideModel.allows_new_design();
+                activated => { EditorModel.new_dialog_open = true; }
+            }
+            MenuItem {
+                title: "Open... (Ctrl+O)";
+                enabled: EditorModel.enabled && GuideModel.allows_file_ops();
+                activated => { EditorModel.open_native(); }
+            }
+            Menu {
+                title: "Open Recent";
+                enabled: EditorModel.enabled && root.recent_native_files.length > 0 && GuideModel.allows_file_ops();
+                for path in root.recent_native_files: MenuItem {
+                    title: path;
+                    activated => { root.open_recent_native_file(path); }
+                }
+            }
+            MenuItem {
+                title: "Save (Ctrl+S)";
+                enabled: EditorModel.enabled && GuideModel.allows_file_ops();
+                activated => { EditorModel.save_native(); }
+            }
+            MenuItem {
+                title: "Save As... (Ctrl+Shift+S)";
+                enabled: EditorModel.enabled && GuideModel.allows_file_ops();
+                activated => { EditorModel.save_native_as(); }
+            }
+            MenuItem {
+                title: "Export Edited .asc";
+                enabled: EditorModel.enabled && GuideModel.allows_file_ops();
+                activated => { EditorModel.export_asc(); }
+            }
+            // Experimental: the `.gcs` writer follows the published Gem Cut Studio 1.1 file description
+            // (the command bar's entry carries the tooltip). Advanced: Simple leaves it out.
+            if GuideModel.shows_advanced(): MenuItem {
+                title: "Export as Gem Cut Studio (.gcs)... (Experimental)";
+                enabled: EditorModel.enabled && GuideModel.allows_file_ops();
+                activated => { EditorModel.export_gcs(); }
+            }
+            // The render queue's Jobs window (also opened by the header's Jobs chip).
+            MenuItem {
+                title: "Render Jobs...";
+                activated => { RenderJobsModel.panel_open = true; }
+            }
+            // "Export Cutting Sheet (HTML)..."/"Export Diagram (PNG)..." live on the command bar's own
+            // File menu (`editor_command_bar/file_menu.slint`).
+        }
+        Menu {
+            title: "Edit";
+            // `UndoRedoLabels`: a cutter-facing summary of what Ctrl+Z/Ctrl+Y will do (e.g. "Undo: Set P1
+            // angle to -41.0 degrees"), pushed by `gui::editor::view::panel` after every edit.
+            MenuItem {
+                title: (EditorModel.can_undo && UndoRedoLabels.undo_label != "" ? "Undo: " + UndoRedoLabels.undo_label : "Undo") + " (Ctrl+Z)";
+                enabled: EditorModel.enabled && EditorModel.can_undo && GuideModel.allows_history();
+                activated => { EditorModel.undo(); }
+            }
+            MenuItem {
+                title: (EditorModel.can_redo && UndoRedoLabels.redo_label != "" ? "Redo: " + UndoRedoLabels.redo_label : "Redo") + " (Ctrl+Y)";
+                enabled: EditorModel.enabled && EditorModel.can_redo && GuideModel.allows_history();
+                activated => { EditorModel.redo(); }
+            }
+            // The cutting instructions as editable `.asc` text (`gui::editor::raw_text`). Edit as Text and
+            // Angle Sweep are advanced: the Simple interface leaves them out (the palette still lists them).
+            if GuideModel.shows_advanced(): MenuItem {
+                title: "Edit as Text...";
+                enabled: EditorModel.enabled && EditorModel.has_design && GuideModel.allows_advanced()
+                    && !RawTextModel.is_open && !EditorModel.unsaved_dialog_open
+                    && !EditorModel.write_confirm_open
+                    && !root.close_confirm_open;
+                activated => { RawTextModel.open(); }
+            }
+            // One tier's angle over a range, as a table, a chart and CSV (`gui::editor::sweep`).
+            if GuideModel.shows_advanced(): MenuItem {
+                title: "Angle Sweep...";
+                enabled: EditorModel.enabled && EditorModel.has_design && GuideModel.allows_advanced()
+                    && !SweepModel.dialog_open && !EditorModel.unsaved_dialog_open
+                    && !EditorModel.write_confirm_open
+                    && !root.close_confirm_open;
+                activated => { SweepModel.open_dialog(); }
+            }
+            // The cutting steps one page at a time (`gui::editor::cutting_mode`). Dim while there is
+            // nothing to cut; the command bar's Cut Mode button shows the reason.
+            MenuItem {
+                title: "Cutting Mode...";
+                enabled: EditorModel.enabled && CuttingModeModel.unavailable_reason() == ""
+                    && GuideModel.allows_advanced() && !CuttingModeModel.open
+                    && !EditorModel.unsaved_dialog_open && !EditorModel.write_confirm_open
+                    && !root.close_confirm_open;
+                activated => { CuttingModeModel.open_cutting_mode(); }
+            }
+            // App-wide preferences: Simple/Advanced, UI scale, high contrast, larger handles, tutorials.
+            MenuItem {
+                title: "Preferences... (Ctrl+,)";
+                enabled: GuideModel.allows_advanced();
+                activated => { PreferencesModel.dialog_open = true; }
+            }
+            // A search box over every command (`gui::commands`); not offered while a confirm dialog waits.
+            MenuItem {
+                title: "Command Palette... (Ctrl+K)";
+                enabled: !EditorModel.unsaved_dialog_open && !EditorModel.write_confirm_open
+                    && !root.close_confirm_open
+                    && EditorModel.startup_restore_path == "";
+                activated => { CommandPaletteModel.open_palette(); }
+            }
+        }
+        // The Parameters dock tabs; each item brings the 3D tab forward first, like the palette's
+        // entries. Key combinations are labels only; the handler is `global_shortcuts` below.
+        Menu {
+            title: "View";
+            MenuItem {
+                title: "Stone Properties... (Ctrl+Alt+1)";
+                enabled: root.params_reachable;
+                activated => { root.show_parameters(0); }
+            }
+            MenuItem {
+                title: "Lighting & Environment... (Ctrl+Alt+2)";
+                enabled: root.params_reachable;
+                activated => { root.show_parameters(1); }
+            }
+            MenuItem {
+                title: "Render & Output... (Ctrl+Alt+3)";
+                enabled: root.params_reachable;
+                activated => { root.show_parameters(2); }
+            }
+            MenuItem {
+                title: ParametersModel.open ? "Fold the Parameters Panel Away" : "Show the Parameters Panel";
+                enabled: root.params_reachable;
+                activated => {
+                    if ParametersModel.open {
+                        ParametersModel.collapse();
+                    } else {
+                        root.show_parameters(ParametersModel.active_tab);
+                    }
+                }
+            }
+        }
+        // Whole-catalogue batches (`gui::batch::regenerate_all`): each item opens the same confirm
+        // step the other triggers use. Disabled only while that batch RUNS; a showing confirm step
+        // does not block the menu (`offer_batch_confirmation` rewrites the whole offer).
+        Menu {
+            title: "Library";
+            // The three whole-library batches are advanced: the Simple interface leaves them out.
+            if GuideModel.shows_advanced(): MenuItem {
+                title: "Regenerate Preview Images...";
+                enabled: !BatchModel.preview_batch_running;
+                activated => { LibraryModel.regenerate_all_previews(); }
+            }
+            if GuideModel.shows_advanced(): MenuItem {
+                title: "Regenerate Tilt Curves...";
+                enabled: !BatchModel.tilt_batch_running;
+                activated => { LibraryModel.regenerate_all_tilt_curves(); }
+            }
+            if GuideModel.shows_advanced(): MenuItem {
+                title: "Regenerate Both...";
+                enabled: !BatchModel.preview_batch_running && !BatchModel.tilt_batch_running;
+                activated => { LibraryModel.regenerate_all_previews_and_tilt_curves(); }
+            }
+            MenuItem {
+                title: "Plan Rough...";
+                activated => { RoughPlanModel.open(); }
+            }
+            // The right-click menu's actions for the selected design, reachable from the keyboard.
+            Menu {
+                title: "Selected Design";
+                enabled: LibraryModel.selected_entry_id >= 0;
+                MenuItem {
+                    title: "Generate Previews";
+                    activated => { LibraryModel.generate_previews_for_entry(LibraryModel.selected_entry_id); }
+                }
+                MenuItem {
+                    title: "Compute Tilt Curves";
+                    activated => { LibraryModel.compute_tilt_curves_for_entry(LibraryModel.selected_entry_id); }
+                }
+                MenuItem {
+                    title: "Ignore or Un-Ignore";
+                    activated => { LibraryModel.toggle_ignored(LibraryModel.selected_entry_id); }
+                }
+                MenuItem {
+                    title: "Exclude from or Include in Planner";
+                    activated => { LibraryModel.toggle_planner_excluded(LibraryModel.selected_entry_id); }
+                }
+                MenuItem {
+                    title: "Build This Design";
+                    enabled: !BuildDesignModel.busy;
+                    activated => { BuildDesignModel.start(LibraryModel.selected_entry_id); }
+                }
+            }
+        }
+        Menu {
+            title: "Help";
+            // Opens the in-app help window (`gui::help`); the glossary is a dialog over this window.
+            MenuItem {
+                title: "User Manual";
+                activated => { root.open_user_manual(); }
+            }
+            // The manual page for what is on screen (F1); Rust picks it (`gui::help::context`).
+            MenuItem {
+                title: "Help for This Screen (F1)";
+                activated => { HelpModel.open_context_help(); }
+            }
+            MenuItem {
+                title: "Glossary";
+                activated => { HelpModel.open_glossary(""); }
+            }
+            // The keyboard-shortcuts overlay and the worked-example walkthrough.
+            MenuItem {
+                title: "Keyboard Shortcuts";
+                activated => { ShortcutsModel.open = true; }
+            }
+            MenuItem {
+                title: "Guide: New Design Walkthrough";
+                enabled: EditorModel.enabled;
+                activated => { GuideModel.start(); }
+            }
+            // The tutorial browser (`ui/models/tutorials.slint`).
+            MenuItem {
+                title: "Tutorials...";
+                enabled: EditorModel.enabled;
+                activated => { TutorialsModel.open_browser(); }
+            }
+        }
+    }
+
+    // --- GLOBAL KEYBOARD SHORTCUTS ---
+    // The key handler lives in `ShortcutScope` (`components/app/shortcut_scope.slint`); the window's
+    // own properties and callbacks are bound through here.
+    global_shortcuts := ShortcutScope {
+        width: 100%;
+        height: 100%;
+        active_tab <=> root.active_tab;
+        active_tab_changed(v) => { root.active_tab_changed(v); }
+        render_view_tab <=> root.render_view_tab;
+        render_view_tab_changed(v) => { root.render_view_tab_changed(v); }
+        params_floating: win_state.params_floating;
+        toast_visible <=> root.toast_visible;
+        show_parameters(tab) => { root.show_parameters(tab); }
+        focus_search() => { header_toolbar.focus_search(); }
+
+        // Zero-sized and explicitly positioned: it draws nothing and adds no layout constraint.
+        win_state := WindowState {
+            x: 0px;
+            y: 0px;
+            width: 0px;
+            height: 0px;
+            window_width: root.width;
+            active_tab: root.active_tab;
+            render_view_tab: root.render_view_tab;
+            close_confirm_open: root.close_confirm_open;
+            focus_main => { global_shortcuts.focus(); }
+        }
+
+        // Wraps the whole window body -- see this file's "Sizing notes"
+        // comment above (rule 1). The explicit `x`/`y` are load-bearing: the
+        // Slint compiler only folds a child's layout constraints (minimum AND
+        // maximum) into its parent when the child has no `x`/`y` binding
+        // (`passes/default_geometry.rs`, `gen_layout_info_prop`). A child
+        // that is positioned explicitly contributes nothing, so no minimum
+        // or maximum computed anywhere below can reach `MainWindow`; the
+        // window is left with only its own `min-*`/`preferred-*` above.
+        // `clip: true` is what makes that safe: content that would have
+        // overflowed at a size below its natural minimum clips instead of
+        // spilling out or forcing the window bigger.
+        Rectangle {
+            x: 0px;
+            y: 0px;
+            width: 100%;
+            height: 100%;
+            clip: true;
+
+        VerticalLayout {
+            padding: 12px;
+            // Tightens the gap above/below the app bar (this spacing) and around
+            // the design header (below) -- part of the <=150px "app bar top to
+            // viewport top" budget.
+            spacing: 6px;
+
+            // 1. TOP BAR
+            // 1160px, not the 1100px stacking threshold below: the Simple | Advanced pill
+            // widens the logo cluster by ~130px, and the one-row header needs about 1140px.
+            header_toolbar := HeaderToolbar {
+                compact: root.width < 1160px;
+                window_height: root.height;
+                // The export indicator was clicked: show the running export's popup again. The
+                // tilt dialog is window-wide; the still export's dialog lives in Live Render,
+                // so that tab is brought up first.
+                show_export_progress => {
+                    if TiltVideoExportModel.is_exporting {
+                        if !TiltModel.dialog_open {
+                            TiltModel.toggle_dialog();
+                        }
+                    } else if ExportModel.is_exporting {
+                        root.active_tab = 0;
+                        root.active_tab_changed(0);
+                        root.render_view_tab = 0;
+                        root.render_view_tab_changed(0);
+                        ExportModel.is_open = true;
+                    }
+                }
+            }
+
+            // 1b. NEW-VERSION NOTICE (non-modal; only while a newer release is announced)
+            if UpdateModel.notice_visible: UpdateBanner {}
+
+            // 2. MAIN SPLIT WORKSPACE
+            HorizontalLayout {
+                spacing: 12px;
+
+                if !LibraryModel.panel_collapsed: DiagramListView {}
+                if LibraryModel.panel_collapsed: CollapsedLibraryRail {}
+
+                // Right: Detail Area (Header + Tab/View-Pill Row + Tab Content).
+                // Wrapped in a clipping Rectangle with `min-width: 0px` and a
+                // explicitly sized (so unconstrained) column: a detail tab whose
+                // content wants more than the room left beside the library (the
+                // 720px minimum window) clips instead of widening the column past
+                // the window edge.
+                Rectangle {
+                horizontal-stretch: 1;
+                min-width: 0px;
+                clip: true;
+                VerticalLayout {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: parent.height;
+                    spacing: 6px;
+
+                    DetailHeaderView {
+                        compact: root.render_view_tab == 1 && EditorModel.enabled;
+                        // `user_collapsed`'s own default-collapse-under-900px-window
+                        // fallback (see that property's doc comment) reads this.
+                        window_height: root.height;
+                        // `narrow`'s own chip-wrap threshold (see that property's doc
+                        // comment for why it reads the WINDOW's width, not this
+                        // column's).
+                        window_width: root.width;
+                    }
+
+                    // Catalogue tab pills + the Live Render/Edit view pills --
+                    // see `TabViewPillRow`'s own doc comment
+                    // (`components/app/tab_pill_row.slint`) for why this is split out.
+                    TabViewPillRow {
+                        compact: root.width < 1200px;
+                        tight: root.width < 800px;
+                        active_tab <=> root.active_tab;
+                        active_tab_changed(v) => { root.active_tab_changed(v); }
+                        render_view_tab <=> root.render_view_tab;
+                        render_view_tab_changed(v) => { root.render_view_tab_changed(v); }
+                    }
+
+                    // Tab 0: 3D Preview -- see `Tab3dContent` (`components/app/tab_3d_content.slint`).
+                    if root.active_tab == 0: Tab3dContent {
+                        render_view_tab: root.render_view_tab;
+                        edit_wide: win_state.edit_wide;
+                        params_docked_live: win_state.params_docked_live;
+                        params_docked_edit: win_state.params_docked_edit;
+                        params_edit_extent: win_state.params_edit_extent;
+                        guide_parked: win_state.guide_lifted;
+                        window_height: root.height;
+                        recent_native_files: root.recent_native_files;
+                        open_recent_native_file(path) => { root.open_recent_native_file(path); }
+                    }
+
+                    // Tab 1: Cutting Instructions Table
+                    if root.active_tab == 1: CuttingTableView {}
+
+                    // Tab 2: Attached Files & GemCAD downloads
+                    if root.active_tab == 2: AttachmentsView {}
+                }
+                }
+            }
+        }
+
+        // The guide's advance timer, and its floating panel wherever the wide Edit
+        // layout's own `GuidePanel` column (above) does not exist -- the narrow
+        // stack, Live Render, the catalogue tabs. Before the dialogs, so they cover it.
+        // While a dialog is up the layer is `parked`: the guide card sits at the window's right
+        // edge ABOVE every scrim (z 600), lit and clickable, so a lesson's step text and
+        // Back/Next stay reachable -- see `WindowState.guide_lifted`.
+        GuideOverlayLayer {
+            x: 0px;
+            y: 0px;
+            width: 100%;
+            height: 100%;
+            z: win_state.guide_lifted ? 600 : 0;
+            docked: win_state.guide_docked;
+            parked: win_state.guide_lifted;
+            right_reserve: win_state.guide_float_reserve;
+        }
+
+        // The Parameters panel where it has no room beside the viewport (a window too narrow to keep
+        // the viewport 700px wide in Live Render or 380px in the Edit view, see `params_docked_live`): a card over the right
+        // edge of the window, non-modal, closed by its own button or Esc. Its rail remains
+        // available beside the content. Explicit `x`/`y`, so it contributes no layout constraint to
+        // the window -- see "Sizing notes" above. Under the dialogs, so they cover it.
+        if win_state.params_floating: ParametersPanel {
+            floating: true;
+            width: min(ParametersDockMetrics.open_width, root.width - 24px);
+            height: root.height - 24px;
+            x: root.width - self.width - 12px;
+            y: 12px;
+        }
+
+        // Cutting mode (Edit > Cutting Mode..., the command bar's Cut Mode, the palette): the
+        // cutting steps one page at a time over the whole window -- see
+        // `models/cutting_mode.slint`. At the default z and before the dialogs below, so the
+        // palette, the confirm questions and the glossary still draw above it. The wrapping
+        // `FocusScope` takes the keyboard on opening and swallows every key, Tab included, so
+        // no shortcut can fire on the design underneath; `CuttingModeModel.handle_key` decides
+        // what the keys mean (Esc leaves). A key with Ctrl, Alt or Meta held does nothing there.
+        if CuttingModeModel.open: FocusScope {
+            x: 0px;
+            y: 0px;
+            width: 100%;
+            height: 100%;
+            init => { self.focus(); }
+            key-pressed(event) => {
+                CuttingModeModel.handle_key(event.text, event.modifiers.control || event.modifiers.meta || event.modifiers.alt);
+                return accept;
+            }
+
+            CuttingModeScreen {
+                width: 100%;
+                height: 100%;
+            }
+        }
+
+        // The two gutters of the modal scrim: while the guide is lifted (`WindowState.guide_lifted`)
+        // each dialog dims only its own area, between two gutters of the guide card's width.
+        // These dim the gutters with the same backdrop and block clicks into them, so the only
+        // lit thing in the window is the guide card (`GuideOverlayLayer`, above everything).
+        if win_state.guide_lifted: Rectangle {
+            x: 0px;
+            y: 0px;
+            width: win_state.guide_gutter;
+            height: 100%;
+            background: Theme.overlay-backdrop;
+            TouchArea { }
+        }
+        if win_state.guide_lifted: Rectangle {
+            x: root.width - win_state.guide_gutter;
+            y: 0px;
+            width: win_state.guide_gutter;
+            height: 100%;
+            background: Theme.overlay-backdrop;
+            TouchArea { }
+        }
+
+        // Every dialog driven only by a global model -- see `GlobalDialogsOverlay`'s own doc
+        // comment (`components/app/global_dialogs.slint`) for the full list and why this is split
+        // out. That list includes `MaterialEditorDialog`, `PerformanceGraphDialog` and
+        // `ExportDialog` (window-level, so the modal scrim and its backdrop cover the whole window).
+        // The size is explicit (and `x`/`y` too, so it adds no constraints to the window): the
+        // overlay's children are all `if` branches, so left to itself it would be 0 x 0 and every
+        // dialog would draw nothing. It is the whole window, or the window less the two guide
+        // gutters while the guide is lifted: each dialog centres its card in it.
+        GlobalDialogsOverlay {
+            x: win_state.dialog_area_x;
+            y: 0px;
+            width: win_state.dialog_area_width;
+            height: 100%;
+        }
+
+        // The glossary, Edit as Text, Angle Sweep, the tutorial browser, the welcome dialog, the
+        // new-version question and the window-close guard -- see `WindowQuestionDialogs`
+        // (`components/app/window_dialogs.slint`). Above the toast, like each of them was on its own.
+        WindowQuestionDialogs {
+            x: win_state.dialog_area_x;
+            y: 0px;
+            width: win_state.dialog_area_width;
+            height: 100%;
+            z: 500;
+            welcome_open: win_state.welcome_open;
+            update_consent_open: win_state.update_consent_open;
+            radv_prompt_open: win_state.radv_prompt_open;
+            close_confirm_open <=> root.close_confirm_open;
+            close_confirm_message: root.close_confirm_message;
+            close_confirm_can_save: root.close_confirm_can_save;
+            close_confirm_save => { root.close_confirm_save(); }
+            close_confirm_discard => { root.close_confirm_discard(); }
+        }
+
+        Toast {
+            // Centred over the viewport area (`WindowState.toast_area_x`/`toast_area_width`:
+            // clear of the library, the docks and any guide card), or at the TOP of the dialogs'
+            // area while a dialog is up; at most 460px wide, as narrow as its text. z 700: above
+            // the scrim, the confirm questions (500) and the lifted guide (600), never dimmed.
+            z: 700;
+            cap_width: min(460px, win_state.toast_area_width - 32px);
+            x: win_state.toast_area_x + (win_state.toast_area_width - self.width) / 2;
+            // `WindowState.toast_bottom` from the bottom edge (above the Edit info chip and
+            // HUD line, the Live Render hint pills, Cutting Mode's navigation row), else 12px
+            // from the top (`toast_at_top`).
+            y: win_state.toast_at_top ? 12px : parent.height - self.height - win_state.toast_bottom;
+            text: root.toast_message;
+            is_visible: root.toast_visible;
+            toast_type: root.toast_type;
+
+            dismiss => {
+                root.toast_visible = false;
+            }
+        }
+        } // Rectangle (min-width/min-height: 0px, clip -- see "Sizing notes")
+    } // global_shortcuts
+}

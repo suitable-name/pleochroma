@@ -1,0 +1,265 @@
+import { Theme } from "../../theme.slint";
+import { RoughPlanModel, RoughPlanStoneGroup, RoughMetric } from "../../models/rough_plan.slint";
+import { Zoning } from "../../models/zoning.slint";
+import { RoughPill, ElidedText } from "fields.slint";
+
+// One design group row inside a result card: color swatch, thumbnail, title with
+// its count, a short status chip, the Exclude pill, and a label/value metric list.
+// The design name is its own link to the design in the library; a click anywhere
+// else on the row selects the group. Metric values stay on one line (elided). The Exclude pill asks Rust to leave the design
+// out of (or take it back into) the planner's candidates; the group's `excluded`
+// flag is Rust's display copy of that mark. The link to all the designs of the
+// result is on the card.
+export component DesignGroupRow inherits Rectangle {
+    in property <RoughPlanStoneGroup> group;
+    in property <bool> is_selected;
+    in property <bool> show_thumbnails: true;
+    callback clicked();
+    // "Open in Editor": open the first stone of this design in the editor, with the piece of
+    // rough it comes from as the design's preform, at the stone's real size.
+    callback open_in_editor();
+    // "Use Color" (only with a stored rough colour): adopt the colour of
+    // the first stone of this design as a material.
+    callback adopt();
+
+    property <bool> link_ok: root.group.linkable && RoughPlanModel.links_enabled;
+    // The chip is short ("changed"); the wording the library check produced goes on
+    // the line under the name.
+    property <string> chip_text: root.group.status == "design deleted" ? "deleted"
+        : (root.group.status == "design changed since saved" ? "changed"
+        : (root.group.status == "matched by title" ? "by title" : root.group.status));
+    property <color> status_color: root.group.status_level == 3 ? Theme.danger
+        : (root.group.status_level == 2 ? Theme.accent-amber : Theme.accent-cyan);
+
+    background: root.is_selected ? Theme.surface-selected : (row_touch.has-hover || name_touch.has-hover ? Theme.surface-control-hover : Theme.surface-control);
+    border-radius: Theme.radius-sm;
+    border-width: row_focus.has-focus ? 2px : 1px;
+    border-color: row_focus.has-focus ? Theme.accent-cyan
+        : (root.is_selected ? Theme.border-accent : Theme.border-subtle);
+
+    accessible-role: AccessibleRole.list-item;
+    accessible-label: root.group.count + " \u{00D7} " + root.group.name;
+    accessible-description: root.group.status != "" ? root.group.status : root.group.detail;
+    accessible-item-selectable: true;
+    accessible-item-selected: root.is_selected;
+    accessible-action-default => { root.clicked(); }
+
+    Tooltip { text: @markdown("Highlight these stones in the 3D view. Click again to clear the highlight."); }
+
+    row_focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    // Declared before the name link, so the link sits on top of it.
+    row_touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+
+    VerticalLayout {
+        padding: 6px;
+        spacing: 4px;
+
+        // Top line: swatch, thumbnail, count x title, status chip
+        HorizontalLayout {
+            spacing: 6px;
+
+            // Palette color swatch
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 10px;
+                    height: 10px;
+                    border-radius: 2px;
+                    background: root.group.swatch;
+                }
+            }
+
+            // Optional design thumbnail (wrapped in VerticalLayout for center alignment)
+            if root.group.has_thumbnail && root.show_thumbnails: VerticalLayout {
+                alignment: center;
+                Image {
+                    width: 20px;
+                    height: 20px;
+                    source: root.group.thumbnail;
+                }
+            }
+
+            // Count x Title: the title is a link to the design in the library
+            Rectangle {
+                horizontal-stretch: 1;
+                min-width: 60px;
+                min-height: 18px;
+
+                Text {
+                    width: parent.width;
+                    text: root.group.count + " \u{00D7} " + root.group.name;
+                    font-size: 11px;
+                    font-weight: 700;
+                    color: root.is_selected ? Theme.text-primary
+                        : (root.link_ok
+                            ? (name_touch.has-hover ? Theme.accent-cyan-hover : Theme.accent-cyan)
+                            : Theme.text-secondary);
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+
+                name_touch := TouchArea {
+                    enabled: root.link_ok;
+                    mouse-cursor: root.link_ok ? pointer : default;
+                    clicked => { RoughPlanModel.select_design(root.group.entry_id); }
+                }
+
+                // The design name is a link: Tab reaches it, Space and Enter follow it.
+                name_focus := FocusScope {
+                    enabled: root.link_ok;
+                    accessible-role: AccessibleRole.button;
+                    accessible-label: "Show " + root.group.name + " in the Library";
+                    accessible-description: "Select this design in the library list.";
+                    accessible-action-default => { RoughPlanModel.select_design(root.group.entry_id); }
+                    key-pressed(event) => {
+                        if event.text == Key.Space || event.text == Key.Return {
+                            RoughPlanModel.select_design(root.group.entry_id);
+                            return accept;
+                        }
+                        return reject;
+                    }
+                }
+
+                if name_focus.has-focus: Rectangle {
+                    border-width: 2px;
+                    border-color: Theme.accent-cyan-hover;
+                    border-radius: Theme.radius-sm;
+                }
+
+                if root.link_ok: Tooltip { text: @markdown("Select this design in the library list."); }
+            }
+
+            // Status chip (if present)
+            if root.group.status != "": VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    height: 18px;
+                    border-radius: Theme.radius-sm;
+                    background: root.group.status_level == 3 ? Theme.danger-surface
+                        : (root.group.status_level == 2 ? Theme.surface-warning : Theme.surface-info);
+                    border-width: 1px;
+                    border-color: root.group.status_level == 3 ? Theme.danger-border
+                        : (root.group.status_level == 2 ? Theme.accent-amber : Theme.accent-cyan);
+
+                    HorizontalLayout {
+                        padding-left: 5px;
+                        padding-right: 5px;
+                        Text {
+                            text: root.chip_text;
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: root.status_color;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+
+        // The actions of the design sit on a line of their own: next to the swatch, the title and
+        // the status chip the row is wider than the results column, and the last pill (Use Color)
+        // was cut off at the right edge. The pills keep their own clicks and are as wide as their
+        // text.
+        HorizontalLayout {
+            spacing: 4px;
+            alignment: end;
+
+            // Exclude from (or take back into) the planner's candidate designs.
+            RoughPill {
+                text: root.group.excluded ? "Excluded" : "Exclude";
+                hint: !root.link_ok ? "Switch to the local library first: this needs the design in the library."
+                    : (RoughPlanModel.running ? "Not while a plan is running."
+                    : (root.group.excluded
+                        ? "The planner leaves this design out. Click to take it back into the planning."
+                        : "Leave this design out of every future plan. You can take it back from the Excluded designs list."));
+                active: root.group.excluded;
+                enabled: root.link_ok && !RoughPlanModel.running;
+                accessible-label: root.group.excluded
+                    ? "Include " + root.group.name + " in planning"
+                    : "Exclude " + root.group.name + " from planning";
+                clicked => { RoughPlanModel.toggle_exclude(root.group.entry_id); }
+            }
+
+            // Open the first stone of this design in the editor, with the piece of rough it
+            // comes from as the preform. Rust loads the design the way Load Selected does.
+            rough-pill-group := RoughPill {
+                text: "Open in Editor";
+                hint: !root.link_ok ? "Switch to the local library first: this needs the design in the library."
+                    : (RoughPlanModel.running ? "Not while a plan is running."
+                    : "Open this design in the editor with the piece of rough this stone comes from as its preform, at the stone's real size.");
+                enabled: root.link_ok && !RoughPlanModel.running;
+                accessible-label: "Open " + root.group.name + " in the editor";
+                clicked => { root.open_in_editor(); }
+            }
+
+            // Adopt the rough's colour for this design (plan with a stored colour).
+            if Zoning.colour_available: rough-pill-group-2 := RoughPill {
+                text: "Use Color";
+                hint: !root.link_ok ? "Switch to the local library first: this needs the design in the library."
+                    : (RoughPlanModel.running ? "Not while a plan is running."
+                    : "Make a material from the color this stone has in the rough, select it in the editor and set the stone size to the real size of this stone.");
+                enabled: root.link_ok && !RoughPlanModel.running;
+                accessible-label: "Use the Color of " + root.group.name;
+                clicked => { root.adopt(); }
+            }
+        }
+
+        // What the library check found, in full (a tooltip when it is still too long)
+        if root.group.status != "": ElidedText {
+            text: root.group.status;
+            font_size: 11px;
+            text_color: root.status_color;
+            tip: true;
+        }
+
+        // Detail line (dimensions and weight)
+        if root.group.detail != "": ElidedText {
+            text: root.group.detail;
+            font_size: 11px;
+            text_color: root.is_selected ? Theme.text-secondary : Theme.text-muted;
+            tip: true;
+        }
+
+        // Metrics: two columns, labels left, values right-aligned
+        if root.group.metrics.length > 0: VerticalLayout {
+            spacing: 2px;
+
+            for metric in root.group.metrics: HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    width: 60px;
+                    text: metric.label;
+                    font-size: 11px;
+                    // The muted grey is weak on the saturated selection fill.
+                    color: root.is_selected ? Theme.text-secondary : Theme.text-muted;
+                    vertical-alignment: center;
+                }
+                // One line, elided (the whole value is its tooltip): a wrapping Text
+                // reports its height for the unwrapped width, so the card (sized from this
+                // row) came out shorter than the row and the row spilled over the next card.
+                // 10 px so the longest line ("L x W x D = 13.49 x 13.49 x 8.52 mm") fits the
+                // 300 px column of a narrow window without an ellipsis.
+                ElidedText {
+                    text: metric.value;
+                    font_size: 10px;
+                    font_weight: 600;
+                    text_color: root.is_selected ? Theme.text-primary : Theme.text-secondary;
+                    alignment: right;
+                    tip: true;
+                }
+            }
+        }
+    }
+}

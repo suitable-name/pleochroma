@@ -1,0 +1,203 @@
+// No console window in a release build. Without this, launching the `.exe` directly
+// (from Explorer, a shortcut, or the Start menu) opens an empty console alongside the
+// window, because Rust binaries default to the Windows CONSOLE subsystem.
+//
+// `not(debug_assertions)` rather than unconditional: a debug build keeps its console so
+// `cargo run` still shows panics and any `tracing` output during development. A release
+// build's stderr goes nowhere with no console attached -- `install_tracing_subscriber`
+// below also writes to a FILE for exactly that reason, the same "beside the exe, or
+// temp dir" pattern `install_panic_logger` already uses.
+//
+// A no-op on every non-Windows target: the attribute is Windows-specific and simply
+// ignored elsewhere.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+/// Installs a `tracing` subscriber writing to stderr and, when the app was started with
+/// `--log`, also a log file. Without one, every
+/// `tracing::warn!`/`error!`/`debug!` call anywhere in this crate or `pleochroma` --
+/// including the GPU backend's own "device lost"/"uncaptured wgpu error" diagnostics --
+/// goes nowhere, and `RUST_LOG` has no effect whatsoever: a background-thread failure
+/// would be undiagnosable from this app's own logs, since there wouldn't be any.
+///
+/// Default filter (overridden by `RUST_LOG` when set, exactly like
+/// `apps/pleochroma-worker`'s own subscriber): `warn` everywhere, `info` for
+/// `pleochroma`/`pleochroma_cut` specifically -- enough to see a device loss, a
+/// self-heal, or a caught display-thread panic without paying for a per-sample or
+/// per-frame log line anywhere on the hot path (none of this crate's `tracing` calls
+/// are per-frame; the busiest is per accumulation-turn, already rare).
+///
+/// Without `--log` no log file is created or touched. The file candidates mirror `install_panic_logger`'s exactly: next to the executable
+/// first (findable from a shortcut or an unzipped folder), falling back to the temp
+/// directory when that location is not writable. Missing/unwritable log locations are
+/// not fatal: `try_init` (not `init`) and a missing file both just mean stderr-only (or,
+/// worst case, no subscriber at all) rather than refusing to start the app over
+/// diagnostics infrastructure.
+fn install_tracing_subscriber() {
+    use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt as _};
+
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("warn,pleochroma=info,pleochroma_cut=info"));
+
+    let file_name = "pleochroma-cut.log";
+    let beside_exe = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join(file_name)));
+    let candidates = [beside_exe, Some(std::env::temp_dir().join(file_name))];
+    // Only a run started with `--log` writes the log file; the panic log below is
+    // separate and exists only after a crash.
+    let log_file = std::env::args()
+        .any(|arg| arg == "--log")
+        .then(|| {
+            candidates.into_iter().flatten().find_map(|path| {
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                    .ok()
+            })
+        })
+        .flatten();
+
+    let stderr_layer = fmt::layer().with_writer(std::io::stderr).with_target(true);
+    // `with_ansi(false)`: color escape codes have no business in a plain-text log
+    // file a user might open in Notepad.
+    let file_layer = log_file.map(|file| {
+        fmt::layer()
+            .with_writer(file)
+            .with_ansi(false)
+            .with_target(true)
+    });
+
+    let _ = tracing_subscriber::registry()
+        .with(filter)
+        .with(stderr_layer)
+        .with(file_layer)
+        .try_init();
+}
+
+/// Writes panics to a file, because in a release build there is nowhere else for them
+/// to go.
+///
+/// `windows_subsystem = "windows"` above means a release build has no console, and a
+/// panic is not a `tracing` event (`install_tracing_subscriber`'s subscriber never sees
+/// one) -- so without this, a panic on a BACKGROUND thread (the render thread, an
+/// export worker, a batch lane, a remote-connection thread) would produce no output
+/// whatsoever. The visible result is an app that keeps responding to the window
+/// manager while some part of it has silently stopped, which is indistinguishable from
+/// a hang and effectively undiagnosable from a bug report.
+///
+/// Chains to the previous hook rather than replacing it, so a debug build still prints
+/// to the console it kept.
+///
+/// Failing to write the log is deliberately ignored: a panic handler that panics (or
+/// that refuses to let the default handler run because a directory was read-only) would
+/// be strictly worse than the silence it is here to fix.
+fn install_panic_logger() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        // Next to the executable first -- this is the path a user can actually find
+        // from a shortcut or an unzipped folder -- falling back to the temp directory
+        // when that location is not writable (Program Files, a read-only mount).
+        let file_name = "pleochroma-cut-panic.log";
+        let beside_exe = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|dir| dir.join(file_name)));
+        let candidates = [beside_exe, Some(std::env::temp_dir().join(file_name))];
+
+        let thread = std::thread::current();
+        let entry = format!(
+            "---\nthread: {}\n{info}\nbacktrace: {}\n",
+            thread.name().unwrap_or("<unnamed>"),
+            std::backtrace::Backtrace::force_capture()
+        );
+
+        for path in candidates.into_iter().flatten() {
+            use std::io::Write as _;
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                && f.write_all(entry.as_bytes()).is_ok()
+            {
+                break;
+            }
+        }
+
+        previous(info);
+    }));
+}
+
+/// Hands the saved UI scale (Edit > Preferences...) to the windowing layer as
+/// `SLINT_SCALE_FACTOR`, which it reads when it creates the first window -- so a changed
+/// scale takes effect on the next start. Does nothing for the Automatic setting, and
+/// leaves a `SLINT_SCALE_FACTOR` the user set themselves alone.
+///
+/// Every picking and raster path in the app reads the window's real scale factor, so one
+/// value set here keeps them all consistent.
+fn apply_saved_ui_scale() {
+    if let Some(factor) = pleochroma_cut::gui::preferences::saved_ui_scale_factor() {
+        // SAFETY: this is the first thing `main` does, before the tracing subscriber, the
+        // panic hook, the window or any worker thread exists, so nothing else can be
+        // reading or writing the process environment while it changes.
+        unsafe { std::env::set_var("SLINT_SCALE_FACTOR", factor) };
+    }
+}
+
+/// The per-user cache folder of the platform: `%LOCALAPPDATA%`, `~/Library/Caches`,
+/// `$XDG_CACHE_HOME` or `~/.cache`. `None` when none of those variables is set.
+#[cfg(feature = "gpu")]
+fn platform_cache_dir() -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+    if cfg!(target_os = "windows") {
+        std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
+    } else if cfg!(target_os = "macos") {
+        std::env::var_os("HOME").map(|home| PathBuf::from(home).join("Library").join("Caches"))
+    } else if let Some(xdg) = std::env::var_os("XDG_CACHE_HOME") {
+        Some(PathBuf::from(xdg))
+    } else {
+        std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache"))
+    }
+}
+
+/// Points the GPU renderer's driver pipeline cache at `<cache>/pleochroma/pipeline_cache`
+/// (review item GPU-1): without it every start recompiles the megakernel before the first
+/// pixel. Must run before the first renderer is created; a no-op without a cache folder.
+///
+/// While the RADV scheduler workaround is in force (`ACO_DEBUG` names it, set by the start-up
+/// step or by the user) the folder is `pipeline_cache-<value>` instead, so a pipeline compiled
+/// with the driver's stock scheduler is never served to a run with the workaround.
+#[cfg(feature = "gpu")]
+fn enable_gpu_pipeline_cache() {
+    use pleochroma::renderer::gpu_driver::{pipeline_cache_folder, workaround_active};
+    let Some(base) = platform_cache_dir() else {
+        return;
+    };
+    let dir = base
+        .join("pleochroma")
+        .join(pipeline_cache_folder(workaround_active()));
+    if pleochroma::renderer::gpu::pipeline_cache::set_pipeline_cache_dir(dir.clone()) {
+        tracing::info!(dir = %dir.display(), "GPU pipeline cache directory set");
+    }
+}
+
+fn main() -> anyhow::Result<()> {
+    // Before ANY thread, Slint call or GPU call: the environment is only safe to change while
+    // the process is still single-threaded, and Mesa reads `ACO_DEBUG` when the Vulkan device
+    // is created. The RADV scheduler workaround comes first of all: when this instance
+    // replaces another one (a restart) it also waits here until that one is gone.
+    let radv_status = pleochroma_cut::gui::radv_workaround::apply_at_startup();
+    apply_saved_ui_scale();
+    install_tracing_subscriber();
+    install_panic_logger();
+    pleochroma_cut::gui::radv_workaround::log_startup_status(&radv_status);
+    #[cfg(feature = "gpu")]
+    enable_gpu_pipeline_cache();
+    // `pleochroma-cut <file>` (what an OS "open with" or double-click association
+    // runs) opens that file once the window is up; flags such as `--log` are skipped.
+    if let Some(path) =
+        pleochroma_cut::gui::startup_file::path_from_args(std::env::args_os().skip(1))
+    {
+        pleochroma_cut::gui::startup_file::request_open_at_startup(path);
+    }
+    pleochroma_cut::gui::main()
+}

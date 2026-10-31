@@ -1,0 +1,94 @@
+[package]
+name = "pleochroma-net"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+authors = { workspace = true }
+description = "Wire protocol for offloading pleochroma spectral ray samples to a remote render worker: scene-state and radiance-buffer codecs, message framing, a build-compatibility handshake, and the TLS helpers and enrollment client (one outbound TCP connection to claim a certificate) shared by the viewer and the worker. It runs no server and opens no listening sockets."
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+documentation = "https://docs.rs/pleochroma-net"
+keywords = ["gemstone", "raytracer", "spectral", "protocol", "rendering"]
+categories = ["encoding", "rendering", "network-programming"]
+publish = { workspace = true }
+
+[dependencies]
+bytemuck = { workspace = true }
+# `SceneState`'s fully-resolved scene description: `GemMaterial`, `GpuFacetPlane`,
+# `LightingPreset` and `BUILD_ID` (see the crate's own `serde` feature and `build.rs`).
+# Optional, gated behind this crate's own `render` feature (see `[features]` below) --
+# a library-only build (the default; see `crate::library`) never needs `pleochroma` at all,
+# not even the CPU tracer it compiles in as one indivisible crate (see `pleochroma`'s own
+# `Cargo.toml`: there is no finer-grained feature separating its type definitions from
+# its renderer/optics code, so depending on it for the types alone still compiles the
+# whole crate -- `optional = true` here is what lets a library-only `pleochroma-worker`
+# build skip that entirely rather than paying for it just to get `GemMaterial`).
+pleochroma = { workspace = true, features = ["serde"], optional = true }
+# `glam/bytemuck` is enabled here (not on `pleochroma`'s own dependency line) so
+# `glam::Vec3` -- the radiance buffer's element type -- is `bytemuck::Pod`, letting
+# `radiance::encode`/`decode` use `bytemuck::cast_slice` for a zero-copy byte view.
+# `pleochroma` itself stays untouched: its default build (`cargo tree -p pleochroma --depth 1`)
+# has no opinion on this feature, since Cargo only unifies it across a build that
+# actually includes pleochroma-net.
+glam = { workspace = true, features = ["bytemuck"] }
+# `radiance::payload`: the v14 lossless FRAME/PREVIEW payload encodings (byte shuffle +
+# LZ4 block / zstd one-shot). Both were measured in Part D (see the coordinator guide
+# section 11): `ShuffleZstd { level: 1 }` is the default, `ShuffleLz4` the gigabit-LAN
+# opt-in. Optional behind the default-on `compression` feature below; without it only
+# `PayloadEncoding::Raw` is offered, accepted and decodable.
+lz4_flex = { version = "0.14.0", optional = true }
+# `display`: lossless PNG encode/decode of the v14 8-bit `DisplayFrame`/`FinalImage`
+# payloads. The same `png` 0.18 the `image` crate already pulls into the workspace.
+png = { version = "0.18.1", optional = true }
+postcard = { workspace = true }
+# `tls` module: mutual-TLS config building and the fingerprint allowlist. Socket-free --
+# see this crate's own doc comment on why ("types, codec, and framing only") and the
+# `tls` module's doc comment on why building a `rustls::ServerConfig`/`ClientConfig`
+# from bytes doesn't violate that.
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }
+tracing = { workspace = true }
+# `enroll`/`token` modules (token-based worker enrollment, shared by
+# `apps/pleochroma-worker`'s `cert claim` and `apps/pleochroma-cut`'s own token-redeem UI --
+# see `enroll`'s module doc comment for why both moved here): zeroizes the bearer
+# secret and the claimed private key the moment each is no longer needed, the same
+# `zeroize` version `apps/pleochroma-worker` already pins for the same purpose.
+zeroize = "1.9.1"
+# See `lz4_flex` above. The C library (`zstd-sys`) builds with the MSVC toolchain; use
+# the one-shot `bulk` API only, so decode memory stays bounded by `raw_len`.
+zstd = { version = "0.14.2", optional = true }
+
+[features]
+default = ["compression"]
+# The v14 compressed payload encodings (`PayloadEncoding::ShuffleZstd`/`ShuffleLz4`) and
+# the PNG display-frame codec. On by default. A build without it still speaks v14 but
+# negotiates `PayloadEncoding::Raw` for everything and sends raw RGBA8 display frames,
+# so it never needs `zstd-sys`'s C toolchain (e.g. a `wasm32` target).
+compression = ["dep:lz4_flex", "dep:png", "dep:zstd"]
+# Gates everything that needs `pleochroma`'s resolved scene/material types: `crate::scene`
+# (`SceneState`), `RenderRequest`, and the `ClientMessage::RenderRequest` variant. Off
+# by default so a library-only `pleochroma-worker` build (see that crate's own `worker`
+# feature) never compiles `pleochroma` in at all -- see the `pleochroma` dependency comment
+# above. Named to match `pleochroma-worker`'s own `worker` feature at the call site
+# (`pleochroma-net/render` is what that feature turns on), but scoped to this crate's own
+# concern (the wire types), not the worker binary's. It also carries the zoning wire
+# extension (a capability bit plus a separate `ZoningPayload` message; no change to
+# `SceneState`'s bytes or the protocol version), which needs `pleochroma`'s zone types.
+render = ["dep:pleochroma"]
+
+# The integration test round-trips a real `SceneState` directly -- it needs `pleochroma`,
+# so (like `pleochroma`'s own `gpu`-only examples) it is skipped entirely by a default
+# `cargo test`, not just skipped at runtime, and only built under `--features render`.
+[dev-dependencies]
+# `tests/scene_roundtrip.rs` checks that a scene.json without `engine` loads as Path-Traced.
+serde_json = { workspace = true }
+
+[[test]]
+name = "scene_roundtrip"
+required-features = ["render"]
+
+[lints]
+workspace = true

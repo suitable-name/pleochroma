@@ -1,0 +1,491 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../components/theme.slint";
+import { CmChip, CmScheduleRow, CmWheelMark, CmWheelScale, CuttingModeModel } from "../models/cutting_mode_model.slint";
+
+// The pieces of the Cutting Mode screen (`cutting_mode.slint`): the button, the index chips,
+// the index wheel, the crystal axis picture and the schedule list. The pieces know the model
+// they draw (`CuttingModeModel`) only where they call back into it; their data comes in
+// through properties.
+
+// A button for Cutting Mode: 40 px tall, sized from its label. Not a tab stop, on purpose:
+// the screen is driven by its keys (`CuttingModeModel.handle-key`) and swallows Tab so that no
+// shortcut can reach the design underneath. The buttons are the pointer's way to the same
+// actions; the key that does the same is named in `hint`.
+export component CmButton inherits Rectangle {
+    in property <string> text;
+    // One plain sentence: what the button does and which key does the same. The tooltip.
+    in property <string> hint;
+    // The main action of the row, in the accent colour.
+    in property <bool> primary: false;
+    // A destructive action, in the danger colours.
+    in property <bool> danger: false;
+    in property <bool> enabled: true;
+    in property <length> button-h: 40px;
+
+    callback clicked();
+
+    property <color> ink: !root.enabled ? Theme.text-disabled
+        : root.primary ? #04121c
+        : root.danger ? Theme.danger
+        : Theme.text-primary;
+
+    preferred-width: label.preferred-width + 32px;
+    min-width: label.preferred-width + 32px;
+    // Content-sized: a Rectangle in a layout takes a share of the free room otherwise.
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+    height: root.button-h;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: !root.enabled ? Theme.border-subtle
+        : root.primary ? Theme.accent-cyan
+        : root.danger ? Theme.danger
+        : Theme.border-medium;
+    background: !root.enabled ? Theme.bg-input
+        : root.primary ? (touch.has-hover ? #7dd3fc : Theme.accent-cyan)
+        : (touch.has-hover ? Theme.bg-elevated : Theme.bg-card-hover);
+
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-description: root.hint;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? pointer : default;
+        clicked => { root.clicked(); }
+    }
+
+    label := Text {
+        x: 0px;
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        color: root.ink;
+        font-size: 14px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// A rounded panel on the page.
+export component CmCard inherits Rectangle {
+    background: Theme.bg-card;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+}
+
+// A small rounded label (the step's state, its side of the stone).
+export component CmBadge inherits Rectangle {
+    in property <string> text;
+    in property <color> ink: Theme.text-primary;
+    in property <color> fill: Theme.bg-elevated;
+
+    width: badge-text.preferred-width + 24px;
+    height: 28px;
+    border-radius: root.height / 2;
+    background: root.fill;
+
+    badge-text := Text {
+        text: root.text;
+        color: root.ink;
+        font-size: 13px;
+        font-weight: 700;
+        vertical-alignment: center;
+        horizontal-alignment: center;
+        x: 0px;
+        width: parent.width;
+        height: parent.height;
+    }
+}
+
+// A heading over a value: one line of the step's details (the meet, the depth, the tool...).
+export component CmFact inherits VerticalLayout {
+    in property <string> label;
+    in property <string> value;
+    in property <color> ink: Theme.text-primary;
+    spacing: 2px;
+
+    Text {
+        text: root.label;
+        font-size: 11px;
+        font-weight: 600;
+        color: Theme.text-muted;
+    }
+    Text {
+        text: root.value;
+        font-size: 16px;
+        color: root.ink;
+        wrap: word-wrap;
+    }
+}
+
+// The indices of a step as big chips, each a tick box: a click ticks the index off (or takes
+// the tick back). A ticked chip is green.
+//
+// The chips share the width of the row equally and the number per row follows from the width
+// (at least 72 px a chip); the height follows from how many rows the chips need, so a long
+// list simply makes the page taller.
+export component CmChips inherits Rectangle {
+    in property <[CmChip]> chips;
+
+    // A click on chip `i`.
+    callback toggled(int);
+
+    property <length> gap: 8px;
+    property <length> chip-h: 44px;
+    property <int> cols: max(1, min(12, floor((root.width + root.gap) / (72px + root.gap))));
+    property <length> chip-w: (root.width - (root.cols - 1) * root.gap) / root.cols;
+    property <int> rows: ceil(root.chips.length / root.cols);
+
+    height: root.rows <= 0 ? 0px : root.rows * (root.chip-h + root.gap) - root.gap;
+
+    for chip[i] in root.chips: Rectangle {
+        x: mod(i, root.cols) * (root.chip-w + root.gap);
+        y: floor(i / root.cols) * (root.chip-h + root.gap);
+        width: root.chip-w;
+        height: root.chip-h;
+        border-radius: Theme.radius-md;
+        border-width: chip.ticked ? 2px : 1px;
+        border-color: chip.ticked ? Theme.success : (chip-touch.has-hover ? Theme.accent-cyan : Theme.border-medium);
+        background: chip.ticked ? Theme.accent-emerald.with-alpha(0.18) : (chip-touch.has-hover ? Theme.bg-card-hover : Theme.bg-input);
+
+        accessible-role: checkbox;
+        accessible-label: "Index " + chip.text;
+        accessible-description: "Tick this index off once you have cut it. Activate again to take the tick back.";
+        accessible-checkable: true;
+        accessible-checked: chip.ticked;
+        accessible-action-default => { root.toggled(i); }
+
+        Tooltip { text: @markdown("Tick this index off once you have cut it. Click again to take the tick back. Space or D marks the whole step done."); }
+
+        chip-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.toggled(i); }
+        }
+
+        Text {
+            text: chip.ticked ? chip.text + " \u{2713}" : chip.text;
+            color: chip.ticked ? Theme.success : Theme.text-primary;
+            font-size: 20px;
+            font-weight: 700;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            width: parent.width;
+            height: parent.height;
+        }
+    }
+}
+
+// The gear's index wheel with this step's indices marked: the ring of teeth (a long tick every
+// few teeth, numbered), a line from the centre to each marked index and a dot on the ring where
+// it sits, with its number outside. Position 0 is at the top and the numbers run clockwise.
+// A ticked index is green, one still to cut is cyan.
+//
+// The strokes are SVG path commands in a 200 x 200 box (`pleochroma_editor::cutting_mode::dial`);
+// the marks and numbers arrive as fractions of the wheel's square, so the picture scales with
+// whatever room it is given.
+export component CmIndexWheel inherits Rectangle {
+    // What the picture shows, in words, for a screen reader (the caption under the wheel).
+    in property <string> description;
+    in property <string> minor-ticks;
+    in property <string> major-ticks;
+    in property <string> spokes;
+    in property <[CmWheelMark]> marks;
+    in property <[CmWheelScale]> numbers;
+
+    accessible-role: image;
+    accessible-label: "Index Wheel";
+    accessible-description: root.description;
+
+    // The wheel is a square in the middle of whatever room there is.
+    property <length> side: min(root.width, root.height);
+    property <length> origin-x: (root.width - root.side) / 2;
+    property <length> origin-y: (root.height - root.side) / 2;
+
+    // The ring the teeth sit on (radius 76 in the 200-unit box).
+    Path {
+        x: root.origin-x;
+        y: root.origin-y;
+        width: root.side;
+        height: root.side;
+        fit: fill;
+        viewbox-width: 200;
+        viewbox-height: 200;
+        commands: "M 24 100 A 76 76 0 1 1 176 100 A 76 76 0 1 1 24 100 Z";
+        stroke: Theme.border-medium;
+        stroke-width: 2px;
+        fill: transparent;
+    }
+    Path {
+        x: root.origin-x;
+        y: root.origin-y;
+        width: root.side;
+        height: root.side;
+        fit: fill;
+        viewbox-width: 200;
+        viewbox-height: 200;
+        commands: root.minor-ticks;
+        stroke: Theme.text-muted;
+        stroke-width: 1px;
+        fill: transparent;
+    }
+    Path {
+        x: root.origin-x;
+        y: root.origin-y;
+        width: root.side;
+        height: root.side;
+        fit: fill;
+        viewbox-width: 200;
+        viewbox-height: 200;
+        commands: root.major-ticks;
+        stroke: Theme.text-secondary;
+        stroke-width: 2px;
+        fill: transparent;
+    }
+    Path {
+        x: root.origin-x;
+        y: root.origin-y;
+        width: root.side;
+        height: root.side;
+        fit: fill;
+        viewbox-width: 200;
+        viewbox-height: 200;
+        commands: root.spokes;
+        stroke: Theme.accent-cyan;
+        stroke-width: 1px;
+        opacity: 0.55;
+        fill: transparent;
+    }
+
+    // The sizes follow the wheel: a wheel of 260 px or more gets full-size labels; a small one
+    // drops the scale numbers (or every other one) rather than letting them run together.
+    property <length> number-size: clamp(root.side / 20, 10px, 16px);
+    property <length> mark-size: clamp(root.side / 16, 12px, 20px);
+    property <length> dot-size: clamp(root.side / 22, 12px, 20px);
+
+    for number[n] in root.numbers: Text {
+        visible: root.side >= 150px && (root.side >= 260px || mod(n, 2) == 0);
+        text: number.label;
+        color: Theme.text-muted;
+        font-size: root.number-size;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: root.number-size * 3;
+        height: root.number-size * 1.5;
+        x: root.origin-x + number.x * root.side - self.width / 2;
+        y: root.origin-y + number.y * root.side - self.height / 2;
+    }
+
+    for mark in root.marks: Rectangle {
+        width: root.dot-size;
+        height: root.dot-size;
+        border-radius: root.dot-size / 2;
+        background: mark.ticked ? Theme.success : Theme.accent-cyan;
+        border-width: 2px;
+        border-color: Theme.bg-card;
+        x: root.origin-x + mark.x * root.side - self.width / 2;
+        y: root.origin-y + mark.y * root.side - self.height / 2;
+    }
+    for mark in root.marks: Text {
+        text: mark.label;
+        color: mark.ticked ? Theme.success : Theme.text-primary;
+        font-size: root.mark-size;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: root.mark-size * 3;
+        height: root.mark-size * 1.5;
+        x: root.origin-x + mark.label-x * root.side - self.width / 2;
+        y: root.origin-y + mark.label-y * root.side - self.height / 2;
+    }
+}
+
+// The crystal axis in the stone, from above (index 0 at the right) and from the side (table up):
+// the first page of Cutting Mode shows it beside the sentence that says how to orient the rough.
+//
+// The strokes are SVG path commands in a 380 x 190 box (`pleochroma_editor::cutting_mode::
+// axis_picture`, the same geometry as the cutting sheet's diagram); the picture is as wide as it
+// is given and keeps the box's proportions.
+export component CmAxisPicture inherits Rectangle {
+    // What the picture shows, in words, for a screen reader.
+    in property <string> description;
+    // The stone's outlines in both views and the index 0 mark.
+    in property <string> frame;
+    // The crystal axis in both views.
+    in property <string> axis;
+
+    accessible-role: image;
+    accessible-label: "Crystal Axis in the Stone";
+    accessible-description: root.description;
+
+    // The box's proportions: 380 wide, 190 high, with the two captions under it (34 px).
+    property <length> picture-w: min(root.width, max(0px, root.height - 34px) * 2);
+    property <length> picture-h: root.picture-w / 2;
+    property <length> origin-x: (root.width - root.picture-w) / 2;
+
+    Path {
+        x: root.origin-x;
+        y: 0px;
+        width: root.picture-w;
+        height: root.picture-h;
+        fit: fill;
+        viewbox-width: 380;
+        viewbox-height: 190;
+        commands: root.frame;
+        stroke: Theme.text-secondary;
+        stroke-width: 1.5px;
+        fill: transparent;
+    }
+    Path {
+        x: root.origin-x;
+        y: 0px;
+        width: root.picture-w;
+        height: root.picture-h;
+        fit: fill;
+        viewbox-width: 380;
+        viewbox-height: 190;
+        commands: root.axis;
+        stroke: Theme.accent-amber;
+        stroke-width: 3px;
+        fill: Theme.accent-amber;
+    }
+    Text {
+        x: root.origin-x;
+        y: root.picture-h + 2px;
+        width: root.picture-w / 2;
+        text: "From above (index 0 at the right)";
+        font-size: 11px;
+        color: Theme.text-muted;
+        horizontal-alignment: center;
+        wrap: word-wrap;
+    }
+    Text {
+        x: root.origin-x + root.picture-w / 2;
+        y: root.picture-h + 2px;
+        width: root.picture-w / 2;
+        text: "From the side (table up)";
+        font-size: 11px;
+        color: Theme.text-muted;
+        horizontal-alignment: center;
+        wrap: word-wrap;
+    }
+}
+
+// The whole schedule, one row per step: code, angle, indices and a done tick. The current row
+// is highlighted, done rows are dimmed, a click on a row shows that step, and the list scrolls
+// to keep the current row in view.
+export component CmSchedule inherits Rectangle {
+    property <length> row-h: 36px;
+    property <int> current: CuttingModeModel.step-index;
+    property <int> count: CuttingModeModel.schedule.length;
+
+    function reveal() {
+        sv.content-y = -min(
+            max(0px, (root.current + 0.5) * root.row-h - sv.height / 2),
+            max(0px, root.count * root.row-h - sv.height));
+    }
+    changed current => { root.reveal(); }
+    changed count => { root.reveal(); }
+    changed height => { root.reveal(); }
+    init => { root.reveal(); }
+
+    sv := ScrollView {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        content-width: self.width;
+        content-height: root.count * root.row-h;
+
+        for row[i] in CuttingModeModel.schedule: Rectangle {
+            x: 0px;
+            y: i * root.row-h;
+            width: sv.content-width;
+            height: root.row-h;
+            border-radius: Theme.radius-sm;
+            background: i == root.current ? Theme.bg-elevated : (row-touch.has-hover ? Theme.bg-card-hover : transparent);
+            opacity: row.state == 1 && i != root.current ? 0.6 : 1.0;
+
+            accessible-role: button;
+            accessible-label: "Step " + (i + 1) + ", " + row.code + ", " + row.angle;
+            accessible-description: row.indices;
+            accessible-action-default => { CuttingModeModel.jump-to(i); }
+
+            row-touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { CuttingModeModel.jump-to(i); }
+            }
+            if i == root.current: Rectangle {
+                x: 0px;
+                y: 6px;
+                width: 3px;
+                height: parent.height - 12px;
+                border-radius: 2px;
+                background: Theme.accent-cyan;
+            }
+            Text {
+                text: row.code;
+                x: 12px;
+                width: 52px;
+                height: parent.height;
+                font-size: 15px;
+                font-weight: 700;
+                color: Theme.text-primary;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            Text {
+                text: row.angle;
+                x: 68px;
+                width: 84px;
+                height: parent.height;
+                font-size: 15px;
+                font-weight: 600;
+                color: Theme.accent-cyan;
+                vertical-alignment: center;
+            }
+            Text {
+                text: row.indices;
+                x: 156px;
+                width: max(0px, parent.width - 156px - 34px);
+                height: parent.height;
+                font-size: 13px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            if row.state == 1: Text {
+                text: "\u{2713}";
+                x: parent.width - 30px;
+                width: 24px;
+                height: parent.height;
+                font-size: 15px;
+                font-weight: 800;
+                color: Theme.success;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            if row.state == 2: Text {
+                text: "!";
+                x: parent.width - 30px;
+                width: 24px;
+                height: parent.height;
+                font-size: 16px;
+                font-weight: 800;
+                color: Theme.accent-amber;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

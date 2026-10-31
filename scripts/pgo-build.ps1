@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Profile-guided-optimization (PGO) release builds of indicatrix-cut and/or indicatrix-worker
+  Profile-guided-optimization (PGO) release builds of pleochroma-cut and/or pleochroma-worker
   on Windows, over CPU axes.
 
     CPU:  avx512 -> -C target-cpu=x86-64-v4 (AVX-512; Zen 4 / Skylake-X or newer). Opt-in:
@@ -12,18 +12,18 @@
           avx2   -> -C target-cpu=x86-64-v3 (AVX2+FMA+BMI baseline; Haswell/Zen or newer)
           scalar -> -C target-cpu=x86-64-v2 (SSE4.2 baseline; standard non-AVX fallback)
           native -> -C target-cpu=native (host CPU instruction set)
-    GPU:  gpu    -> indicatrix-cut/gpu + indicatrix-worker/gpu (wgpu megakernel, CPU fallback per frame)
+    GPU:  gpu    -> pleochroma-cut/gpu + pleochroma-worker/gpu (wgpu megakernel, CPU fallback per frame)
           cpu    -> no gpu feature at all (pure CPU tracer binaries)
 
   The documented default is `-Cpu avx2` and `-Cpu scalar` (two separate invocations) --
   avx512 remains available but is opt-in and auto-skipped/refused where unsupported.
 
-  Two-run tier training (BLD-1). The shipped binary runs with `INDICATRIX_SIMD` unset and
+  Two-run tier training (BLD-1). The shipped binary runs with `PLEOCHROMA_SIMD` unset and
   dispatches at run time (`simd::simd_level`) to the host's best kernels, so an `avx2` build
   on an AVX-512 machine runs the AVX-512 slab/feasibility/triple-solve kernels. Training
   only under the tier's own cap (the old behaviour) left exactly those kernels with zero
   counts, i.e. cold. Now, per tier build, the instrumented `pgo_train` is asked for the
-  host's native tier (`pgo_train --print-simd-tier`, INDICATRIX_SIMD unset) and, when that
+  host's native tier (`pgo_train --print-simd-tier`, PLEOCHROMA_SIMD unset) and, when that
   outranks the build's tier, is run TWICE: once unset (host-native dispatch: the AVX-512
   kernels) and once capped to the tier (the tier's own kernels); both runs' `.profraw`
   files merge into the tier's one `.profdata`. A host whose native tier equals the tier gets
@@ -36,26 +36,37 @@
   combination, instrumented and -Cprofile-use builds alike: a cache hit would serve objects
   built without -Cprofile-generate (empty profiles) or stale profile-use objects.
 
+  MSVC code generation disables LLVM machine tail merging in BOTH builds. This is a
+  targeted workaround for the LLVM 23 Windows SEH epilogue failure seen in the final
+  PGO/LTO build of naga's Token::eq ("Missing .seh_endepilogue"). PGO, LTO, the CPU
+  instruction set and exception unwinding remain enabled. It needs a native rebuild
+  to confirm on the affected toolchain; -DisableSehWorkaround restores LLVM defaults
+  when checking a newer compiler. Profiles are isolated by this code-generation choice
+  under pgo-profile\<codegen-mode>\, where <codegen-mode> is msvc-no-tail-merge by
+  default, or msvc-default with -DisableSehWorkaround. Existing legacy or Windows GNU
+  profiles are never reused.
+
 .DESCRIPTION
   `-Target all` (the default) is ONE combined build per combination, not a worker run plus
-  a cut run: a single instrumented `cargo build` over `indicatrix`, `indicatrix-cut`,
-  `indicatrix-cut-core` and `indicatrix-worker` (both examples, features = the union of the
+  a cut run: a single instrumented `cargo build` over `pleochroma`, `pleochroma-cut`,
+  `pleochroma-cut-core` and `pleochroma-worker` (both examples, features = the union of the
   worker and cut strings), both trainers and the scene_roundtrip test run once, ONE merged
   profile, and ONE optimised build that emits BOTH binaries. Why: one package set means
-  feature unification compiles `indicatrix` (and cut-core) once with one crate hash shared
+  feature unification compiles `pleochroma` (and cut-core) once with one crate hash shared
   by both apps, so a single profile applies to both -- and the work is done once instead of
   twice. Trade-off: the worker is compiled with cut's features enabled (additive; behaviour
   unchanged, binary somewhat larger than a `-Target worker` build). The combined build uses
   its own target directory (target\pgo-all-<cpu>-<gpu>) and the un-prefixed profile path
-  pgo-profile\windows-<cpu>-<gpu>.profdata; `-Target worker` / `-Target cut` keep their
-  separate builds (target\pgo-<cpu>-<gpu>, pgo-profile\<target>\). Post-checks on the
-  combined build: crate-hash tokens for `indicatrix` AND `indicatrix-cut-core`, hash
+  pgo-profile\<codegen-mode>\windows-<cpu>-<gpu>.profdata; `-Target worker` / `-Target cut`
+  keep separate builds (target\pgo-<cpu>-<gpu>) and profiles below <codegen-mode>\<target>\.
+  Post-checks on the
+  combined build: crate-hash tokens for `pleochroma` AND `pleochroma-cut-core`, hash
   mismatch must be 0. -SkipTrain reuses the combined profile.
 
   Per combination, in its own target directory (target\pgo-<cpu>-<gpu>, or
   target\pgo-all-<cpu>-<gpu> for -Target all):
     1. build the training examples `pgo_train` (and, for the `cut` target,
-       `pgo_train_cutcore` of `indicatrix-cut-core`), plus every selected app binary, all
+       `pgo_train_cutcore` of `pleochroma-cut-core`), plus every selected app binary, all
        together in one `cargo build` instrumented with -C profile-generate. Building the
        app binaries (not just the examples) alongside them in the SAME invocation, with the
        SAME package set, target, target-dir and feature list as step 4 below, is required
@@ -70,10 +81,10 @@
        prepass at 800x600 and 1080p), denoise_sig (denoiser with a real signature at
        800x600), tilt_sweep (the apps' all-axes sweep entry points, parallel and stepped);
        GPU only under the `gpu` tier and only if an adapter exists
-    2b. (cut target only) run `indicatrix-cut-core`'s OWN `pgo_train_cutcore` example
+    2b. (cut target only) run `pleochroma-cut-core`'s OWN `pgo_train_cutcore` example
        (Design::solve, .asc export, design-file save/load, resolve_after_edit,
        optimize_design). It is built by step 1's SAME `cargo build` invocation
-       (`indicatrix-cut-core` is in the package list and `--example pgo_train_cutcore` is
+       (`pleochroma-cut-core` is in the package list and `--example pgo_train_cutcore` is
        passed), so the instrumented and optimised builds resolve an identical dependency
        graph and cut-core's `-C metadata` (and every mangled symbol) matches. The distinct
        example name is required: two examples named `pgo_train` collide on Cargo's
@@ -81,7 +92,7 @@
        cut-core invocation, as used before 2026-10-06, had a different dependency graph
        and its profile never applied. The worker target does not link cut-core and skips
        this step. See `Invoke-CutCoreTraining`.
-    2c. build and run `indicatrix-net`'s `scene_roundtrip` integration test under the same
+    2c. build and run `pleochroma-net`'s `scene_roundtrip` integration test under the same
        instrumentation (postcard wire-protocol encode/decode of `SceneState`), through
        `cargo test --no-run --message-format=json` so the hash-suffixed test binary can
        be located. Same training set as scripts/pgo-bolt-build.sh. See `Invoke-NetTraining`.
@@ -91,20 +102,20 @@
        -C llvm-args=-pgo-warn-missing-function, so a totally-unapplied profile shows up
        as a flood of "no profile data available" warnings in build.log instead of
        silently compiling as if untrained again)
-    5. verify the profile actually applied (crate-hash check of `indicatrix`, and for
-       the cut target also `indicatrix-cut-core`, against the merged .profdata, plus a
+    5. verify the profile actually applied (crate-hash check of `pleochroma`, and for
+       the cut target also `pleochroma-cut-core`, against the merged .profdata, plus a
        build.log scan for "hash mismatch"/"no profile data available" over documented
        thresholds -- see Test-ProfileHashApplied/Test-ProfileWarnings)
     6. copy the executables to <OutDir> as <binary>-win-<cpu>-<gpu>.exe
 
   Training coverage is a known limitation, not a complete picture. The training binaries
-  do NOT exercise: the `indicatrix-net` payload codecs (shuffle + zstd/lz4; `indicatrix`
-  cannot depend on `indicatrix-net`), the radiance (HDR) image codecs, the solid rasterizer
-  and mesh cache (`indicatrix-solid`), the rough planner, the `indicatrix-vault` database, the desktop editor's event loops and GUI code, or the
+  do NOT exercise: the `pleochroma-net` payload codecs (shuffle + zstd/lz4; `pleochroma`
+  cannot depend on `pleochroma-net`), the radiance (HDR) image codecs, the solid rasterizer
+  and mesh cache (`pleochroma-solid`), the rough planner, the `pleochroma-vault` database, the desktop editor's event loops and GUI code, or the
   `GpuBackend` type. The `gpu` tier's `train_gpu` stage trains `render_hybrid`, which no
   app calls today, so it warms code the shipped binaries do not run. Functions in these
   areas have zero profile counts and are optimised as cold code. One further limit:
-  `indicatrix-net`'s test build selects only that package; the per-crate hash check in
+  `pleochroma-net`'s test build selects only that package; the per-crate hash check in
   step 5 is what detects it producing a non-matching crate.
 
 .PARAMETER Cpu
@@ -114,41 +125,46 @@
 .PARAMETER Gpu
   gpu, cpu, or both (default both).
 .PARAMETER Target
-  worker, cut, or all (default all). Every combination always builds `indicatrix` itself
-  alongside whichever of `indicatrix-cut`/`indicatrix-worker` this selects, all in one
-  `cargo build` (see .DESCRIPTION) -- `indicatrix`'s `hdr` and `serde` features are always
-  both enabled, regardless of -Target, because `indicatrix-cut` depends on `indicatrix`
-  with `features = ["hdr"]` unconditionally and always enables `indicatrix-net/render`
-  (which turns on `indicatrix/serde`), and `indicatrix-worker`'s own `worker` feature does
+  worker, cut, or all (default all). Every combination always builds `pleochroma` itself
+  alongside whichever of `pleochroma-cut`/`pleochroma-worker` this selects, all in one
+  `cargo build` (see .DESCRIPTION) -- `pleochroma`'s `hdr` and `serde` features are always
+  both enabled, regardless of -Target, because `pleochroma-cut` depends on `pleochroma`
+  with `features = ["hdr"]` unconditionally and always enables `pleochroma-net/render`
+  (which turns on `pleochroma/serde`), and `pleochroma-worker`'s own `worker` feature does
   the same. A `cut`-only or `worker`-only build's profile is kept in its own
-  `pgo-profile\cut\` / `pgo-profile\worker\` subdirectory (its package set, and therefore
+  `pgo-profile\<codegen-mode>\cut\` / `pgo-profile\<codegen-mode>\worker\` subdirectory (its package set, and therefore
   its crate hashes, differ from the combined `all` build), so it never mixes with (or gets
   silently overwritten by) a profile trained for a different -Target. Building `all` (the
   default) keeps the original combined layout: one shared profile per combination, feeding
-  both binaries, at `pgo-profile\windows-<cpu>-<gpu>.profdata`.
+  both binaries, at `pgo-profile\<codegen-mode>\windows-<cpu>-<gpu>.profdata`.
 .PARAMETER OutDir
   Where the renamed executables are copied (default <repo>\bin).
 .PARAMETER SkipTrain
-  Reuse an existing windows-<cpu>-<gpu>.profdata from the pgo-profile directory.
+  Reuse an existing windows-<cpu>-<gpu>.profdata from the selected codegen-mode/target
+  directory. A missing profile is trained normally, including the first run after migration.
 .PARAMETER Parallel
   Execute all requested target combinations concurrently using background jobs.
 .PARAMETER Native
   Build ONLY the host-CPU tier (-C target-cpu=native), replacing whatever -Cpu selected --
   a quick "build for this machine" run, without the generic avx2/scalar tiers. Same as
   scripts/pgo-bolt-build.sh's --native.
+.PARAMETER DisableSehWorkaround
+  Restore LLVM's default machine tail merging instead of the MSVC SEH workaround.
+  Use only to check a fixed compiler. Its profiles are kept separately, so -SkipTrain
+  never mixes them with profiles collected with the workaround enabled.
 .PARAMETER MaxMissingFunctionWarnings
   Fallback threshold for the post-build "no profile data available for function" warning
   count (default 100000; see Test-ProfileWarnings) -- only consulted when
   Test-ProfileHashApplied could not verify the profile; once the crate-hash check has
-  confirmed it applied, the count is reported and never fatal. indicatrix-cut measured
+  confirmed it applied, the count is reported and never fatal. pleochroma-cut measured
   ~66,000 with a fully applied profile on 2026-09-28. This warning is EXPECTED in bulk for
-  `indicatrix-cut`/`indicatrix-worker`'s own GUI/server/CLI code -- `pgo_train` only
-  exercises `indicatrix`'s tracer/solver/brep/tilt(/gpu) paths, never the desktop editor
+  `pleochroma-cut`/`pleochroma-worker`'s own GUI/server/CLI code -- `pgo_train` only
+  exercises `pleochroma`'s tracer/solver/brep/tilt(/gpu) paths, never the desktop editor
   or the coordinator/worker networking code, so most of those two binaries' own functions
   legitimately have zero profile samples even with a correctly-applied profile. This is
   therefore a blunt tripwire for a total-parity-collapse (an instrumented/optimised
   crate-hash mismatch, where effectively EVERY function in a shared dependency crate like
-  `indicatrix`/`wgpu`/`naga` goes missing), not a precision gate -- the default has not
+  `pleochroma`/`wgpu`/`naga` goes missing), not a precision gate -- the default has not
   been calibrated against a known-good run, so tighten it once a real successful run
   establishes this host's actual baseline count.
 #>
@@ -164,6 +180,7 @@ param(
     [switch]$SkipTrain,
     [switch]$Parallel,
     [switch]$Native,
+    [switch]$DisableSehWorkaround,
     [int]$MaxMissingFunctionWarnings = 100000
 )
 
@@ -171,7 +188,16 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $hostTarget = 'x86_64-pc-windows-msvc'
 if (-not $OutDir) { $OutDir = Join-Path $root 'bin' }
-$pgoProfileDir = Join-Path $root 'pgo-profile'
+$profileMode = if ($DisableSehWorkaround) { 'msvc-default' } else { 'msvc-no-tail-merge' }
+$pgoProfileDir = Join-Path (Join-Path $root 'pgo-profile') $profileMode
+# Keep this argument identical in the generate/use builds, including every trainer.
+# BranchFolder's explicit switch also overrides tail merging during block placement.
+# It avoids changing panic semantics or turning off PGO/LTO for the whole application.
+$compatCodegenFlag = if ($DisableSehWorkaround) { '' } else { 'llvm-args=-enable-tail-merge=false' }
+Write-Host "Windows target: $hostTarget; code generation: $profileMode"
+Write-Host "Profiles: $pgoProfileDir"
+& rustc -vV
+if ($LASTEXITCODE -ne 0) { throw 'Could not identify the active Rust/LLVM toolchain.' }
 # Unit separator: how CARGO_ENCODED_RUSTFLAGS joins individual rustc arguments, so a repo
 # path containing a space (unlike this one today) can't split a flag in two the way
 # space-joined RUSTFLAGS would.
@@ -183,18 +209,18 @@ $unitSep = [char]0x1F
 $dirPrefix = if ($Target -eq 'all') { 'pgo-all' } else { 'pgo' }
 $includeWorker = $Target -in @('all', 'worker')
 $includeCut = $Target -in @('all', 'cut')
-# `indicatrix` is always in the package set: it owns `pgo_train`, and the instrumented and
+# `pleochroma` is always in the package set: it owns `pgo_train`, and the instrumented and
 # optimised builds must select IDENTICAL packages so their crate hashes agree (see
 # Get-PgoFeatures below and both build steps).
 $pkgList = @()
-if ($includeCut) { $pkgList += 'indicatrix-cut' }
-if ($includeWorker) { $pkgList += 'indicatrix-worker' }
+if ($includeCut) { $pkgList += 'pleochroma-cut' }
+if ($includeWorker) { $pkgList += 'pleochroma-worker' }
 $binList = $pkgList
-# The cut target also builds `indicatrix-cut-core` (owner of the `pgo_train_cutcore`
+# The cut target also builds `pleochroma-cut-core` (owner of the `pgo_train_cutcore`
 # example) in the SAME invocation, so its crate hash is identical in the instrumented and
 # optimised builds. The worker does not link cut-core.
-$trainPkgList = @('indicatrix') + $pkgList
-if ($includeCut) { $trainPkgList += 'indicatrix-cut-core' }
+$trainPkgList = @('pleochroma') + $pkgList
+if ($includeCut) { $trainPkgList += 'pleochroma-cut-core' }
 $exampleArgs = @('--example', 'pgo_train')
 if ($includeCut) { $exampleArgs += @('--example', 'pgo_train_cutcore') }
 
@@ -261,30 +287,30 @@ $gpuList = if ($Gpu -in @('all', 'both')) { @('gpu', 'cpu') } else { @($Gpu) }
 
 # One feature list, used VERBATIM by both the instrumented (profile-generate) and the
 # optimised (profile-use) cargo invocation, so both produce the same crate hashes.
-# `indicatrix/serde` and `indicatrix/hdr` are always included, regardless of -Target:
-# `indicatrix-cut` depends
-# on `indicatrix` with `features = ["hdr"]` unconditionally and always enables
-# `indicatrix-net/render` (-> `indicatrix/serde`); `indicatrix-worker`'s own `worker`
-# feature turns on both the same way (`indicatrix/hdr` explicitly, `indicatrix/serde` via
-# `indicatrix-net/render`). Naming them explicitly here, rather than relying on that
+# `pleochroma/serde` and `pleochroma/hdr` are always included, regardless of -Target:
+# `pleochroma-cut` depends
+# on `pleochroma` with `features = ["hdr"]` unconditionally and always enables
+# `pleochroma-net/render` (-> `pleochroma/serde`); `pleochroma-worker`'s own `worker`
+# feature turns on both the same way (`pleochroma/hdr` explicitly, `pleochroma/serde` via
+# `pleochroma-net/render`). Naming them explicitly here, rather than relying on that
 # propagation, keeps the two build steps' `--features` string trivially comparable
 # instead of depending on Cargo's feature-unification rules to line up identically both
-# times. `indicatrix-net/compression` (the v14 zstd/LZ4/PNG payload codecs) is a DEFAULT
-# feature of `indicatrix-net` that both apps inherit, so it is already on in every
+# times. `pleochroma-net/compression` (the v14 zstd/LZ4/PNG payload codecs) is a DEFAULT
+# feature of `pleochroma-net` that both apps inherit, so it is already on in every
 # variant; it is named here too so a later change to that crate's default set can never
 # silently drop it from a PGO build (the owner wants it active in every PGO variant).
 function Get-PgoFeatures([bool]$IncludeCut, [bool]$IncludeWorker, [string]$GpuName) {
-    $features = @('indicatrix/serde', 'indicatrix/hdr', 'indicatrix-net/compression', 'experimental')
-    if ($IncludeWorker) { $features += 'indicatrix-worker/worker' }
+    $features = @('pleochroma/serde', 'pleochroma/hdr', 'pleochroma-net/compression')
+    if ($IncludeWorker) { $features += 'pleochroma-worker/worker' }
     if ($GpuName -eq 'gpu') {
-        $features += 'indicatrix/gpu'
-        if ($IncludeCut) { $features += 'indicatrix-cut/gpu' }
-        if ($IncludeWorker) { $features += 'indicatrix-worker/gpu' }
+        $features += 'pleochroma/gpu'
+        if ($IncludeCut) { $features += 'pleochroma-cut/gpu' }
+        if ($IncludeWorker) { $features += 'pleochroma-worker/gpu' }
     }
     return ($features -join ',')
 }
 
-# The `INDICATRIX_SIMD` values `pgo_train` is run with for one tier build (BLD-1). The shipped
+# The `PLEOCHROMA_SIMD` values `pgo_train` is run with for one tier build (BLD-1). The shipped
 # binary runs with the variable UNSET and dispatches at run time to the host's best kernels
 # (`simd::simd_level`), so a tier build trained only under its own cap leaves the higher
 # tier's kernels (the AVX-512 slab/feasibility/triple-solve variants in an `avx2` build)
@@ -296,70 +322,70 @@ function Get-PgoFeatures([bool]$IncludeCut, [bool]$IncludeWorker, [string]$GpuNa
 function Get-SimdTrainingCaps([string]$Exe, [string]$SimdCap) {
     if (-not $SimdCap) { return @('') }
     $rank = @{ scalar = 0; avx2 = 1; avx512 = 2 }
-    $saved = $env:INDICATRIX_SIMD
-    Remove-Item Env:INDICATRIX_SIMD -ErrorAction SilentlyContinue
+    $saved = $env:PLEOCHROMA_SIMD
+    Remove-Item Env:PLEOCHROMA_SIMD -ErrorAction SilentlyContinue
     try { $hostTier = ((& $Exe --print-simd-tier) | Select-Object -First 1).ToString().Trim() }
-    finally { if ($null -ne $saved) { $env:INDICATRIX_SIMD = $saved } }
+    finally { if ($null -ne $saved) { $env:PLEOCHROMA_SIMD = $saved } }
     if (-not $rank.ContainsKey($hostTier)) { throw "unexpected --print-simd-tier output '$hostTier' from $Exe" }
     if ($rank[$hostTier] -gt $rank[$SimdCap]) { return @('', $SimdCap) }
     return @($SimdCap)
 }
 
-# Runs `indicatrix-cut-core`'s own `pgo_train_cutcore` example (cut target only), which
+# Runs `pleochroma-cut-core`'s own `pgo_train_cutcore` example (cut target only), which
 # the caller's instrumented `cargo build` already built in the same invocation as
 # everything else -- see .DESCRIPTION's step 2b. `$env:CARGO_ENCODED_RUSTFLAGS` need not
 # be touched here; `$env:LLVM_PROFILE_FILE` must already point into the profile
 # directory, and its file name is replaced by `cutcore-%p-%m.profraw`.
 function Invoke-CutCoreTraining([string]$Tdir, [string]$Name, [string]$LogFile) {
-    "==> [$Name] indicatrix-cut-core training run" | Out-File -FilePath $LogFile -Append -Encoding utf8
+    "==> [$Name] pleochroma-cut-core training run" | Out-File -FilePath $LogFile -Append -Encoding utf8
     $env:LLVM_PROFILE_FILE = Join-Path (Split-Path -Parent $env:LLVM_PROFILE_FILE) 'cutcore-%p-%m.profraw'
     $cutCoreExe = Join-Path $Tdir "$hostTarget\release\examples\pgo_train_cutcore.exe"
     & $cutCoreExe 2>&1 | Out-File -FilePath $LogFile -Append -Encoding utf8
-    if ($LASTEXITCODE -ne 0) { throw "[$Name] indicatrix-cut-core training run failed (exit $LASTEXITCODE)" }
+    if ($LASTEXITCODE -ne 0) { throw "[$Name] pleochroma-cut-core training run failed (exit $LASTEXITCODE)" }
 }
 
-# Builds and runs `indicatrix-net`'s `scene_roundtrip` integration test under the same
+# Builds and runs `pleochroma-net`'s `scene_roundtrip` integration test under the same
 # instrumentation, covering `SceneState`'s postcard wire-protocol encode/decode -- the
-# hot path `indicatrix`'s `pgo_train` cannot reach (an `indicatrix` example cannot
-# depend on `indicatrix-net`). Same arguments as scripts/pgo-bolt-build.sh: built with
+# hot path `pleochroma`'s `pgo_train` cannot reach (a `pleochroma` example cannot
+# depend on `pleochroma-net`). Same arguments as scripts/pgo-bolt-build.sh: built with
 # `cargo test --no-run --message-format=json` so the hash-suffixed test binary's path
 # comes from the JSON `executable` field. `$env:CARGO_ENCODED_RUSTFLAGS` and
 # `$env:LLVM_PROFILE_FILE` must already carry the instrumented build's settings.
 function Invoke-NetTraining([string]$Tdir, [string]$Name, [string]$LogFile) {
-    "==> [$Name] instrumented build (indicatrix-net scene_roundtrip test)" |
+    "==> [$Name] instrumented build (pleochroma-net scene_roundtrip test)" |
         Out-File -FilePath $LogFile -Append -Encoding utf8
     $jsonPath = Join-Path $Tdir 'net-test-build.json'
     cargo test --release --target $hostTarget --target-dir $Tdir `
-        -p indicatrix-net --features render --test scene_roundtrip --no-run `
+        -p pleochroma-net --features render --test scene_roundtrip --no-run `
         --message-format=json 2>> $LogFile > $jsonPath
-    if ($LASTEXITCODE -ne 0) { throw "[$Name] indicatrix-net instrumented test build failed (exit $LASTEXITCODE)" }
+    if ($LASTEXITCODE -ne 0) { throw "[$Name] pleochroma-net instrumented test build failed (exit $LASTEXITCODE)" }
     $netExe = Get-NetTestExecutable $jsonPath
     if (-not $netExe) { throw "[$Name] could not locate the instrumented scene_roundtrip test binary in $jsonPath" }
 
-    "==> [$Name] indicatrix-net wire-protocol training run" | Out-File -FilePath $LogFile -Append -Encoding utf8
+    "==> [$Name] pleochroma-net wire-protocol training run" | Out-File -FilePath $LogFile -Append -Encoding utf8
     $env:LLVM_PROFILE_FILE = Join-Path (Split-Path -Parent $env:LLVM_PROFILE_FILE) 'net-%p-%m.profraw'
     & $netExe --test-threads=1 2>&1 | Out-File -FilePath $LogFile -Append -Encoding utf8
-    if ($LASTEXITCODE -ne 0) { throw "[$Name] indicatrix-net training run failed (exit $LASTEXITCODE)" }
+    if ($LASTEXITCODE -ne 0) { throw "[$Name] pleochroma-net training run failed (exit $LASTEXITCODE)" }
 }
 
-# Builds and runs `indicatrix-net`'s `pgo_codecs` example under the same instrumentation:
+# Builds and runs `pleochroma-net`'s `pgo_codecs` example under the same instrumentation:
 # the payload codecs (byte shuffle + zstd + LZ4 encode/decode, 1080p and one 4K frame) that
-# neither `pgo_train` (cannot link `indicatrix-net`) nor `scene_roundtrip` reaches. Built
+# neither `pgo_train` (cannot link `pleochroma-net`) nor `scene_roundtrip` reaches. Built
 # with the same `--features render` as the test build above so the crate set matches.
 # `$env:CARGO_ENCODED_RUSTFLAGS` and `$env:LLVM_PROFILE_FILE` must already carry the
 # instrumented build's settings; the profile file name is replaced by `codecs-%p-%m.profraw`.
 function Invoke-CodecTraining([string]$Tdir, [string]$Name, [string]$LogFile) {
-    "==> [$Name] instrumented build (indicatrix-net pgo_codecs example)" |
+    "==> [$Name] instrumented build (pleochroma-net pgo_codecs example)" |
         Out-File -FilePath $LogFile -Append -Encoding utf8
     cargo build --release --target $hostTarget --target-dir $Tdir `
-        -p indicatrix-net --features render --example pgo_codecs 2>&1 |
+        -p pleochroma-net --features render --example pgo_codecs 2>&1 |
         Out-File -FilePath $LogFile -Append -Encoding utf8
-    if ($LASTEXITCODE -ne 0) { throw "[$Name] indicatrix-net pgo_codecs build failed (exit $LASTEXITCODE)" }
-    "==> [$Name] indicatrix-net payload codec training run" | Out-File -FilePath $LogFile -Append -Encoding utf8
+    if ($LASTEXITCODE -ne 0) { throw "[$Name] pleochroma-net pgo_codecs build failed (exit $LASTEXITCODE)" }
+    "==> [$Name] pleochroma-net payload codec training run" | Out-File -FilePath $LogFile -Append -Encoding utf8
     $env:LLVM_PROFILE_FILE = Join-Path (Split-Path -Parent $env:LLVM_PROFILE_FILE) 'codecs-%p-%m.profraw'
     $codecsExe = Join-Path $Tdir "$hostTarget\release\examples\pgo_codecs.exe"
     & $codecsExe 2>&1 | Out-File -FilePath $LogFile -Append -Encoding utf8
-    if ($LASTEXITCODE -ne 0) { throw "[$Name] indicatrix-net pgo_codecs training run failed (exit $LASTEXITCODE)" }
+    if ($LASTEXITCODE -ne 0) { throw "[$Name] pleochroma-net pgo_codecs training run failed (exit $LASTEXITCODE)" }
 }
 
 # The last `"executable"` path in a `cargo --message-format=json` log, JSON-unescaped
@@ -376,12 +402,11 @@ function Get-NetTestExecutable([string]$JsonPath) {
 
 # Keyed on the actual -Target value (not just "does this include worker"): an `all`
 # build and a `worker`-only build both "include worker", but they select different
-# package sets (`all` also builds `indicatrix-cut`), so they'd otherwise collide on the
+# package sets (`all` also builds `pleochroma-cut`), so they'd otherwise collide on the
 # same `windows-<cpu>-<gpu>.profdata` path despite having different crate hashes --
 # the same crate-hash mismatch an instrumented/optimised package-set split would cause,
-# just for -Target. Only the combined `all` layout keeps the original,
-# un-prefixed path (back-compat with already-collected profiles); `cut`-only and
-# `worker`-only each get their own subdirectory.
+# just for -Target. Within the selected MSVC codegen-mode directory, `all` uses
+# an un-prefixed filename; `cut`-only and `worker`-only each get their own subdirectory.
 function Get-SharedProfilePath([string]$PgoProfileDir, [string]$TargetKey, [string]$Name) {
     if ($TargetKey -eq 'all') {
         return Join-Path $PgoProfileDir "windows-$Name.profdata"
@@ -397,17 +422,17 @@ function Get-SharedProfilePath([string]$PgoProfileDir, [string]$TargetKey, [stri
 #     failing the whole build over a diagnostic script's own regex, but a CONFIRMED
 #     mismatch between the two crate-hash tokens is a hard failure.
 # Returns $true when the crate-hash match was CONFIRMED for EVERY checked crate
-# (`indicatrix`, plus `indicatrix-cut-core` for the cut target; the worker does not link
+# (`pleochroma`, plus `pleochroma-cut-core` for the cut target; the worker does not link
 # cut-core, so it is not applicable there), $false when any could not be verified (a
 # parsing miss -- a warning is printed); throws on a confirmed mismatch in either.
 function Test-ProfileHashApplied([string]$Profdata, [string]$Tdir, [string]$Name, [bool]$CheckCutCore) {
     $coreOk = Test-CrateHashToken -Profdata $Profdata -Tdir $Tdir -Name $Name `
-        -FuncName 'trace_spectral_ray_with_finish_soa' -TokenPattern 'Cs[0-9a-zA-Z]+_10indicatrix' `
-        -PackageDir 'indicatrix' -RlibStem 'indicatrix'
+        -FuncName 'trace_spectral_ray_with_finish_soa' -TokenPattern 'Cs[0-9a-zA-Z]+_10pleochroma' `
+        -PackageDir 'pleochroma' -RlibStem 'pleochroma'
     if (-not $CheckCutCore) { return $coreOk }
     $cutCoreOk = Test-CrateHashToken -Profdata $Profdata -Tdir $Tdir -Name $Name `
-        -FuncName 'resolve_after_edit' -TokenPattern 'Cs[0-9a-zA-Z]+_19indicatrix_cut_core' `
-        -PackageDir 'indicatrix-cut-core' -RlibStem 'indicatrix_cut_core'
+        -FuncName 'resolve_after_edit' -TokenPattern 'Cs[0-9a-zA-Z]+_19pleochroma_cut_core' `
+        -PackageDir 'pleochroma-cut-core' -RlibStem 'pleochroma_cut_core'
     return ($coreOk -and $cutCoreOk)
 }
 
@@ -417,7 +442,7 @@ function Test-ProfileHashApplied([string]$Profdata, [string]$Tdir, [string]$Name
 function Test-CrateHashToken([string]$Profdata, [string]$Tdir, [string]$Name, [string]$FuncName, [string]$TokenPattern, [string]$PackageDir, [string]$RlibStem) {
     # Every manifest line that names the function, not just the first (BLD-1): a merged
     # profile can hold the same symbol under more than one crate hash (e.g. the net test
-    # build's differently-featured `indicatrix`), and the order of `show --all-functions`
+    # build's differently-featured `pleochroma`), and the order of `show --all-functions`
     # decides which one comes first. All distinct tokens are collected; the rlib's token
     # must be among them.
     $profLines = @(& $profdata show --all-functions $Profdata 2>&1 | Select-String -SimpleMatch $FuncName)
@@ -478,12 +503,12 @@ function Test-ProfileWarnings([string]$LogFile, [string]$Name, [int]$MaxMissing,
     }
     if ($HashVerified) {
         # The crate-hash check already proved the profile applied; the count is only
-        # code the training run never executes (the whole GUI for indicatrix-cut).
+        # code the training run never executes (the whole GUI for pleochroma-cut).
         Write-Host "  [$Name] $($noProfile.Count) function(s) without profile data (untrained code; the crate-hash check confirmed the profile applied)"
         return
     }
     if ($noProfile.Count -gt $MaxMissing) {
-        throw "[$Name] $($noProfile.Count) 'no profile data available' warning(s) in $LogFile, over the configured threshold ($MaxMissing, -MaxMissingFunctionWarnings), and the crate-hash check could not verify the profile. Expected in bulk for indicatrix-cut/indicatrix-worker's own GUI/server code that pgo_train never runs (indicatrix-cut measured ~66,000 with a fully applied profile) -- but without the crate-hash confirmation a count this high may mean the profile silently stopped applying again. Check the crate-hash warning printed just above."
+        throw "[$Name] $($noProfile.Count) 'no profile data available' warning(s) in $LogFile, over the configured threshold ($MaxMissing, -MaxMissingFunctionWarnings), and the crate-hash check could not verify the profile. Expected in bulk for pleochroma-cut/pleochroma-worker's own GUI/server code that pgo_train never runs (pleochroma-cut measured ~66,000 with a fully applied profile) -- but without the crate-hash confirmation a count this high may mean the profile silently stopped applying again. Check the crate-hash warning printed just above."
     }
     Write-Host "  [$Name] $($noProfile.Count) function(s) without profile data (crate-hash check could not verify; under the $MaxMissing threshold)"
 }
@@ -502,7 +527,7 @@ if ($Parallel) {
     # (Test-ProfileWarnings/Test-ProfileHashApplied) likewise runs after Wait-Job, back
     # in this process, rather than inside the job.
     $jobScript = {
-        param($root, $hostTarget, $OutDir, $SkipTrain, $CpuName, $TargetCpu, $SimdCap, $GpuName, $logfile, $profdata, $unitSep, $features, $trainPkgList, $binList, $sharedMerged, $exampleArgs, $dirPrefix)
+        param($root, $hostTarget, $OutDir, $SkipTrain, $CpuName, $TargetCpu, $SimdCap, $GpuName, $logfile, $profdata, $unitSep, $features, $trainPkgList, $binList, $sharedMerged, $exampleArgs, $dirPrefix, $compatCodegenFlag)
 
         $ErrorActionPreference = 'Stop'
         $null > $logfile # Truncate/create log file
@@ -524,7 +549,8 @@ if ($Parallel) {
         $tdir = Join-Path $root "target\$dirPrefix-$name"
         $pdir = Join-Path $tdir 'profiles'
         $localMerged = Join-Path $tdir 'merged.profdata'
-        $cpuFlag = @('-C', "target-cpu=$TargetCpu")
+        $codegenFlags = @('-C', "target-cpu=$TargetCpu")
+        if ($compatCodegenFlag) { $codegenFlags += @('-C', $compatCodegenFlag) }
         $pkgArgs = $trainPkgList | ForEach-Object { '-p', $_ }
 
         Set-Location $root
@@ -542,7 +568,7 @@ if ($Parallel) {
             # This build must select the IDENTICAL packages/target/target-dir/features as
             # the profile-use build below (only RUSTFLAGS differs) so both produce the
             # same crate hashes.
-            $env:CARGO_ENCODED_RUSTFLAGS = (@($cpuFlag) + @('-C', "profile-generate=$pdir")) -join $unitSep
+            $env:CARGO_ENCODED_RUSTFLAGS = (@($codegenFlags) + @('-C', "profile-generate=$pdir")) -join $unitSep
             Invoke-Checked "[$name] instrumented build (packages: $($trainPkgList -join ', '); features: $features)" {
                 cargo build --release --target $hostTarget --target-dir $tdir @pkgArgs --bins @exampleArgs --features $features
             }
@@ -551,7 +577,7 @@ if ($Parallel) {
             $exe = Join-Path $tdir "$hostTarget\release\examples\pgo_train.exe"
             # Two-run tier training (BLD-1). A job cannot call Get-SimdTrainingCaps, so the
             # same logic is inlined (keep the two in step).
-            Remove-Item Env:INDICATRIX_SIMD -ErrorAction SilentlyContinue
+            Remove-Item Env:PLEOCHROMA_SIMD -ErrorAction SilentlyContinue
             $runCaps = @($SimdCap)
             if ($SimdCap) {
                 $rank = @{ scalar = 0; avx2 = 1; avx512 = 2 }
@@ -560,40 +586,40 @@ if ($Parallel) {
                 if ($rank[$hostTier] -gt $rank[$SimdCap]) { $runCaps = @('', $SimdCap) }
             }
             foreach ($runCap in $runCaps) {
-                if ($runCap) { $env:INDICATRIX_SIMD = $runCap } else { Remove-Item Env:INDICATRIX_SIMD -ErrorAction SilentlyContinue }
-                Invoke-Checked "[$name] training run (INDICATRIX_SIMD='$runCap')" { & $exe }
+                if ($runCap) { $env:PLEOCHROMA_SIMD = $runCap } else { Remove-Item Env:PLEOCHROMA_SIMD -ErrorAction SilentlyContinue }
+                Invoke-Checked "[$name] training run (PLEOCHROMA_SIMD='$runCap')" { & $exe }
             }
 
-            # indicatrix-cut-core's own training binary (cut target only), built by the
+            # pleochroma-cut-core's own training binary (cut target only), built by the
             # instrumented invocation above (see .DESCRIPTION's step 2b). A job cannot
             # call Invoke-CutCoreTraining, so the run is inlined.
             if ($exampleArgs -contains 'pgo_train_cutcore') {
                 $env:LLVM_PROFILE_FILE = Join-Path $pdir 'cutcore-%p-%m.profraw'
                 $cutCoreExe = Join-Path $tdir "$hostTarget\release\examples\pgo_train_cutcore.exe"
-                Invoke-Checked "[$name] indicatrix-cut-core training run" { & $cutCoreExe }
+                Invoke-Checked "[$name] pleochroma-cut-core training run" { & $cutCoreExe }
             }
 
-            # indicatrix-net's wire-protocol test, the third training binary (same set
+            # pleochroma-net's wire-protocol test, the third training binary (same set
             # as scripts/pgo-bolt-build.sh; see Invoke-NetTraining, which a job cannot
             # call). The JSON build log goes to a file so the test binary path survives.
             $netJson = Join-Path $tdir 'net-test-build.json'
-            Invoke-Checked "[$name] instrumented build (indicatrix-net scene_roundtrip test)" {
-                cargo test --release --target $hostTarget --target-dir $tdir -p indicatrix-net --features render --test scene_roundtrip --no-run --message-format=json > $netJson
+            Invoke-Checked "[$name] instrumented build (pleochroma-net scene_roundtrip test)" {
+                cargo test --release --target $hostTarget --target-dir $tdir -p pleochroma-net --features render --test scene_roundtrip --no-run --message-format=json > $netJson
             }
             $netMatches = [regex]::Matches((Get-Content -Raw -LiteralPath $netJson), '"executable":"([^"]+)"')
             if ($netMatches.Count -eq 0) { throw "[$name] could not locate the instrumented scene_roundtrip test binary in $netJson" }
             $netExe = $netMatches[$netMatches.Count - 1].Groups[1].Value -replace '\\\\', '\'
             $env:LLVM_PROFILE_FILE = Join-Path $pdir 'net-%p-%m.profraw'
-            Invoke-Checked "[$name] indicatrix-net wire-protocol training run" { & $netExe --test-threads=1 }
+            Invoke-Checked "[$name] pleochroma-net wire-protocol training run" { & $netExe --test-threads=1 }
 
-            # indicatrix-net's payload codecs (shuffle + zstd + LZ4), the fourth training
+            # pleochroma-net's payload codecs (shuffle + zstd + LZ4), the fourth training
             # binary; a job cannot call Invoke-CodecTraining, so it is inlined (keep in step).
-            Invoke-Checked "[$name] instrumented build (indicatrix-net pgo_codecs example)" {
-                cargo build --release --target $hostTarget --target-dir $tdir -p indicatrix-net --features render --example pgo_codecs
+            Invoke-Checked "[$name] instrumented build (pleochroma-net pgo_codecs example)" {
+                cargo build --release --target $hostTarget --target-dir $tdir -p pleochroma-net --features render --example pgo_codecs
             }
             $env:LLVM_PROFILE_FILE = Join-Path $pdir 'codecs-%p-%m.profraw'
             $codecsExe = Join-Path $tdir "$hostTarget\release\examples\pgo_codecs.exe"
-            Invoke-Checked "[$name] indicatrix-net payload codec training run" { & $codecsExe }
+            Invoke-Checked "[$name] pleochroma-net payload codec training run" { & $codecsExe }
 
             $raw = @(Get-ChildItem -Path $pdir -Filter '*.profraw')
             if ($raw.Count -eq 0) { throw "no .profraw files were written to $pdir" }
@@ -612,12 +638,12 @@ if ($Parallel) {
         }
 
         Remove-Item Env:LLVM_PROFILE_FILE -ErrorAction SilentlyContinue
-        Remove-Item Env:INDICATRIX_SIMD -ErrorAction SilentlyContinue
+        Remove-Item Env:PLEOCHROMA_SIMD -ErrorAction SilentlyContinue
         # Same package/target/target-dir/features as the instrumented build above,
         # byte-for-byte, so both builds produce the same crate hashes.
         # `-pgo-warn-missing-function` surfaces every function profile-use can't find
         # data for, in $logfile, for Test-ProfileWarnings to scan after this job completes.
-        $env:CARGO_ENCODED_RUSTFLAGS = (@($cpuFlag) + @('-C', "profile-use=$activeProfile", '-C', 'llvm-args=-pgo-warn-missing-function')) -join $unitSep
+        $env:CARGO_ENCODED_RUSTFLAGS = (@($codegenFlags) + @('-C', "profile-use=$activeProfile", '-C', 'llvm-args=-pgo-warn-missing-function')) -join $unitSep
 
         Invoke-Checked "[$name] PGO release build (packages: $($trainPkgList -join ', '); features: $features)" {
             cargo build --release --target $hostTarget --target-dir $tdir @pkgArgs --bins @exampleArgs --features $features
@@ -660,7 +686,7 @@ if ($Parallel) {
 
             $jobArgs = @(
                 $root, $hostTarget, $OutDir, $SkipTrain.IsPresent,
-                $c, $targetCpu, $simdCap, $g, $logfile, $profdata, $unitSep, $features, $trainPkgList, $binList, $sharedMerged, $exampleArgs, $dirPrefix
+                $c, $targetCpu, $simdCap, $g, $logfile, $profdata, $unitSep, $features, $trainPkgList, $binList, $sharedMerged, $exampleArgs, $dirPrefix, $compatCodegenFlag
             )
             $job = Start-Job -Name $name -ScriptBlock $jobScript -ArgumentList $jobArgs
             $jobs += @{ Job = $job; Name = $name; Log = $logfile; Tdir = $tdir; Profdata = $sharedMerged }
@@ -711,20 +737,21 @@ else {
         $pdir = Join-Path $tdir 'profiles'
         $localMerged = Join-Path $tdir 'merged.profdata'
         $sharedMerged = Get-SharedProfilePath $pgoProfileDir $Target $name
-        $cpuFlag = @('-C', "target-cpu=$TargetCpu")
+        $codegenFlags = @('-C', "target-cpu=$TargetCpu")
+        if ($compatCodegenFlag) { $codegenFlags += @('-C', $compatCodegenFlag) }
         $logfile = Join-Path $tdir 'build.log'
         New-Item -ItemType Directory -Force $tdir | Out-Null
         $null > $logfile # Truncate/create log file, so Test-ProfileWarnings has something to scan
 
-        # Same feature string, same package set (indicatrix + whichever of
-        # indicatrix-cut/indicatrix-worker -Target selected) for BOTH cargo invocations
+        # Same feature string, same package set (pleochroma + whichever of
+        # pleochroma-cut/pleochroma-worker -Target selected) for BOTH cargo invocations
         # below -- see Get-PgoFeatures' doc comment.
         $features = Get-PgoFeatures $includeCut $includeWorker $GpuName
         $pkgArgs = $trainPkgList | ForEach-Object { '-p', $_ }
 
         $savedEncodedRustflags = $env:CARGO_ENCODED_RUSTFLAGS
         $savedRustflags = $env:RUSTFLAGS
-        $savedSimd = $env:INDICATRIX_SIMD
+        $savedSimd = $env:PLEOCHROMA_SIMD
         $savedProfileFile = $env:LLVM_PROFILE_FILE
         $savedWrapper = $env:RUSTC_WRAPPER
         $savedCargoWrapper = $env:CARGO_BUILD_RUSTC_WRAPPER
@@ -756,7 +783,7 @@ else {
                 if (Test-Path $pdir) { Remove-Item -Recurse -Force $pdir }
                 New-Item -ItemType Directory -Force $pdir | Out-Null
 
-                $env:CARGO_ENCODED_RUSTFLAGS = (@($cpuFlag) + @('-C', "profile-generate=$pdir")) -join $unitSep
+                $env:CARGO_ENCODED_RUSTFLAGS = (@($codegenFlags) + @('-C', "profile-generate=$pdir")) -join $unitSep
                 Invoke-Checked "[$name] instrumented build (packages: $($trainPkgList -join ', '); features: $features)" {
                     cargo build --release --target $hostTarget --target-dir $tdir @pkgArgs --bins @exampleArgs --features $features
                 } $logfile
@@ -765,19 +792,19 @@ else {
                 $exe = Join-Path $tdir "$hostTarget\release\examples\pgo_train.exe"
                 # Two-run tier training (BLD-1): see Get-SimdTrainingCaps.
                 foreach ($runCap in (Get-SimdTrainingCaps $exe $SimdCap)) {
-                    if ($runCap) { $env:INDICATRIX_SIMD = $runCap } else { Remove-Item Env:INDICATRIX_SIMD -ErrorAction SilentlyContinue }
-                    Invoke-Checked "[$name] training run (INDICATRIX_SIMD='$runCap')" { & $exe } $logfile
+                    if ($runCap) { $env:PLEOCHROMA_SIMD = $runCap } else { Remove-Item Env:PLEOCHROMA_SIMD -ErrorAction SilentlyContinue }
+                    Invoke-Checked "[$name] training run (PLEOCHROMA_SIMD='$runCap')" { & $exe } $logfile
                 }
 
-                # indicatrix-cut-core's own training binary (cut target only), built by
+                # pleochroma-cut-core's own training binary (cut target only), built by
                 # the instrumented invocation above -- see .DESCRIPTION's step 2b.
                 if ($includeCut) { Invoke-CutCoreTraining $tdir $name $logfile }
 
-                # indicatrix-net's wire-protocol test, the third training binary
+                # pleochroma-net's wire-protocol test, the third training binary
                 # (same set as scripts/pgo-bolt-build.sh).
                 Invoke-NetTraining $tdir $name $logfile
 
-                # indicatrix-net's payload codecs (shuffle + zstd + LZ4), the fourth
+                # pleochroma-net's payload codecs (shuffle + zstd + LZ4), the fourth
                 # training binary.
                 Invoke-CodecTraining $tdir $name $logfile
 
@@ -798,12 +825,12 @@ else {
             }
 
             Remove-Item Env:LLVM_PROFILE_FILE -ErrorAction SilentlyContinue
-            Remove-Item Env:INDICATRIX_SIMD -ErrorAction SilentlyContinue
+            Remove-Item Env:PLEOCHROMA_SIMD -ErrorAction SilentlyContinue
             # Same package/target/target-dir/features as the instrumented build above,
             # byte-for-byte, so both builds produce the same crate hashes.
             # `-pgo-warn-missing-function` surfaces every function profile-use can't find
             # data for, in $logfile, for Test-ProfileWarnings to scan below.
-            $env:CARGO_ENCODED_RUSTFLAGS = (@($cpuFlag) + @('-C', "profile-use=$activeProfile", '-C', 'llvm-args=-pgo-warn-missing-function')) -join $unitSep
+            $env:CARGO_ENCODED_RUSTFLAGS = (@($codegenFlags) + @('-C', "profile-use=$activeProfile", '-C', 'llvm-args=-pgo-warn-missing-function')) -join $unitSep
 
             Invoke-Checked "[$name] PGO release build (packages: $($trainPkgList -join ', '); features: $features)" {
                 cargo build --release --target $hostTarget --target-dir $tdir @pkgArgs --bins @exampleArgs --features $features
@@ -828,7 +855,7 @@ else {
             Pop-Location
             if ($null -ne $savedEncodedRustflags) { $env:CARGO_ENCODED_RUSTFLAGS = $savedEncodedRustflags } else { Remove-Item Env:CARGO_ENCODED_RUSTFLAGS -ErrorAction SilentlyContinue }
             if ($null -ne $savedRustflags) { $env:RUSTFLAGS = $savedRustflags } else { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue }
-            if ($null -ne $savedSimd) { $env:INDICATRIX_SIMD = $savedSimd } else { Remove-Item Env:INDICATRIX_SIMD -ErrorAction SilentlyContinue }
+            if ($null -ne $savedSimd) { $env:PLEOCHROMA_SIMD = $savedSimd } else { Remove-Item Env:PLEOCHROMA_SIMD -ErrorAction SilentlyContinue }
             if ($null -ne $savedProfileFile) { $env:LLVM_PROFILE_FILE = $savedProfileFile } else { Remove-Item Env:LLVM_PROFILE_FILE -ErrorAction SilentlyContinue }
             if ($null -ne $savedWrapper) { $env:RUSTC_WRAPPER = $savedWrapper } else { Remove-Item Env:RUSTC_WRAPPER -ErrorAction SilentlyContinue }
             if ($null -ne $savedCargoWrapper) { $env:CARGO_BUILD_RUSTC_WRAPPER = $savedCargoWrapper } else { Remove-Item Env:CARGO_BUILD_RUSTC_WRAPPER -ErrorAction SilentlyContinue }

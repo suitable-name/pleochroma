@@ -1,0 +1,54 @@
+//! Integration tests for [`super::Database`], split by topic:
+//!
+//! - [`fixtures`]: the temp-DB path helper and pre-migration schema seeder shared by
+//!   more than one topic below.
+//! - [`migrations`]: column-retype/add migrations against `diagram_entries`/
+//!   `diagram_details` (numeric retype, `source_id`, designer/attachment columns).
+//! - [`schema_migrations`]: table/index/vocabulary-level migrations (shape vocabulary,
+//!   `ignored` plus its side tables, tilt-curve aggregate pruning, `sql_identifier`).
+//! - [`materials`]: `custom_gem_materials` column migrations and the
+//!   `save_custom_material` round trip.
+//! - [`materials_inclusions`]: the same for the default crystal-axis columns, the per-axis
+//!   dispersion text and the inclusion columns.
+//! - [`detail`][]: `save_diagram_detail`/`update_diagram_metadata`/
+//!   `get_derived_from_title`.
+//! - [`entries`]: rename, `updated_at` bump semantics, `url`
+//!   rewrite, delete cascade, and the `ignored` flag.
+//! - [`search`]: the library search/filter surface and attribute-range stats.
+//! - [`performance`]: tilt-performance filtering, including the SQL-narrowing
+//!   soundness property against a brute-force scan.
+//! - [`connection`]: WAL/`open_read_only`/`:memory:` connection behaviour.
+//! - [`planner_exclusions`]: the Rough Planner exclusion mark -- toggling, the sorted
+//!   readers, and its independence from `updated_at`, re-saves, deletes and `ignored`.
+//! - [`design_side_data`]: saved variants, cutting progress and the lighting choice,
+//!   keyed by the design's UUID rather than by a catalogue entry.
+//! - [`design_side_migrations`]: those three tables on a fresh database, on one that
+//!   lacks them, and across repeated opens.
+//! - [`frosting`]: the frosting of a library design (`diagram_frosting`) -- round trip,
+//!   replacing, cascade, migration of an old database and the read-only reader.
+//! - [`surface_finish`]: the surface finish of a library design (`diagram_surface_finish`,
+//!   `diagram_edge_abrasion`) -- round trip, replacing, cascade, migration and backfill.
+//! - [`provenance_migration`]: the `diagram_previews` material size and source columns,
+//!   and the one-off marking of design-file designs' cached results as outdated.
+
+mod color_variant_store;
+mod connection;
+mod design_side_data;
+mod design_side_migrations;
+mod detail;
+mod entries;
+mod fixtures;
+mod frosting;
+mod materials;
+mod materials_inclusions;
+mod migrations;
+mod migrations_blob_order;
+mod pattern_store;
+mod performance;
+mod planner_exclusions;
+mod provenance_migration;
+mod schema_migrations;
+mod search;
+mod stone_choice_store;
+mod surface_finish;
+mod zoning_store;

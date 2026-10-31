@@ -1,0 +1,54 @@
+import { Button } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { EditorModel } from "../models/editor.slint";
+import { GuideModel } from "../models/guide.slint";
+
+// A small inline badge for
+// `EditorModel.material_guess_text` (e.g. "Sapphire? (from RI 1.76)"), with a
+// one-click "Set material" that confirms the guess
+// (`EditorModel.set_material_from_guess`) and a tooltip listing every other
+// built-in within tolerance (`EditorModel.material_guess_other_candidates_text`).
+// Renders nothing while there is no guess to show (an already-named material,
+// or nothing built in close enough) -- see `EditorModel.material_guess_text`'s
+// own doc comment.
+export component MaterialGuessBadge inherits HorizontalLayout {
+    spacing: 6px;
+    visible: EditorModel.material_guess_text != "";
+
+    // Centred beside the 32 px "Set Material" button instead of riding at its top.
+    VerticalLayout {
+        alignment: center;
+        Rectangle {
+            width: guess_lbl.preferred-width + 10px;
+            // The same 32 px as the "Set Material" button beside it (26 px looked like a smaller
+            // control stuck to a bigger one).
+            height: 32px;
+            background: Theme.accent-amber.with-alpha(0.14);
+            border-radius: Theme.radius-sm;
+            border-width: 1px;
+            border-color: Theme.accent-amber;
+            accessible-role: AccessibleRole.text;
+            accessible-label: "Guessed Material: " + EditorModel.material_guess_text;
+            accessible-description: EditorModel.material_guess_other_candidates_text;
+            guess_lbl := Text {
+                text: EditorModel.material_guess_text;
+                font-size: 10px;
+                font-italic: true;
+                color: Theme.accent-amber;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            // A guess is never stated as a fact: the tooltip says so and lists the other close matches.
+            Tooltip { text: @markdown("A guess from the refractive index alone: the design does not say which material it is. \{EditorModel.material_guess_other_candidates_text}"); }
+        }
+    }
+    // Not offered for a material the load already applied: it is the design's material.
+    if !EditorModel.material_guess_applied: Button {
+        text: "Set Material";
+        accessible-description: "Use the guessed material for this design. You can undo it.";
+        // A design-material edit: locked with Design Settings while the
+        // worked-example guide runs.
+        enabled: GuideModel.allows_design_settings();
+        clicked => { EditorModel.set_material_from_guess(EditorModel.material_guess_name); }
+    }
+}

@@ -5,7 +5,7 @@ Optical Spectroscopy and Comprehensive Chromophore Catalogue for Natural,
 Synthetic, and Amorphous Gemstone Hosts" (48 pp., 23 references, cited below
 as *Report*) and after a 25-point plan review (log at the end). Companion data:
 `docs/chromophores/*.md` (research files merged with the Report; status in
-§2.4). Related: `crates/indicatrix/docs/physics.md` §3, manual chapter 6
+§2.4). Related: `crates/pleochroma/docs/physics.md` §3, manual chapter 6
 (materials).
 
 ## 0. Summary
@@ -21,7 +21,7 @@ Custom materials get two color modes:
   fractions. Both directions are always in sync.
 
 The chromophore recipe is resolved **on the CPU into ordinary
-`AbsorptionBand`s** (`crates/indicatrix/src/optics/absorption.rs`), so the
+`AbsorptionBand`s** (`crates/pleochroma/src/optics/absorption.rs`), so the
 renderer, the GPU material layout, the WGSL, the net protocol (v19) and every
 existing material stay untouched and bit-identical. `GemMaterial` gains no
 field. New physics lives in a new module, a new colorimetry function, a
@@ -134,7 +134,7 @@ Consequences for the design:
 
 ### 2.2 Canonical data file
 
-`crates/indicatrix/data/chromophores.toml`, embedded with `include_str!`,
+`crates/pleochroma/data/chromophores.toml`, embedded with `include_str!`,
 parsed once into an ordered, validated `ChromophoreCatalogue` (`OnceLock`).
 Schema = the research files' schema (`docs/chromophores/*.md`) with these
 normalisations:
@@ -261,7 +261,7 @@ What the Report settles and what it does not:
 reports (`docs/chromophores/research-2026-10-polarized-spectra{,-2}.md`; validation and
 resolution in `docs/chromophores/research-2026-10-validation.md`) were checked with our
 colorimetry before use: 15 tabulated spectra are fixtures in
-`crates/indicatrix/data/reference_spectra/`, and only 2 of them (S-Met sapphire E-perp-c,
+`crates/pleochroma/data/reference_spectra/`, and only 2 of them (S-Met sapphire E-perp-c,
 amethyst) reproduce their own measured CIELAB (dE00 4.1, 3.4); the ruby, alexandrite, tanzanite,
 peridot, emerald and citrine tables miss their CIELAB by 10-38 dE00 (the tables leave the
 450-500 nm window open). Fitted from them (confidence `secondary`, still **not**
@@ -646,7 +646,7 @@ common targets.
 ## 5. Data model in the apps
 
 ```rust
-// crates/indicatrix-cut-core/src/material/color.rs (new)
+// crates/pleochroma-cut-core/src/material/color.rs (new)
 pub enum ActiveColor { Fantasy, Physics }
 pub struct ColorMode {
     pub active: ActiveColor,
@@ -818,7 +818,7 @@ channels analytically.
 
 | WP | Content | Depends on | Network |
 |---|---|---|---|
-| C1 | Normalise research files → `crates/indicatrix/data/chromophores.toml`; schema incl. `sigma_cm2`/`epsilon_l_mol_cm`/`transition_class`, `calibration`, `axis_mapping_confidence`, per-pair `pairing`; explicit concentration bases and host number densities; frozen units; ZPL → envelope conversion; loader-time edge merge; treatment entries (§2.6); automatic consistency checks setting `suspect` (§2.4; needs the schema fields in the same WP); validator tests | — | no |
+| C1 | Normalise research files → `crates/pleochroma/data/chromophores.toml`; schema incl. `sigma_cm2`/`epsilon_l_mol_cm`/`transition_class`, `calibration`, `axis_mapping_confidence`, per-pair `pairing`; explicit concentration bases and host number densities; frozen units; ZPL → envelope conversion; loader-time edge merge; treatment entries (§2.6); automatic consistency checks setting `suspect` (§2.4; needs the schema fields in the same WP); validator tests | — | no |
 | C2 | Calibration of absorption strengths from measured spectra (§2.4); resolve every `suspect`; re-derive pair coefficients; set `measured`/`verified`; sanity tests vs built-ins | C1 | **yes** (or user-provided spectra) |
 | C4 | `color/body_color.rs`: spectrum → XYZ/Lab/sRGB at 1 nm, D65 and Planckian illuminants, ΔE₀₀ (CIEDE2000 reference test vectors, Sharma 2005) | — | no |
 | C3 | `optics/chromophore/{catalogue,recipe,resolve}.rs`: forward model, band budget, units, `effective_stone_width_mm`; tests: single-band analytic Beer–Lambert, pair scaling, pleochroism weights, ≤ 8 bands, determinism, pinned snapshot, blue-sapphire color test (use C4) | C1, C4 | no |
@@ -887,6 +887,9 @@ C1) at the 5.0 mm reference path.
    and Citrine 2.41. Tanzanite (7.27) and Amethyst (11.25) still differ from the primary-data
    recipes. The ≥ 6/8 test is no longer ignored, and
    `criterion_6_built_in_colors_vs_primary_data_recipes_are_pinned` pins the 8 values.
+   **Update (2026-10-28, after the per-axis refits of the color variants campaign):** 7 of 8
+   are within ΔE₀₀ 3; Amethyst now 2.16 and Citrine 0.68, Tanzanite (7.27) the one that
+   still differs.
 7. **Undo.** Pick → edit an amount → undo: recipe equals the solved recipe
    exactly (field-wise equality). 50 consecutive undo steps work; the 51st
    push drops the oldest.

@@ -1,0 +1,202 @@
+import { Button, CheckBox, LineEdit, ScrollView } from "std-widgets.slint";
+import { Theme } from "../components/theme.slint";
+import { AppModel } from "../models/app_model.slint";
+import { GuideModel } from "../models/guide_model.slint";
+import { LibraryModel } from "../models/library_model.slint";
+import { GuideOutline } from "library_row.slint";
+
+component Lbl inherits Text {
+    font-size: 10px;
+    color: Theme.text-muted;
+}
+
+// A labelled text field bound to a global string.
+component Field inherits VerticalLayout {
+    in property <string> label;
+    in property <string> placeholder: "";
+    in-out property <string> value;
+    callback edited();
+    spacing: 3px;
+    Lbl { text: root.label; }
+    LineEdit {
+        // The style's LineEdit is at least 160px wide, which would push a row of three fields
+        // past the pane.
+        min-width: 0px;
+        text <=> root.value;
+        placeholder-text: root.placeholder;
+        edited => { root.edited(); }
+        changed has-focus => { AppModel.text-focus = self.has-focus; }
+    }
+}
+
+// The selected design: its picture, the metadata to edit, Open and Export, and Delete.
+export component LibraryDetail inherits Rectangle {
+    // Narrow windows show this pane alone, with a way back to the list.
+    in property <bool> show-back: false;
+
+    background: Theme.bg-card;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: Theme.border-medium;
+    clip: true;
+
+    ScrollView {
+        width: parent.width;
+        height: parent.height;
+        content-width: self.visible-width;
+
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+
+            if root.show-back: HorizontalLayout {
+                Button {
+                    text: "Back To List";
+                    clicked => { LibraryModel.select(""); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+
+            Rectangle {
+                height: 130px;
+                background: Theme.bg-darkest;
+                border-radius: Theme.radius-sm;
+                clip: true;
+                if LibraryModel.detail-has-thumb: Image {
+                    width: parent.width;
+                    height: parent.height;
+                    source: LibraryModel.detail-thumb;
+                    image-fit: contain;
+                }
+                if !LibraryModel.detail-has-thumb: Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: "No Preview";
+                    font-size: 11px;
+                    color: Theme.text-disabled;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 6px;
+                GuideOutline {
+                    horizontal-stretch: 1;
+                    on: GuideModel.highlight-target == "load_button";
+                    Button {
+                        text: "Open Design";
+                        primary: true;
+                        enabled: !LibraryModel.busy;
+                        clicked => { LibraryModel.open-selected(); }
+                    }
+                }
+                Button {
+                    horizontal-stretch: 1;
+                    text: "Export .psdd";
+                    enabled: !LibraryModel.busy;
+                    clicked => { LibraryModel.export-selected(); }
+                }
+            }
+
+            Field {
+                label: "Title";
+                value <=> LibraryModel.detail-title;
+                edited => { LibraryModel.detail-dirty = true; }
+            }
+            Field {
+                label: "Designer";
+                value <=> LibraryModel.detail-designer;
+                edited => { LibraryModel.detail-dirty = true; }
+            }
+            Field {
+                label: "Source Citation";
+                value <=> LibraryModel.detail-citation;
+                edited => { LibraryModel.detail-dirty = true; }
+            }
+            Field {
+                label: "Shape";
+                value <=> LibraryModel.detail-shape;
+                edited => { LibraryModel.detail-dirty = true; }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Field {
+                    horizontal-stretch: 1;
+                    label: "Refractive Index";
+                    value <=> LibraryModel.detail-ri;
+                    edited => { LibraryModel.detail-dirty = true; }
+                }
+                Field {
+                    horizontal-stretch: 1;
+                    label: "Length / Width";
+                    value <=> LibraryModel.detail-lw;
+                    edited => { LibraryModel.detail-dirty = true; }
+                }
+                Field {
+                    horizontal-stretch: 1;
+                    label: "Volume / W\u{b3}";
+                    value <=> LibraryModel.detail-volume;
+                    edited => { LibraryModel.detail-dirty = true; }
+                }
+            }
+            Field {
+                label: "Tags (Comma Separated)";
+                value <=> LibraryModel.detail-tags;
+                edited => { LibraryModel.detail-dirty = true; }
+            }
+            CheckBox {
+                text: "Ignored (Hidden From The List)";
+                checked <=> LibraryModel.detail-ignored;
+                toggled => { LibraryModel.detail-dirty = true; }
+            }
+
+            if LibraryModel.detail-error != "": Text {
+                text: LibraryModel.detail-error;
+                font-size: 10px;
+                color: Theme.danger;
+                wrap: word-wrap;
+            }
+
+            HorizontalLayout {
+                spacing: 6px;
+                Button {
+                    horizontal-stretch: 1;
+                    text: "Save Changes";
+                    primary: true;
+                    enabled: LibraryModel.detail-dirty && !LibraryModel.busy;
+                    clicked => { LibraryModel.apply-detail(); }
+                }
+                Button {
+                    horizontal-stretch: 1;
+                    text: "Revert";
+                    enabled: LibraryModel.detail-dirty;
+                    clicked => { LibraryModel.revert-detail(); }
+                }
+            }
+
+            Rectangle {
+                height: 1px;
+                background: Theme.border-subtle;
+            }
+            Text {
+                text: LibraryModel.detail-info;
+                font-size: 10px;
+                color: Theme.text-secondary;
+                wrap: word-wrap;
+            }
+            Rectangle {
+                height: 1px;
+                background: Theme.border-subtle;
+            }
+            HorizontalLayout {
+                Button {
+                    text: "Delete Design";
+                    enabled: !LibraryModel.busy;
+                    clicked => { LibraryModel.delete-selected(); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+        }
+    }
+}

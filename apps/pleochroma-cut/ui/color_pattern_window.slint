@@ -1,0 +1,361 @@
+// The Color Pattern Editor: a separate top-level window, opened from the Gem Material Editor's
+// Color Pattern section (`components/material_editor/color_pattern_section.slint`). A pattern
+// is a base color plus up to four zones inside it; a zone has one color or, in a birefringent
+// stone, two.
+//
+// Everything it shows is pushed from Rust (`gui::color_pattern`) into this window's OWN instance
+// of `ColorPatternModel` (a global is instantiated once per top-level window); the window holds
+// only what is typed. The pieces live in `components/color_pattern/`.
+//
+// Keyboard: Tab walks every control; Escape is Cancel; Ctrl+Z and Ctrl+Y undo and redo the
+// pattern edit when no text field has the key.
+//
+// Sizing: the whole content hangs off an x/y-positioned wrapper, so no layout constraint inside
+// it reaches the window (the window's min AND max come from its content tree otherwise -- see
+// `app.slint`'s sizing notes); the window's own `min-width`/`min-height` are the only limits.
+import { ComboBox, LineEdit, ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { ColorPatternModel } from "models/color_pattern.slint";
+import { RoughPill } from "components/rough_planner/fields.slint";
+import { ActionButton } from "components/chip_toggle.slint";
+import { TipBox } from "components/tip_box.slint";
+import { PatternPreview, PatternSettingsRow } from "components/color_pattern/preview_panel.slint";
+import { PatternZoneList } from "components/color_pattern/zone_list.slint";
+import { PatternZoneProperties } from "components/color_pattern/zone_properties.slint";
+import { PatternColorPicker } from "components/color_pattern/color_picker.slint";
+
+export component ColorPatternWindow inherits Window {
+    title: ColorPatternModel.title == "" ? "Color Pattern \u{2014} Pleochroma Cut" : ColorPatternModel.title;
+    // See `MainWindow`'s `icon` (app.slint) for why every window sets it.
+    icon: @image-url("../assets/icon.png");
+    preferred-width: 1120px;
+    preferred-height: 780px;
+    min-width: 960px;
+    min-height: 640px;
+    background: Theme.bg-darkest;
+    default-font-family: "Segoe UI";
+
+    // The Presets menu's own selection; it is an action list, so the window does not keep it.
+    property <int> preset_index: 0;
+
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+
+        window_keys := FocusScope {
+            init => { self.focus(); }
+            key-pressed(event) => {
+                if event.text == Key.Escape {
+                    if ColorPatternModel.picker_open {
+                        ColorPatternModel.picker_cancelled();
+                    } else {
+                        ColorPatternModel.cancel();
+                    }
+                    return accept;
+                }
+                if event.modifiers.control || event.modifiers.meta {
+                    if event.text == "z" && !event.modifiers.shift {
+                        ColorPatternModel.undo();
+                        return accept;
+                    }
+                    if event.text == "y" || (event.text == "z" && event.modifiers.shift) {
+                        ColorPatternModel.redo();
+                        return accept;
+                    }
+                }
+                return reject;
+            }
+
+            VerticalLayout {
+                padding: 10px;
+                spacing: 8px;
+
+                // --- Typical zoning of the species (only where it has some) -------------------
+                if ColorPatternModel.typical_labels.length > 0: HorizontalLayout {
+                    height: 28px;
+                    spacing: 6px;
+                    VerticalLayout {
+                        alignment: center;
+                        Text {
+                            text: ColorPatternModel.typical_title;
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: Theme.text-secondary;
+                            accessible-role: AccessibleRole.text;
+                        }
+                    }
+                    for entry[i] in ColorPatternModel.typical_labels: VerticalLayout {
+                        alignment: center;
+                        RoughPill {
+                            height: 24px;
+                            text: entry;
+                            hint: "Start from the typical " + entry + " zoning, in this stone's own color. It replaces the zones below.";
+                            clicked => { ColorPatternModel.typical_picked(i); }
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                }
+
+                // --- Templates and presets -----------------------------------------------------
+                // Below 1100px the two row labels go and the preset box narrows: with Linux fonts
+                // (DejaVu/Noto) the row ran about 90px past the 960px window and cut off "Save as
+                // Preset...". The pills and the box keep their own hints and accessible names.
+                HorizontalLayout {
+                    height: 28px;
+                    spacing: 6px;
+                    if root.width >= 1100px: VerticalLayout {
+                        alignment: center;
+                        Text {
+                            text: "Templates:";
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: Theme.text-secondary;
+                            accessible-role: AccessibleRole.text;
+                        }
+                    }
+                    for label[i] in ColorPatternModel.template_labels: VerticalLayout {
+                        alignment: center;
+                        RoughPill {
+                            height: 28px;
+                            text: label;
+                            hint: "Start from the " + label + " template. It replaces the zones below.";
+                            clicked => { ColorPatternModel.template_picked(i); }
+                        }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    if root.width >= 1100px: VerticalLayout {
+                        alignment: center;
+                        Text {
+                            text: "Presets:";
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: Theme.text-secondary;
+                            accessible-role: AccessibleRole.text;
+                        }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        TipBox {
+                            width: root.width >= 1100px ? 170px : 140px;
+                            height: 28px;
+                            hint: "Load a pattern you saved before. It replaces the zones below.";
+                            ComboBox {
+                                min-width: 0px;
+                                model: ColorPatternModel.preset_labels;
+                                current-index <=> root.preset_index;
+                                enabled: ColorPatternModel.preset_labels.length > 1;
+                                accessible-label: "Presets";
+                                selected(value) => {
+                                    if root.preset_index > 0 {
+                                        ColorPatternModel.preset_picked(root.preset_index);
+                                    }
+                                    root.preset_index = 0;
+                                }
+                            }
+                        }
+                    }
+                    if !ColorPatternModel.preset_naming: VerticalLayout {
+                        alignment: center;
+                        RoughPill {
+                            height: 28px;
+                            text: "Save as Preset\u{2026}";
+                            hint: "Keep this pattern under a name, to use again on other materials.";
+                            clicked => { ColorPatternModel.save_preset(); }
+                        }
+                    }
+                    if ColorPatternModel.preset_naming: VerticalLayout {
+                        alignment: center;
+                        LineEdit {
+                            width: 170px;
+                            text <=> ColorPatternModel.preset_name;
+                            placeholder-text: "Preset Name";
+                            accessible-label: "Preset Name";
+                            accepted(text) => { ColorPatternModel.preset_name_committed(text); }
+                        }
+                    }
+                    if ColorPatternModel.preset_naming: VerticalLayout {
+                        alignment: center;
+                        RoughPill {
+                            height: 24px;
+                            text: "Save";
+                            hint: "Keep the pattern under this name.";
+                            clicked => { ColorPatternModel.preset_name_committed(ColorPatternModel.preset_name); }
+                        }
+                    }
+                    if ColorPatternModel.preset_naming: VerticalLayout {
+                        alignment: center;
+                        RoughPill {
+                            height: 24px;
+                            text: "Cancel";
+                            hint: "Do not save a preset.";
+                            clicked => { ColorPatternModel.preset_name_cancelled(); }
+                        }
+                    }
+                }
+
+                // --- Preview and zones --------------------------------------------------------------
+                HorizontalLayout {
+                    vertical-stretch: 1;
+                    spacing: 10px;
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        min-width: 380px;
+                        background: Theme.bg-dark;
+                        border-radius: Theme.radius-md;
+                        border-width: 1px;
+                        border-color: Theme.border-subtle;
+                        clip: true;
+                        VerticalLayout {
+                            padding: 10px;
+                            PatternPreview {}
+                        }
+                    }
+
+                    Rectangle {
+                        width: 430px;
+                        background: Theme.bg-dark;
+                        border-radius: Theme.radius-md;
+                        border-width: 1px;
+                        border-color: Theme.border-subtle;
+                        clip: true;
+                        ScrollView {
+                            x: 0px;
+                            y: 0px;
+                            width: parent.width;
+                            height: parent.height;
+                            VerticalLayout {
+                                padding: 10px;
+                                spacing: 12px;
+                                alignment: start;
+                                if !ColorPatternModel.picker_open: PatternZoneList {}
+                                if !ColorPatternModel.picker_open: Rectangle { height: 1px; background: Theme.border-subtle; }
+                                if !ColorPatternModel.picker_open: PatternZoneProperties {}
+                                if ColorPatternModel.picker_open: PatternColorPicker {}
+                            }
+                        }
+                    }
+                }
+
+                // --- Pattern-wide settings -------------------------------------------------------------
+                Rectangle {
+                    background: Theme.bg-dark;
+                    border-radius: Theme.radius-md;
+                    border-width: 1px;
+                    border-color: Theme.border-subtle;
+                    // Exactly as tall as its rows: it stretched with the window and left ~110 px
+                    // of empty card under PATTERN / SIZE / BOUNDARY.
+                    vertical-stretch: 0;
+                    min-height: settings.preferred-height + 16px;
+                    max-height: settings.preferred-height + 16px;
+                    preferred-height: settings.preferred-height + 16px;
+                    settings := PatternSettingsRow {
+                        x: 10px;
+                        y: 8px;
+                        width: parent.width - 20px;
+                        height: parent.height - 16px;
+                    }
+                }
+
+                // --- Discard question (Cancel with unsaved edits) ---------------------------------------------------
+                if ColorPatternModel.confirm_discard: Rectangle {
+                    height: 36px;
+                    background: Theme.surface-info;
+                    border-radius: Theme.radius-sm;
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 8px;
+                        Text {
+                            horizontal-stretch: 1;
+                            text: "Discard the changes to this pattern?";
+                            font-size: 12px;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            RoughPill {
+                                height: 24px;
+                                text: "Keep Editing";
+                                hint: "Go back to the pattern.";
+                                clicked => { ColorPatternModel.discard_declined(); }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            RoughPill {
+                                height: 24px;
+                                text: "Discard";
+                                hint: "Close the window and throw the edits away.";
+                                clicked => { ColorPatternModel.discard_confirmed(); }
+                            }
+                        }
+                    }
+                }
+
+                // --- Buttons -----------------------------------------------------------------------------------
+                HorizontalLayout {
+                    spacing: 8px;
+                    height: 32px;
+                    ActionButton {
+                        width: 76px;
+                        height: 32px;
+                        text: "Undo";
+                        hint: ColorPatternModel.can_undo ? "Take back the last edit. Ctrl+Z does the same." : "There is nothing to undo.";
+                        enabled: ColorPatternModel.can_undo;
+                        clicked => { ColorPatternModel.undo(); }
+                    }
+                    ActionButton {
+                        width: 76px;
+                        height: 32px;
+                        text: "Redo";
+                        hint: ColorPatternModel.can_redo ? "Bring back the edit you took back. Ctrl+Y does the same." : "There is nothing to redo.";
+                        enabled: ColorPatternModel.can_redo;
+                        clicked => { ColorPatternModel.redo(); }
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: ColorPatternModel.solving_colors ? "Solving colors\u{2026}" : (ColorPatternModel.dirty ? "Unsaved changes" : "");
+                        font-size: 11px;
+                        color: Theme.text-secondary;
+                        vertical-alignment: center;
+                        horizontal-alignment: right;
+                    }
+                    ActionButton {
+                        width: 84px;
+                        height: 32px;
+                        text: "Cancel";
+                        hint: "Close this window without applying further changes. It asks first if there are edits.";
+                        ink: Theme.text-secondary;
+                        clicked => { ColorPatternModel.cancel(); }
+                    }
+                    ActionButton {
+                        width: 84px;
+                        height: 32px;
+                        text: "Apply";
+                        hint: ColorPatternModel.message == "" ? (ColorPatternModel.stone_target ? "Apply the pattern only to this stone and keep this window open." : "Store the pattern with the material and keep this window open.") : ColorPatternModel.message;
+                        fill: Theme.accent-cyan;
+                        hover_fill: Theme.accent-cyan-hover;
+                        ink: Theme.text-on-accent;
+                        edge: Theme.accent-cyan;
+                        weight: 700;
+                        enabled: ColorPatternModel.message == "" && !ColorPatternModel.picker_open;
+                        clicked => { ColorPatternModel.apply(); }
+                    }
+                    ActionButton {
+                        width: 84px;
+                        height: 32px;
+                        text: ColorPatternModel.stone_target ? "Done" : "Save";
+                        hint: ColorPatternModel.message == "" ? (ColorPatternModel.stone_target ? "Apply the pattern only to this stone and close this window." : "Store the pattern with the material and close this window.") : ColorPatternModel.message;
+                        weight: 700;
+                        enabled: ColorPatternModel.message == "" && !ColorPatternModel.picker_open;
+                        clicked => { ColorPatternModel.save(); }
+                    }
+                }
+            }
+        }
+    }
+}

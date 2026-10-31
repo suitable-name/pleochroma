@@ -1,0 +1,88 @@
+import { LineEdit, Slider } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { RetargetModel } from "../../models/retarget.slint";
+import { ToggleRow } from "../toggle_switch.slint";
+import { TipBox, FieldCaption } from "../tip_box.slint";
+
+// 5. Crown handling -- Advanced mode only (the dialog mounts it behind
+// `GuideModel.shows_advanced()`).
+export component CrownHandlingSection inherits VerticalLayout {
+    spacing: 6px;
+    FieldCaption {
+        text: "Crown Handling";
+        hint: "How crown tiers follow the pavilion's move. Default: the crown follows the pavilion's stretch, so the stone keeps its silhouette and table size. Fraction and ratio are the older rules.";
+    }
+
+    ToggleRow {
+        text: "Crown Follows the Pavilion (Keeps the Silhouette)";
+        // The label wraps to two lines below ~380 px; a ToggleRow reports one line, so the
+        // second line would sit on whatever follows. Give the narrow row two lines.
+        min-height: self.width < 380px ? 38px : 24px;
+        hint: "Scale every crown tier's slope by the same vertical stretch the pavilion gets, so the whole stone is the original stretched up or down: the plan view, the table size and the crown-to-pavilion proportion stay. Switch it off to use a fraction of the shift instead. Scaling by ratio, below, wins over both.";
+        checked: RetargetModel.crown_follows_pavilion;
+        enabled: !RetargetModel.is_busy;
+        label_color: Theme.text-secondary;
+        toggled => {
+            RetargetModel.crown_follows_pavilion = !RetargetModel.crown_follows_pavilion;
+            RetargetModel.proposal_changed();
+        }
+    }
+
+    HorizontalLayout {
+        spacing: 8px;
+        Text { text: "Fraction of Shift:"; font-size: 10px; color: Theme.text-muted; vertical-alignment: center; }
+        // A std-widgets `Slider` gets keyboard/drag/click support for
+        // free, and `step` lands on round 5% increments without the
+        // pixel-hunting a hand-rolled mouse-x/width drag bar would need.
+        // The slider shrinks first (min-width) so the % field and its sign stay inside the column.
+        TipBox {
+            horizontal-stretch: 1;
+            min-width: 48px;
+            hint: "How much of the pavilion's change the crown follows, from 0 to 100 percent.";
+            crown_slider := Slider {
+                minimum: 0.0;
+                maximum: 1.0;
+                step: 0.05;
+                value <=> RetargetModel.crown_fraction;
+                enabled: !RetargetModel.is_busy && !RetargetModel.scale_crown_by_ratio && !RetargetModel.crown_follows_pavilion;
+                accessible-label: "Crown Fraction of the Pavilion Shift";
+                changed(val) => { RetargetModel.proposal_changed(); }
+            }
+        }
+        // No fixed width: a TipBox takes its minimum from the LineEdit inside it (about 109 px), and
+        // a 72 px box let the field overflow past the "%" sign and the column's right edge.
+        TipBox {
+            preferred-width: 112px;
+            horizontal-stretch: 0;
+            hint: "The same fraction as a percentage. Type a number and press Enter.";
+            crown_pct_edit := LineEdit {
+                enabled: !RetargetModel.is_busy && !RetargetModel.scale_crown_by_ratio && !RetargetModel.crown_follows_pavilion;
+                horizontal-alignment: center;
+                accessible-label: "Crown Fraction in Percent";
+                // Bare digits, no "%" -- `to-float()` below needs the
+                // whole string to be a number. Reflects the slider/model
+                // whenever this field isn't the one being typed into --
+                // `accepted` is the only path that writes the model, so
+                // there is no binding fight while a cutter is mid-edit.
+                text: Math.round(RetargetModel.crown_fraction * 100);
+                accepted => {
+                    RetargetModel.crown_fraction = max(0.0, min(1.0, self.text.to-float() / 100));
+                    RetargetModel.proposal_changed();
+                }
+            }
+        }
+        Text { text: "%"; width: 14px; horizontal-alignment: left; font-size: 11px; font-weight: 700; color: Theme.accent-cyan; vertical-alignment: center; }
+    }
+
+    ToggleRow {
+        text: "Scale Crown by Ratio Instead";
+        hint: "Instead of a fraction of the pavilion's shift, scale every crown tier's own raw angle by the ratio of the two materials' critical angles.";
+        checked: RetargetModel.scale_crown_by_ratio;
+        enabled: !RetargetModel.is_busy;
+        label_color: Theme.text-secondary;
+        toggled => {
+            RetargetModel.scale_crown_by_ratio = !RetargetModel.scale_crown_by_ratio;
+            RetargetModel.proposal_changed();
+        }
+    }
+}

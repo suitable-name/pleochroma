@@ -1,0 +1,164 @@
+import { CheckBox, ComboBox, Slider } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { SurfaceModel } from "../../models/surface.slint";
+
+// The Tier tab's Surface Finish: how well the loaded tier is polished, or how coarsely it is ground,
+// and the same for a single facet of it. Shown only for a saved tier, in Advanced
+// (`TierFacetsSection` instantiates it). Everything here applies at once and is one undo step (the
+// sliders apply when they are let go). The grades are the tier table's right-click menu list; Custom
+// opens the values below the combo.
+//
+// The scratch direction is not authored here: it comes from the Faceting Machine preference. Custom
+// Angle fixes one direction for this tier, No Sweep gives the stone no motion across the lap.
+export component SurfaceFinishSection inherits VerticalLayout {
+    // `false` while the worked-example guide locks the Tier tab.
+    in property <bool> unlocked: true;
+    // Whether the selection-fed state describes the tier the form shows (see `TierFacetsSection`).
+    in property <bool> selection_is_loaded: true;
+    in property <int> loaded_tier_index: -1;
+
+    property <bool> editable: root.unlocked && root.selection_is_loaded;
+
+    spacing: 4px;
+
+    Rectangle {
+        height: finish_lbl.preferred-height;
+        Tooltip { text: @markdown("How well this tier is polished, or how coarsely it is ground. A polish\nscatters a little light as a soft halo, stretched across the scratches\nthe lap leaves. A ground finish scatters light like frost. The renders\nshow it, and it is saved in the design file. The direction of the\nscratches comes from the Faceting Machine in the Preferences."); }
+        finish_lbl := Text { text: "Surface Finish"; font-size: 10px; color: Theme.text-muted; }
+    }
+    ComboBox {
+        enabled: root.editable;
+        model: SurfaceModel.grade_names;
+        current-index <=> SurfaceModel.tier_grade;
+        accessible-label: "Surface Finish Grade of This Tier";
+        selected(val) => { SurfaceModel.grade_chosen(root.loaded_tier_index, SurfaceModel.tier_grade); }
+    }
+    if SurfaceModel.summary != "": Text {
+        text: SurfaceModel.summary;
+        font-size: 10px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+        accessible-role: AccessibleRole.text;
+    }
+
+    // Custom: the roughness and the anisotropy of the polish.
+    if SurfaceModel.is_custom: VerticalLayout {
+        spacing: 2px;
+        HorizontalLayout {
+            alignment: space-between;
+            Rectangle {
+                height: rq_lbl.preferred-height;
+                Tooltip { text: @markdown("The roughness of the polish in nanometres (the RMS height of\nthe surface). 1 is a mirror polish, 25 a rough pre-polish."); }
+                rq_lbl := Text { text: "Roughness (nm)"; font-size: 10px; color: Theme.text-muted; }
+            }
+            Text { text: Math.round(SurfaceModel.custom_rq * 10) / 10 + " nm"; font-size: 10px; font-weight: 700; color: Theme.accent-cyan; }
+        }
+        Slider {
+            enabled: root.editable;
+            minimum: 0.0;
+            maximum: 100.0;
+            accessible-label: "Custom Roughness in Nanometres";
+            value <=> SurfaceModel.custom_rq;
+            released(val) => { SurfaceModel.controls_changed(root.loaded_tier_index); }
+        }
+        HorizontalLayout {
+            alignment: space-between;
+            Rectangle {
+                height: an_lbl.preferred-height;
+                Tooltip { text: @markdown("How much rougher the surface is across the scratches\nthan along them. 1 is round, with no preferred\ndirection; 4 is a pre-polish with clear scratches."); }
+                an_lbl := Text { text: "Anisotropy"; font-size: 10px; color: Theme.text-muted; }
+            }
+            Text { text: "" + Math.round(SurfaceModel.custom_aniso * 10) / 10; font-size: 10px; font-weight: 700; color: Theme.accent-cyan; }
+        }
+        Slider {
+            enabled: root.editable;
+            minimum: 1.0;
+            maximum: 15.0;
+            accessible-label: "Custom Anisotropy";
+            value <=> SurfaceModel.custom_aniso;
+            released(val) => { SurfaceModel.controls_changed(root.loaded_tier_index); }
+        }
+    }
+
+    // The scratch direction of this tier (a polish or a Custom finish; a ground finish is round).
+    if SurfaceModel.directional: VerticalLayout {
+        spacing: 2px;
+        CheckBox {
+            enabled: root.editable;
+            text: "Custom Angle";
+            checked <=> SurfaceModel.use_angle;
+            accessible-label: "Custom Scratch Angle";
+            accessible-description: "Fix the direction of the scratches on this tier instead of taking it from the Faceting Machine.";
+            toggled => { SurfaceModel.controls_changed(root.loaded_tier_index); }
+        }
+        if SurfaceModel.use_angle: VerticalLayout {
+            spacing: 2px;
+            HorizontalLayout {
+                alignment: space-between;
+                Rectangle {
+                    height: ang_lbl.preferred-height;
+                    Tooltip { text: @markdown("The direction of the scratches in degrees from the line\nparallel to the girdle, measured around the facet's normal."); }
+                    ang_lbl := Text { text: "Angle"; font-size: 10px; color: Theme.text-muted; }
+                }
+                Text { text: Math.round(SurfaceModel.angle_deg) + "°"; font-size: 10px; font-weight: 700; color: Theme.accent-cyan; }
+            }
+            Slider {
+                enabled: root.editable;
+                minimum: 0.0;
+                maximum: 179.0;
+                accessible-label: "Scratch Angle in Degrees";
+                value <=> SurfaceModel.angle_deg;
+                released(val) => { SurfaceModel.controls_changed(root.loaded_tier_index); }
+            }
+        }
+        CheckBox {
+            enabled: root.editable;
+            text: "No Sweep";
+            checked <=> SurfaceModel.no_sweep;
+            accessible-label: "No Sweep";
+            accessible-description: "Give the scratches one direction, as if the stone was held still on the lap, instead of the fan the sweep across the lap gives.";
+            toggled => { SurfaceModel.controls_changed(root.loaded_tier_index); }
+        }
+    }
+
+    // One facet of the tier with a finish of its own.
+    if SurfaceModel.facet_labels.length > 0: VerticalLayout {
+        spacing: 2px;
+        Rectangle {
+            height: facet_lbl.preferred-height;
+            Tooltip { text: @markdown("Give a single facet of this tier a finish of its\nown. Follow Tier takes the tier's finish again."); }
+            facet_lbl := Text { text: "Finish of One Facet"; font-size: 10px; color: Theme.text-muted; }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            ComboBox {
+                enabled: root.editable;
+                horizontal-stretch: 1;
+                min-width: 0px;
+                model: SurfaceModel.facet_labels;
+                current-index <=> SurfaceModel.facet_pick;
+                accessible-label: "Facet to Finish";
+                selected(val) => { SurfaceModel.facet_picked(root.loaded_tier_index, SurfaceModel.facet_pick); }
+            }
+            ComboBox {
+                enabled: root.editable;
+                horizontal-stretch: 2;
+                min-width: 0px;
+                model: SurfaceModel.facet_option_names;
+                current-index <=> SurfaceModel.facet_option;
+                accessible-label: "Finish of the Chosen Facet";
+                selected(val) => {
+                    SurfaceModel.facet_option_chosen(root.loaded_tier_index, SurfaceModel.facet_positions[SurfaceModel.facet_pick], SurfaceModel.facet_option);
+                }
+            }
+        }
+    }
+
+    CheckBox {
+        text: "Show Surface Finish";
+        checked <=> SurfaceModel.show_overlay;
+        accessible-label: "Show Surface Finish";
+        accessible-description: "Tint each facet by its grade and draw the direction of its scratches over the stone.";
+        toggled => { SurfaceModel.overlay_changed(); }
+    }
+}

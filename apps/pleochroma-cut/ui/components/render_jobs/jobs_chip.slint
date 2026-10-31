@@ -1,0 +1,53 @@
+import { Theme } from "../../theme.slint";
+import { RenderJobsModel } from "../../models/render_jobs.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { TouchButton } from "../touch_button.slint";
+
+// The header's Jobs chip: "Jobs: 3 waiting" while jobs wait, "Rendering 2 of 5 · 42%" with a
+// thin progress bar underneath while one runs. Clicking it opens the Jobs window. The header
+// shows it only while `RenderJobsModel.chip_visible`, and sizes its cell from
+// `preferred-width`, so the chip never competes with the search box for room.
+export component JobsChip inherits Rectangle {
+    // A 176 px floor: the text changes from "Jobs: 3 waiting" to "Rendering 2 of 5 - 42%" as the
+    // queue runs, and a cell that follows the text width made the header row jump each time.
+    preferred-width: max(chip_text.preferred-width + 24px, 176px);
+    height: 28px;
+    background: chip_touch.has_hover ? Theme.bg-elevated : Theme.bg-input;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    border-color: RenderJobsModel.chip_progress >= 0 ? Theme.accent-cyan : Theme.border-subtle;
+    clip: true;
+
+    chip_text := Text {
+        x: 12px;
+        height: 100%;
+        text: RenderJobsModel.chip_text;
+        font-size: 12px;
+        font-weight: 600;
+        color: RenderJobsModel.chip_progress >= 0 ? Theme.accent-cyan : Theme.text-secondary;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    // The 3 px bar along the bottom edge, while a job runs.
+    if RenderJobsModel.chip_progress >= 0: Rectangle {
+        x: 0px;
+        y: parent.height - 3px;
+        width: parent.width * max(0.0, min(1.0, RenderJobsModel.chip_progress));
+        height: 3px;
+        background: Theme.accent-cyan;
+    }
+
+    chip_touch := TouchButton {
+        label: RenderJobsModel.chip_text;
+        hint: "Open the render jobs.";
+        clicked => { RenderJobsModel.panel_open = true; }
+    }
+
+    // The open tutorial step is about this button: a cyan outline.
+    if GuideModel.highlight_target == "render_jobs_chip": Rectangle {
+        border-width: 2px;
+        border-color: Theme.accent-cyan;
+        border-radius: Theme.radius-sm;
+    }
+}

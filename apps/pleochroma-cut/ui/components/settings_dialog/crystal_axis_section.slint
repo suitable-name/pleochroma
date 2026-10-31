@@ -1,0 +1,252 @@
+import { Slider } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { SettingsModel } from "../../models/settings.slint";
+import { CrystalAxisModel } from "../../models/crystal_axis.slint";
+import { PillButton, SegmentPill } from "../pill_button.slint";
+import { SettingLabel } from "setting_label.slint";
+import { HelpButton } from "../help_button.slint";
+import { HelpTopics } from "../../models/help.slint";
+
+// One preset button: a label, a plain-sentence tooltip, lit while the current axis equals it.
+// `swatch_visible` shows the face-up color a color-named preset gives, to the right of its name.
+component PresetButton inherits Rectangle {
+    in property <string> text;
+    in property <string> hint;
+    in property <bool> lit: false;
+    in property <bool> swatch_visible: false;
+    in property <color> swatch;
+    callback clicked();
+
+    height: 28px;
+
+    PillButton {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        hint: root.hint;
+        lit: root.lit;
+        checkable: true;
+        clicked => { root.clicked(); }
+    }
+
+    if root.swatch_visible: Rectangle {
+        x: parent.width - self.width - 8px;
+        y: (parent.height - self.height) / 2;
+        width: 14px;
+        height: 14px;
+        border-radius: 7px;
+        background: root.swatch;
+        border-width: 1px;
+        border-color: Theme.border-medium;
+    }
+}
+
+// Crystal Axis: the direction of the stone's principal crystal axis (the c axis of a uniaxial
+// stone, gamma of a biaxial one), measured from the table normal (tilt, 0 to 90 degrees) and
+// around it (azimuth, 0 to 360 degrees). "As Material" renders the material's own axis (or the
+// default a custom material stores); "Set for This Stone" takes the tilt and azimuth below and
+// saves them in the design. For a biaxial material a Second Axis turns the other two principal
+// directions around the crystal axis, and the presets named by the colors they give look
+// through the table. Every choice is one undoable design edit (the debounced commit of
+// `gui::editor::callbacks::tier_actions::viewport_material`).
+//
+// `c_axis_override_available` (Rust-driven) is false for an isotropic material, which has no
+// crystal axis to orient: the section then says so and offers nothing.
+export component CrystalAxisSection inherits VerticalLayout {
+    spacing: 6px;
+
+    init => { CrystalAxisModel.refresh(); }
+
+    HorizontalLayout {
+        spacing: 6px;
+        SettingLabel {
+            text: "Crystal Axis";
+            horizontal-stretch: 0;
+            hint: SettingsModel.c_axis_override_available
+                ? "The direction of the stone's special optical axis, which decides the color and the doubling you see through the table. As Material keeps the axis the material has. Set for This Stone turns it, to see how the stone looks cut at another angle."
+                : "Not available: this material is isotropic and has no crystal axis.";
+        }
+        // Beside the label, not at the far right edge: there the "?" sat under the ScrollView's
+        // scrollbar and the recorder's markers, apparently on the paragraph below.
+        VerticalLayout {
+            alignment: center;
+            HelpButton {
+                topic: HelpTopics.crystal-axis-stone;
+                hint: "Open the manual page on the Crystal Axis of a stone";
+            }
+        }
+        Rectangle { horizontal-stretch: 1; }
+    }
+
+    if !SettingsModel.c_axis_override_available: Text {
+        text: "This material is isotropic (e.g. Diamond, Spinel, Cubic Zirconia). It has no crystal axis to orient.";
+        font-size: 11px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+
+    if SettingsModel.c_axis_override_available: VerticalLayout {
+        spacing: 8px;
+
+        HorizontalLayout {
+            spacing: 4px;
+            SegmentPill {
+                text: "As Material";
+                hint: "Keep the crystal axis the material has. The stone is rendered as it was cut from the rough.";
+                selected: !SettingsModel.c_axis_override_enabled;
+                picked => {
+                    SettingsModel.c_axis_override_enabled = false;
+                    SettingsModel.c_axis_override_changed(false);
+                }
+            }
+            SegmentPill {
+                text: "Set for This Stone";
+                hint: "Choose the direction of the crystal axis for this stone. It is saved with the design.";
+                selected: SettingsModel.c_axis_override_enabled;
+                picked => {
+                    SettingsModel.c_axis_override_enabled = true;
+                    SettingsModel.c_axis_override_changed(true);
+                }
+            }
+        }
+
+        Text {
+            text: SettingsModel.c_axis_override_enabled
+                ? "Tilt is measured from the table normal, azimuth around it."
+                : "The material's own axis is used. Choose a preset below, or Set for This Stone, to turn it.";
+            font-size: 11px;
+            color: Theme.text-muted;
+            wrap: word-wrap;
+        }
+
+        // The presets: three geometry presets, then the ones named by the colors they give.
+        VerticalLayout {
+            spacing: 4px;
+            PresetButton {
+                text: "Through the Table";
+                hint: "Point the crystal axis straight up through the table, so you look along it.";
+                lit: CrystalAxisModel.active_preset == 0;
+                clicked => { CrystalAxisModel.geometry_preset_chosen(0); }
+            }
+            PresetButton {
+                text: "In the Table Plane";
+                hint: "Lay the crystal axis flat in the plane of the table, so you look across it.";
+                lit: CrystalAxisModel.active_preset == 1;
+                clicked => { CrystalAxisModel.geometry_preset_chosen(1); }
+            }
+            if CrystalAxisModel.width_preset_available: PresetButton {
+                text: "Along the Width";
+                hint: "Lay the crystal axis flat in the table plane, along the width of the stone (its narrowest direction across the girdle).";
+                lit: CrystalAxisModel.active_preset == 2;
+                clicked => { CrystalAxisModel.geometry_preset_chosen(2); }
+            }
+            for name[index] in CrystalAxisModel.color_preset_names: PresetButton {
+                text: name;
+                hint: "Turn the stone so the color shown here is the one you see through the table. The swatch is that color.";
+                lit: CrystalAxisModel.active_preset == 3 + index;
+                swatch_visible: true;
+                swatch: CrystalAxisModel.color_preset_swatches[index];
+                clicked => { CrystalAxisModel.color_preset_chosen(index); }
+            }
+        }
+
+        if SettingsModel.c_axis_override_enabled: VerticalLayout {
+            spacing: 8px;
+
+            VerticalLayout {
+                spacing: 2px;
+                HorizontalLayout {
+                    alignment: space-between;
+                    SettingLabel {
+                        text: "Tilt";
+                        hint: "Tilt: how far the crystal axis leans away from the table normal, from 0 (straight up through the table) to 90 degrees (flat).";
+                    }
+                    Text { text: Math.round(SettingsModel.c_axis_tilt_deg) + "°"; font-size: 10px; font-weight: 700; color: Theme.accent-cyan; }
+                }
+                Slider {
+                    minimum: 0.0;
+                    maximum: 90.0;
+                    accessible-label: "Crystal Axis Tilt in Degrees";
+                    value <=> SettingsModel.c_axis_tilt_deg;
+                    changed(val) => { SettingsModel.c_axis_angles_changed(val, SettingsModel.c_axis_azimuth_deg); }
+                }
+            }
+
+            VerticalLayout {
+                spacing: 2px;
+                HorizontalLayout {
+                    alignment: space-between;
+                    SettingLabel {
+                        text: "Azimuth";
+                        hint: "Azimuth: the direction the crystal axis leans toward, as an angle around the table normal (0 to 360 degrees, counted clockwise seen from above, starting at the first position of the index gear). It has no effect while the tilt is 0.";
+                    }
+                    Text { text: Math.round(SettingsModel.c_axis_azimuth_deg) + "°"; font-size: 10px; font-weight: 700; color: Theme.accent-cyan; }
+                }
+                Slider {
+                    minimum: 0.0;
+                    maximum: 360.0;
+                    accessible-label: "Crystal Axis Azimuth in Degrees";
+                    value <=> SettingsModel.c_axis_azimuth_deg;
+                    changed(val) => { SettingsModel.c_axis_angles_changed(SettingsModel.c_axis_tilt_deg, val); }
+                }
+            }
+
+            // The Second Axis: only a biaxial material has one.
+            if CrystalAxisModel.biaxial: VerticalLayout {
+                spacing: 4px;
+                SettingLabel {
+                    text: "Second Axis";
+                    hint: "Second Axis: a biaxial stone has two more principal directions, at right angles to the crystal axis and to each other. This turns them around the crystal axis, from 0 to 180 degrees. Not Set keeps the material's own.";
+                }
+                HorizontalLayout {
+                    spacing: 4px;
+                    SegmentPill {
+                        text: "Not Set";
+                        hint: "Keep the material's own second direction. The color across the crystal axis is then approximate.";
+                        selected: !CrystalAxisModel.second_set;
+                        picked => {
+                            CrystalAxisModel.second_set = false;
+                            CrystalAxisModel.second_axis_changed(false, CrystalAxisModel.second_deg);
+                        }
+                    }
+                    SegmentPill {
+                        text: "Set";
+                        hint: "Choose the turn of the second direction around the crystal axis. It is saved with the design.";
+                        selected: CrystalAxisModel.second_set;
+                        picked => {
+                            CrystalAxisModel.second_set = true;
+                            CrystalAxisModel.second_axis_changed(true, CrystalAxisModel.second_deg);
+                        }
+                    }
+                }
+                if CrystalAxisModel.second_set: VerticalLayout {
+                    spacing: 2px;
+                    HorizontalLayout {
+                        alignment: space-between;
+                        SettingLabel {
+                            text: "Turn";
+                            hint: "Turn: how far the second direction is turned around the crystal axis, from 0 to 180 degrees.";
+                        }
+                        Text { text: Math.round(CrystalAxisModel.second_deg) + "°"; font-size: 10px; font-weight: 700; color: Theme.accent-cyan; }
+                    }
+                    Slider {
+                        minimum: 0.0;
+                        maximum: 180.0;
+                        accessible-label: "Second Axis Turn in Degrees";
+                        value <=> CrystalAxisModel.second_deg;
+                        changed(val) => { CrystalAxisModel.second_axis_changed(true, val); }
+                    }
+                }
+            }
+
+            if CrystalAxisModel.note != "": Text {
+                text: CrystalAxisModel.note;
+                font-size: 10px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

@@ -1,0 +1,242 @@
+import { Theme } from "../../theme.slint";
+import { ComboBox } from "std-widgets.slint";
+import { ColorPatternModel } from "../../models/color_pattern.slint";
+import { RoughPill, RoughField } from "../rough_planner/fields.slint";
+import { TipBox, FieldCaption } from "../tip_box.slint";
+import { PatternSwatch, PatternTitle, PatternNote, PatternSlider } from "parts.slint";
+
+// A color chip with its "Pick..." button. `which` is the `pick_color` argument.
+component ColorPickRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> hint;
+    in property <color> swatch;
+    in property <int> which;
+    spacing: 6px;
+    alignment: start;
+    VerticalLayout {
+        alignment: center;
+        FieldCaption { text: root.label; hint: root.hint; font_size: 11px; }
+    }
+    VerticalLayout {
+        alignment: center;
+        PatternSwatch { color_a: root.swatch; }
+    }
+    VerticalLayout {
+        alignment: center;
+        RoughPill {
+            text: "Pick\u{2026}";
+            hint: root.hint;
+            clicked => { ColorPatternModel.pick_color(root.which); }
+        }
+    }
+}
+
+// The property panel of the selected zone: name, color (one or two), shape and size.
+// Simple shows the Size slider; Advanced shows the shape and its parameter rows instead.
+export component PatternZoneProperties inherits VerticalLayout {
+    spacing: 8px;
+
+    PatternTitle { text: "ZONE \u{201c}" + ColorPatternModel.zone_name + "\u{201d}"; }
+
+    RoughField {
+        label: "Name";
+        hint: "What you call this zone, for example Rim or Core.";
+        value <=> ColorPatternModel.zone_name;
+        committed => { ColorPatternModel.rename_zone(ColorPatternModel.zone_name); }
+    }
+
+    // --- Color --------------------------------------------------------------------------------
+    // The source: a color you pick, or a color variant of the stone's material.
+    if ColorPatternModel.variants_available: HorizontalLayout {
+        spacing: 6px;
+        FieldCaption {
+            width: 64px;
+            text: "Source";
+            hint: "Where the color of this zone comes from: a color you pick, or one of the color variants of this material.";
+        }
+        TipBox {
+            horizontal-stretch: 1;
+            hint: "Where the color of this zone comes from: a color you pick, or one of the color variants of this material.";
+            ComboBox {
+                min-width: 0px;
+                model: ColorPatternModel.color_source_options;
+                current-index <=> ColorPatternModel.color_source_index;
+                accessible-label: "Color Source";
+                selected(value) => { ColorPatternModel.color_source_changed(ColorPatternModel.color_source_index); }
+            }
+        }
+    }
+
+    // A color variant of the material: copied into the pattern, so it stays as it is.
+    if ColorPatternModel.color_kind == 3: VerticalLayout {
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 6px;
+            FieldCaption {
+                width: 64px;
+                text: "Variant";
+                hint: "The color variant of this material the zone takes its color from. The zone keeps its own copy.";
+            }
+            TipBox {
+                horizontal-stretch: 1;
+                hint: "The color variant of this material the zone takes its color from. The zone keeps its own copy.";
+                ComboBox {
+                    min-width: 0px;
+                    model: ColorPatternModel.variant_labels;
+                    current-index <=> ColorPatternModel.variant_index;
+                    accessible-label: "Color Variant";
+                    selected(value) => { ColorPatternModel.variant_picked(ColorPatternModel.variant_index); }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                PatternSwatch {
+                    color_a: ColorPatternModel.along_swatch;
+                    color_b: ColorPatternModel.across_swatch;
+                    split: true;
+                }
+            }
+        }
+        PatternNote { text: ColorPatternModel.variant_hint; }
+    }
+
+    // A picked color, in the form the material's rank asks for.
+    if ColorPatternModel.color_kind != 3: VerticalLayout {
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 6px;
+            FieldCaption {
+                width: 64px;
+                text: "Colors";
+                hint: "How many colors the zone has: one on a cubic or amorphous material, one per direction on a crystal that shows pleochroism.";
+            }
+            TipBox {
+                horizontal-stretch: 1;
+                hint: "How many colors the zone has: one on a cubic or amorphous material, one per direction on a crystal that shows pleochroism.";
+                ComboBox {
+                    min-width: 0px;
+                    model: ColorPatternModel.color_form_options;
+                    current-index <=> ColorPatternModel.color_form_index;
+                    enabled: ColorPatternModel.color_form_options.length > 1;
+                    accessible-label: "Color Form";
+                    selected(value) => { ColorPatternModel.color_form_changed(ColorPatternModel.color_form_index); }
+                }
+            }
+        }
+        if ColorPatternModel.color_kind == 0: ColorPickRow {
+            label: "Color";
+            hint: "Choose the color of this zone in the color editor.";
+            swatch: ColorPatternModel.single_swatch;
+            which: 0;
+        }
+        if ColorPatternModel.color_kind == 1: VerticalLayout {
+            spacing: 6px;
+            ColorPickRow {
+                label: "Along";
+                hint: "The color seen looking along the crystal axis. Choose it in the color editor.";
+                swatch: ColorPatternModel.along_swatch;
+                which: 1;
+            }
+            ColorPickRow {
+                label: "Across";
+                hint: "The color the stone adds when you look across the crystal axis. Choose it in the color editor.";
+                swatch: ColorPatternModel.across_swatch;
+                which: 2;
+            }
+            PatternNote { text: "Looking along the crystal axis shows only the Along color. Looking across it shows a blend of both colors."; }
+        }
+        if ColorPatternModel.color_kind == 2: VerticalLayout {
+            spacing: 6px;
+            ColorPickRow {
+                label: "Alpha";
+                hint: "The color seen along the alpha direction, the direction of the lowest refractive index. Choose it in the color editor.";
+                swatch: ColorPatternModel.along_swatch;
+                which: 1;
+            }
+            ColorPickRow {
+                label: "Beta";
+                hint: "The color seen along the beta direction, the one between alpha and gamma. Choose it in the color editor.";
+                swatch: ColorPatternModel.beta_swatch;
+                which: 2;
+            }
+            ColorPickRow {
+                label: "Gamma";
+                hint: "The color seen along the gamma direction, the direction of the highest refractive index. Choose it in the color editor.";
+                swatch: ColorPatternModel.across_swatch;
+                which: 3;
+            }
+            PatternNote { text: "Each principal direction of the crystal shows its own color. Other directions show a blend."; }
+        }
+        if ColorPatternModel.color_form_hint != "": PatternNote { text: ColorPatternModel.color_form_hint; }
+    }
+    if ColorPatternModel.solving_colors: PatternNote { text: "Solving colors\u{2026}"; text_color: Theme.text-secondary; }
+
+    // --- Simple: one Size slider ------------------------------------------------------------------
+    if !ColorPatternModel.show_advanced: PatternSlider {
+        label: "Size";
+        hint: ColorPatternModel.size_enabled
+            ? "How large the zone is. It scales with the stone unless the pattern is fixed in millimeters."
+            : "The base zone fills everything the other zones do not cover.";
+        enabled: ColorPatternModel.size_enabled;
+        minimum: ColorPatternModel.size_min;
+        maximum: ColorPatternModel.size_max;
+        step: ColorPatternModel.size_step;
+        value <=> ColorPatternModel.size_value;
+        value_text: ColorPatternModel.size_text;
+        moved(v) => { ColorPatternModel.size_changed(v); }
+    }
+
+    // --- Advanced: the shape and its parameters -----------------------------------------------------
+    if ColorPatternModel.show_advanced: VerticalLayout {
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 6px;
+            FieldCaption {
+                width: 64px;
+                text: "Shape";
+                hint: "The form of the zone. The base zone has no shape: it fills the rest.";
+            }
+            TipBox {
+                horizontal-stretch: 1;
+                hint: "The form of the zone. The base zone has no shape: it fills the rest.";
+                ComboBox {
+                    min-width: 0px;
+                    model: ColorPatternModel.shape_options;
+                    current-index <=> ColorPatternModel.shape_index;
+                    enabled: ColorPatternModel.shape_enabled;
+                    accessible-label: "Zone Shape";
+                    selected(value) => { ColorPatternModel.shape_changed(ColorPatternModel.shape_index); }
+                }
+            }
+        }
+        for row[i] in ColorPatternModel.param_rows: PatternSlider {
+            label: row.label;
+            hint: row.hint;
+            enabled: row.enabled;
+            minimum: row.min;
+            maximum: row.max;
+            step: row.step;
+            value: row.value;
+            value_text: row.text + " " + row.unit;
+            moved(v) => { ColorPatternModel.param_changed(i, v); }
+        }
+    }
+
+    // --- Validation sentence ------------------------------------------------------------------------
+    if ColorPatternModel.message != "": Rectangle {
+        border-radius: Theme.radius-sm;
+        background: Theme.surface-info;
+        preferred-height: message_text.preferred-height + 12px;
+        accessible-role: AccessibleRole.text;
+        accessible-label: ColorPatternModel.message;
+        message_text := Text {
+            x: 8px;
+            y: 6px;
+            width: parent.width - 16px;
+            text: ColorPatternModel.message;
+            font-size: 10px;
+            color: Theme.text-primary;
+            wrap: word-wrap;
+        }
+    }
+}

@@ -1,0 +1,103 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { RetargetModel } from "../../models/retarget.slint";
+import { StaleBadge } from "../stale_badge.slint";
+import { ColumnHeading } from "parts.slint";
+
+// 7. The proposal table -- one row per pavilion/crown tier. The dialog mounts it only while the
+// proposal has no solve error and no anchored-tier error.
+//
+// Column budget: the number columns are as narrow as their longest value ("+12.54\u{B0} est.",
+// "Not changed") so Tier, the only stretch column, keeps the rest and Risk is never pushed off the
+// right edge. Below `block_min_width` the Block column drops out (the tier tooltip and the row's
+// accessible label still name the block), so Tier is never squeezed to a dot.
+export component ProposalTable inherits VerticalLayout {
+    vertical-stretch: 1;
+    spacing: 4px;
+
+    property <length> col_gap: 4px;
+    property <length> w_block: 44px;
+    property <length> w_angle: 46px;
+    property <length> w_margin: 66px;
+    property <length> w_risk: 62px;
+    // The table's width as its parent lays it out, passed in: the table's own width cannot
+    // decide whether the Block column is shown, because that column changes the table's
+    // minimum width (a binding loop).
+    in property <length> avail_width: 1000px;
+    property <length> block_min_width: 330px;
+    property <bool> show_block: root.avail_width >= root.block_min_width;
+
+    // Shown when this proposal was computed against a design generation
+    // that has since moved on (`RetargetModel.stale`, `gui::editor::stale`'s
+    // own doc comment) -- "Recompute" rebuilds against the live
+    // design/current controls, exactly what changing any control here
+    // already does.
+    if RetargetModel.stale && !RetargetModel.is_busy: StaleBadge {
+        recompute => { RetargetModel.proposal_changed(); }
+    }
+
+    HorizontalLayout {
+        // The same left and right padding as a row, so each heading sits over its column.
+        padding-left: 6px;
+        padding-right: 10px;
+        spacing: root.col_gap;
+        if root.show_block: ColumnHeading { width: root.w_block; text: "Block"; align: TextHorizontalAlignment.left; hint: "The part of the stone the facet belongs to: crown, pavilion, girdle, table or culet."; }
+        ColumnHeading { horizontal-stretch: 1; min-width: 40px; text: "Tier"; align: TextHorizontalAlignment.left; hint: "The facet, named as on the cutting diagram."; }
+        ColumnHeading { width: root.w_angle; text: "Old"; hint: "The facet's angle now."; }
+        ColumnHeading { width: root.w_angle; text: "New"; hint: "The facet's angle after the retarget."; }
+        ColumnHeading {
+            width: root.w_margin;
+            text: "Margin";
+            hint: "Margin: how far the facet stays on the safe side of the target material's critical angle, in degrees. Pavilion rows read the margin for light entering through the table (a negative margin lets light leak out of the back, a window). Crown rows show an estimate of the same margin for light entering through the crown, read against the pavilion of the retargeted design and marked est. The estimate follows one ray through the crown facet and onto the main pavilion facet on the same side of the stone, so treat it as a guide, not a measurement. The table, culet and girdle have no margin.";
+        }
+        ColumnHeading {
+            width: root.w_risk;
+            text: "Risk";
+            hint: "Risk: Safe is a margin of 2 degrees or more, Marginal is 0 to 2 degrees, Windows is a negative margin. Not changed marks a facet the retarget leaves alone. Follows marks a facet whose angle follows a relation, so it moves with the facets it reads and is never changed on its own. A dash means there is nothing to measure it against.";
+        }
+    }
+
+    ScrollView {
+        vertical-stretch: 1;
+        // A real height floor/preference (not just stretch): this table now
+        // sits inside the dialog body's own ScrollView, which owns the
+        // overflow on a short window.
+        min-height: 96px;
+        preferred-height: 240px;
+        // Rows take the visible width, so the columns above line up and none runs past the edge.
+        content-width: self.visible-width;
+        VerticalLayout {
+            spacing: 2px;
+            for row in RetargetModel.rows: row_box := Rectangle {
+                // A tier the retarget lists but leaves alone (the table, the
+                // culet) arrives with the risk label "Not changed" and is
+                // greyed; a row with nothing to measure arrives with a dash.
+                property <bool> unchanged: row.risk_label == "Not changed";
+                // "Follows": the angle follows a relation, so the cell reads the
+                // relation and no risk.
+                property <bool> no_risk: row.risk_label == "Not changed" || row.risk_label == "\u{2014}" || row.risk_label == "Follows";
+                height: 24px;
+                border-radius: Theme.radius-sm;
+                background: Theme.surface-sunken;
+                opacity: row_box.unchanged ? 0.6 : 1.0;
+
+                accessible-role: AccessibleRole.list-item;
+                accessible-label: row.name + " (" + row.block + "): " + row.old_angle + " now, " + row.new_angle + " after, margin " + row.margin + ", " + row.risk_label;
+
+                Tooltip { text: @markdown("Tier #\{row.tier_index} \"\{row.name}\" (\{row.block})"); }
+
+                HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 10px;
+                    spacing: root.col_gap;
+                    if root.show_block: Text { text: row.block; font-size: 10px; color: Theme.text-muted; width: root.w_block; vertical-alignment: center; overflow: elide; }
+                    Text { text: row.name; font-size: 11px; color: Theme.text-primary; horizontal-stretch: 1; min-width: 40px; vertical-alignment: center; overflow: elide; }
+                    Text { text: row.old_angle; font-size: 11px; color: Theme.text-secondary; width: root.w_angle; horizontal-alignment: right; vertical-alignment: center; overflow: elide; }
+                    Text { text: row.new_angle; font-size: 11px; font-weight: 700; color: row_box.unchanged ? Theme.text-secondary : Theme.accent-cyan; width: root.w_angle; horizontal-alignment: right; vertical-alignment: center; overflow: elide; }
+                    Text { text: row.margin; font-size: 11px; color: Theme.text-secondary; width: root.w_margin; horizontal-alignment: right; vertical-alignment: center; overflow: elide; }
+                    Text { text: row.risk_label; font-size: 11px; font-weight: 700; color: row_box.no_risk ? Theme.text-muted : row.risk_color; width: root.w_risk; horizontal-alignment: right; vertical-alignment: center; overflow: elide; }
+                }
+            }
+        }
+    }
+}

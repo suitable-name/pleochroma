@@ -1,4 +1,4 @@
-# Indicatrix
+# Pleochroma
 
 [![#MadeWithSlint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-light.svg#gh-light-mode-only)](https://slint.dev)
 [![#MadeWithSlint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-dark.svg#gh-dark-mode-only)](https://slint.dev)
@@ -11,7 +11,7 @@ without light transport. The tools also build a library of faceting designs (`.a
 
 ## What makes it technically interesting
 
-At the center is `indicatrix`. Its Path-Traced engine traces real gemstone geometry
+At the center is `pleochroma`. Its Path-Traced engine traces real gemstone geometry
 with these optical models:
 
 - **8-channel stratified hero-wavelength spectral sampling (HWSS)** — each ray
@@ -28,79 +28,81 @@ with these optical models:
   tensors so a pleochroic stone's color genuinely depends on the
   electric-field direction relative to the crystal's optical axes, not just
   on wavelength.
-- **An optional GPU megakernel** — `indicatrix`'s `gpu` feature compiles a
+- **An optional GPU megakernel** — `pleochroma`'s `gpu` feature compiles a
   complete WGSL port of the spectral transport physics, verified against the
   CPU tracer by a tiered equivalence harness: bit-exact integer checks,
   per-function ULP budgets (the harness reports the maximum genuine ULP per
-  tier; see `crates/indicatrix/docs/gpu_harness_last_run.json` once the owner
+  tier; see `crates/pleochroma/docs/gpu_harness_last_run.json` once the owner
   commits a run), an analytically-computable furnace anchor, and
   statistical comparison of real rendered images. See
-  [`crates/indicatrix/docs/gpu.md`](crates/indicatrix/docs/gpu.md).
+  [`crates/pleochroma/docs/gpu.md`](crates/pleochroma/docs/gpu.md).
 
 ## Workspace map
 
 | Crate / app | What it is |
 |---|---|
-| [`crates/indicatrix`](crates/indicatrix/README.md) | The spectral path tracer — the physics core. Facet planes + material in, rendered pixels and/or brilliance/fire/scintillation metrics out. |
-| [`crates/indicatrix-net`](crates/indicatrix-net/README.md) | Wire protocol between a viewer, a coordinator and its render workers: offloading `indicatrix` sample tracing, and reading a remote design library. Types and framing only — no sockets. |
-| `crates/indicatrix-dispatch` | Sample-range scheduling for render lanes: the shared disjoint sample cursor, per-lane rate models and chunk sizing, and a lane pool that merges chunk sums deterministically. No networking and no GUI types; used by both the desktop app and the coordinator. |
-| `crates/indicatrix-render-jobs` | The frozen render job file (scene, material, lighting, camera and export settings) shared by the desktop render queue and the command-line renderer, the job state machine, queue ordering and the shell and PowerShell script writer. |
-| `crates/indicatrix-update` | The new-version check of the apps against the GitHub releases (`v<version>` tags). |
-| `crates/indicatrix-cut-core` | The editor core behind `indicatrix-cut`'s Edit tab: preform, editable cutting instructions, undo/redo, design templates. |
-| `crates/indicatrix-solid` | The solid and diagram previews: the software rasteriser, the GemCAD-style three-panel diagram, facet picking and the preview pipeline. No GUI types; used by the desktop app and the browser app. |
-| `crates/indicatrix-editor` | The editing logic behind the design editor with no GUI in it: the editor session, tier forms, file loading and naming, retargeting, the cutting sheet, the guided walkthrough and the mouse-manipulation math. Used by the desktop app and the browser app. |
-| `crates/indicatrix-web-core` | The compute side of the browser app (no DOM, no Slint): the Web Worker protocol, the CPU chunk tracer and its accumulation, the worker-side solve, Optimize, metrics and tilt sweeps, and the persisted settings. Tested natively. |
-| [`crates/indicatrix-formats`](crates/indicatrix-formats/README.md) | Reader/writer for GemCAD-style `.asc` cutting-instructions files. Zero runtime dependencies. |
-| [`crates/indicatrix-vault`](crates/indicatrix-vault/README.md) | Local SQLite-backed design library — models, storage, and local `.asc` import/export. |
-| [`apps/indicatrix-cut`](apps/indicatrix-cut/README.md) | The desktop faceting-design editor, built with [Slint](https://slint.dev/): browse, search, and render your library in 3D, with a faceting editor for material retargeting and a solid inspection view. |
-| [`apps/indicatrix-web`](apps/indicatrix-web/README.md) | The browser build (Slint compiled to WebAssembly, static files): edit a design and view Solid, Diagram, Path-Traced or Ray-Traced. CPU Web Workers handle rendering and slow solves. WebGPU supports every material class in Ray-Traced and isotropic materials in Path-Traced, with separate qualification and CPU fallback. No design library, remote rendering or Deep Solve; state lives in the tab's session. Built with `trunk`. |
-| [`apps/indicatrix-mobile-android`](apps/indicatrix-mobile-android/README.md) | The Android phone and tablet app: a touch-first Slint UI over `indicatrix-mobile-core`, the JNI platform services (files, share, print) and a desktop preview of the same UI. Not in an app store yet; build and install it yourself. |
-| [`crates/indicatrix-mobile-core`](crates/indicatrix-mobile-core/README.md) | The UI-free core of the mobile app: app state, settings, the library, the compute threads (render, solve, analysis), cutting progress and the platform-service trait. Shared by the Android app and any later iOS app; tested natively. |
-| [`apps/indicatrix-worker`](apps/indicatrix-worker/README.md) | Headless render CLI and remote server — `serve` is a coordinator that serves a design library over mutual TLS and (on a `worker` build) spreads render requests over the machines that `join` it, rendering itself too with `--render`. |
-| [`apps/indicatrix-cli`](apps/indicatrix-cli/README.md) | Headless command-line tool for designs, no GUI and no GPU: `info`, `solve`, `metrics`, `validate`, `optimize`, `retarget`, `sweep` and `export` on `.isdd`, `.asc`, `.gem` and `.gcs` files, with the editor's own engines, deterministic text, JSON and CSV output, and exit codes a script can branch on. |
+| [`crates/pleochroma`](crates/pleochroma/README.md) | The spectral path tracer — the physics core. Facet planes + material in, rendered pixels and/or brilliance/fire/scintillation metrics out. |
+| [`crates/pleochroma-net`](crates/pleochroma-net/README.md) | Wire protocol between a viewer, a coordinator and its render workers: offloading `pleochroma` sample tracing, and reading a remote design library. Types and framing only — no sockets. |
+| `crates/pleochroma-dispatch` | Sample-range scheduling for render lanes: the shared disjoint sample cursor, per-lane rate models and chunk sizing, and a lane pool that merges chunk sums deterministically. No networking and no GUI types; used by both the desktop app and the coordinator. |
+| `crates/pleochroma-render-jobs` | The frozen render job file (scene, material, lighting, camera and export settings) shared by the desktop render queue and the command-line renderer, the job state machine, queue ordering and the shell and PowerShell script writer. |
+| `crates/pleochroma-update` | The new-version check of the apps against the GitHub releases (`v<version>` tags). |
+| `crates/pleochroma-cut-core` | The editor core behind `pleochroma-cut`'s Edit tab: preform, editable cutting instructions, undo/redo, design templates. |
+| `crates/pleochroma-solid` | The solid and diagram previews: the software rasteriser, the GemCAD-style three-panel diagram, facet picking and the preview pipeline. No GUI types; used by the desktop app and the browser app. |
+| `crates/pleochroma-editor` | The editing logic behind the design editor with no GUI in it: the editor session, tier forms, file loading and naming, retargeting, the cutting sheet, the guided walkthrough and the mouse-manipulation math. Used by the desktop app and the browser app. |
+| `crates/pleochroma-web-core` | The compute side of the browser app (no DOM, no Slint): the Web Worker protocol, the CPU chunk tracer and its accumulation, the worker-side solve, Optimize, metrics and tilt sweeps, and the persisted settings. Tested natively. |
+| [`crates/pleochroma-formats`](crates/pleochroma-formats/README.md) | Reader/writer for GemCAD-style `.asc` cutting-instructions files. Zero runtime dependencies. |
+| [`crates/pleochroma-vault`](crates/pleochroma-vault/README.md) | Local SQLite-backed design library — models, storage, and local `.asc` import/export. |
+| [`apps/pleochroma-cut`](apps/pleochroma-cut/README.md) | The desktop faceting-design editor, built with [Slint](https://slint.dev/): browse, search, and render your library in 3D, with a faceting editor for material retargeting and a solid inspection view. |
+| [`apps/pleochroma-web`](apps/pleochroma-web/README.md) | The browser build (Slint compiled to WebAssembly, static files): edit a design and view Solid, Diagram, Path-Traced or Ray-Traced. CPU Web Workers handle rendering and slow solves. WebGPU supports every material class in Ray-Traced and isotropic materials in Path-Traced, with separate qualification and CPU fallback. No design library, remote rendering or Deep Solve; state lives in the tab's session. Built with `trunk`. |
+| [`apps/pleochroma-mobile-android`](apps/pleochroma-mobile-android/README.md) | The Android phone and tablet app: a touch-first Slint UI over `pleochroma-mobile-core`, the JNI platform services (files, share, print) and a desktop preview of the same UI. Not in an app store yet; build and install it yourself. |
+| [`crates/pleochroma-mobile-core`](crates/pleochroma-mobile-core/README.md) | The UI-free core of the mobile app: app state, settings, the library, the compute threads (render, solve, analysis), cutting progress and the platform-service trait. Shared by the Android app and any later iOS app; tested natively. |
+| [`apps/pleochroma-worker`](apps/pleochroma-worker/README.md) | Headless render CLI and remote server — `serve` is a coordinator that serves a design library over mutual TLS and (on a `worker` build) spreads render requests over the machines that `join` it, rendering itself too with `--render`. |
+| [`apps/pleochroma-cli`](apps/pleochroma-cli/README.md) | Headless command-line tool for designs, no GUI and no GPU: `info`, `solve`, `metrics`, `validate`, `optimize`, `retarget`, `sweep` and `export` on `.psdd`, `.asc`, `.gem` and `.gcs` files, with the editor's own engines, deterministic text, JSON and CSV output, and exit codes a script can branch on. |
 
 ## Build and run
 
 ```
-git clone https://github.com/<your-username>/indicatrix.git
-cd indicatrix
+git clone https://github.com/<your-username>/pleochroma.git
+cd pleochroma
 cargo build --workspace
-cargo run -p indicatrix-cut
+cargo run -p pleochroma-cut
 ```
 
-`cargo run -p indicatrix-cut` opens the editor; it looks for (and creates, if
-missing) `facet_diagrams.sqlite` in whatever directory you launch it from —
+`cargo run -p pleochroma-cut` opens the editor; it opens `facet_diagrams.sqlite` from
+the directory you launch it in when one exists there, otherwise from (or, on the first
+start, creates it in) the per-user app folder beside `settings.toml`; `PLEOCHROMA_LIBRARY`
+names any other file —
 see [The design library is yours to build](#the-design-library-is-yours-to-build)
 below.
 
 To render a scene headlessly instead of opening the GUI:
 
 ```
-cargo run -p indicatrix-worker --features worker -- render --scene scene.json --out render.png --width 1920 --height 1080 --samples 256
+cargo run -p pleochroma-worker --features worker -- render --scene scene.json --out render.png --width 1920 --height 1080 --samples 256
 ```
 
-`--features worker` is required — a default `indicatrix-worker` build compiles
-neither `indicatrix` nor the render path in at all (see
+`--features worker` is required — a default `pleochroma-worker` build compiles
+neither `pleochroma` nor the render path in at all (see
 [Feature flags](#feature-flags) below). The `render` subcommand still exists
 without it, but running it just prints an error telling you to rebuild with
 `--features worker`. See
-[`apps/indicatrix-worker`'s README](apps/indicatrix-worker/README.md) for how to
+[`apps/pleochroma-worker`'s README](apps/pleochroma-worker/README.md) for how to
 produce a `scene.json`, and for the `serve`/`join`/`cert` subcommands that let
 other machines' GPUs and CPUs help render over the network.
 
 ### Designs from a script
 
-`indicatrix-cli` runs the editor's engines on design files without opening a window.
-It takes `.isdd` (and old `.indicatrix`), `.asc`, `.gem` and `.gcs` files, and its output is the same
+`pleochroma-cli` runs the editor's engines on design files without opening a window.
+It takes `.psdd`, `.asc`, `.gem` and `.gcs` files, and its output is the same
 bytes every time, so it can be diffed and checked in:
 
 ```
-cargo run -p indicatrix-cli -- info round.asc
-cargo run -p indicatrix-cli -- validate round.asc            # exit code 4 when the verdict is Problem
-cargo run -p indicatrix-cli -- metrics round.asc --ri 1.76 --json
-cargo run -p indicatrix-cli -- retarget round.asc --ri 1.7681 --crown-fraction 0.33 --out sapphire.isdd
-cargo run -p indicatrix-cli -- sweep round.asc --tier "Pavilion Main" --from -43 --to -39 --step 0.5 --csv sweep.csv
-cargo run -p indicatrix-cli -- export sapphire.isdd --format html --out sheet.html
+cargo run -p pleochroma-cli -- info round.asc
+cargo run -p pleochroma-cli -- validate round.asc            # exit code 4 when the verdict is Problem
+cargo run -p pleochroma-cli -- metrics round.asc --ri 1.76 --json
+cargo run -p pleochroma-cli -- retarget round.asc --ri 1.7681 --crown-fraction 0.33 --out sapphire.psdd
+cargo run -p pleochroma-cli -- sweep round.asc --tier "Pavilion Main" --from -43 --to -39 --step 0.5 --csv sweep.csv
+cargo run -p pleochroma-cli -- export sapphire.psdd --format html --out sheet.html
 ```
 
 `retarget` uses the Retarget dialog's engine and validity gate (by default the crown follows
@@ -109,41 +111,41 @@ choose an older rule); a result the gate refuses exits with code 2, prints the r
 writes nothing. Custom materials come from a
 design library with `--db facet_diagrams.sqlite` (opened read-only). Exit codes are 0
 success, 1 usage, 2 design or solve, 3 file, 4 `validate` found a Problem. See
-[`apps/indicatrix-cli`'s README](apps/indicatrix-cli/README.md) for every command and flag.
+[`apps/pleochroma-cli`'s README](apps/pleochroma-cli/README.md) for every command and flag.
 
 ### Testing
 
 ```
-cargo test --workspace                        # everything EXCEPT indicatrix's gpu feature
-cargo test -p indicatrix --features gpu            # the gpu-feature tests the line above skips
+cargo test --workspace                        # everything EXCEPT pleochroma's gpu feature
+cargo test -p pleochroma --features gpu            # the gpu-feature tests the line above skips
 ```
 
-**`cargo test --workspace` does not build or exercise `indicatrix`'s `gpu` feature
+**`cargo test --workspace` does not build or exercise `pleochroma`'s `gpu` feature
 at all** — a real bug once hid in exactly that gap for a long time. If you've
-touched anything under `indicatrix`'s `renderer::gpu` or `renderer::env_map_gpu`, or
+touched anything under `pleochroma`'s `renderer::gpu` or `renderer::env_map_gpu`, or
 anything else `#[cfg(feature = "gpu")]`, run the
-second command too. `apps/indicatrix-cut` and `apps/indicatrix-worker` each have
-their own `gpu` feature that forwards to `indicatrix/gpu`; the same rule applies
-to those (`cargo test -p indicatrix-cut --features gpu`,
-`cargo test -p indicatrix-worker --features gpu`).
+second command too. `apps/pleochroma-cut` and `apps/pleochroma-worker` each have
+their own `gpu` feature that forwards to `pleochroma/gpu`; the same rule applies
+to those (`cargo test -p pleochroma-cut --features gpu`,
+`cargo test -p pleochroma-worker --features gpu`).
 
-Neither of those substitutes for `indicatrix`'s GPU equivalence harness, which
+Neither of those substitutes for `pleochroma`'s GPU equivalence harness, which
 needs a real GPU adapter and isn't a `cargo test` target at all:
 
 ```
-cargo run --profile probe -p indicatrix --features gpu --example gpu_equivalence_harness
+cargo run --profile probe -p pleochroma --features gpu --example gpu_equivalence_harness
 ```
 
-See [`crates/indicatrix/docs/gpu.md`](crates/indicatrix/docs/gpu.md) for what each of
+See [`crates/pleochroma/docs/gpu.md`](crates/pleochroma/docs/gpu.md) for what each of
 its verification tiers checks.
 
-The desktop UI targets of `indicatrix-cut` also run only on command (`test = false`, so the
+The desktop UI targets of `pleochroma-cut` also run only on command (`test = false`, so the
 workspace commands above skip them):
 
 ```
 cargo ui-harness                                                    # the UI harness: every flow, report in target/ui-harness/
 cargo ui-static                                                     # static scan of the .slint sources
-INDICATRIX_HARNESS_LIBRARY=facet_diagrams.sqlite cargo ui-screens   # rewrite the screenshots in assets/
+PLEOCHROMA_HARNESS_LIBRARY=facet_diagrams.sqlite cargo ui-screens   # rewrite the screenshots in assets/
 cargo ui-clippy                                                     # clippy over the four targets
 ```
 
@@ -167,7 +169,7 @@ profile-use` silently find nothing to apply. Each script's own header comment ex
 the parity rule, and its post-build crate-hash and warning checks fail the build when the
 profile did not apply, instead of shipping a silently unoptimized binary.
 
-Both train on `indicatrix`'s `pgo_train` example: the CPU spectral tracer across every
+Both train on `pleochroma`'s `pgo_train` example: the CPU spectral tracer across every
 material optical character (isotropic, uniaxial +/-, biaxial +), dispersive and
 near-non-dispersive built-ins, plain and frosted-girdle finishes, inclusion scattering,
 the A-Trous denoiser and tone-mapper (both the linear-HDR float buffer and the
@@ -183,30 +185,30 @@ a real adapter present) it also trains the CPU-side GPU chunk dispatch/readback
 orchestration. See that example's own doc comment for the exact stage-by-stage coverage
 table and its `PGO_SCALE`/`PGO_TRAIN_SKIP_GPU` environment knobs.
 
-For the `cut` target both scripts additionally train `indicatrix-cut-core`'s OWN
-`pgo_train_cutcore` example -- the editor-core layer built on top of `indicatrix`:
-`Design::solve`, `.asc` export, the `.isdd` design file save/load round trip,
+For the `cut` target both scripts additionally train `pleochroma-cut-core`'s OWN
+`pgo_train_cutcore` example -- the editor-core layer built on top of `pleochroma`:
+`Design::solve`, `.asc` export, the `.psdd` design file save/load round trip,
 `resolve_after_edit`, and `optimize_design`'s coordinate-search loop, run against every
 built-in template plus the same CrackOtto-Step fixture. It is built in the SAME `cargo
-build` invocation as everything else for that target (`indicatrix-cut-core` is in the
+build` invocation as everything else for that target (`pleochroma-cut-core` is in the
 package list and both `--example pgo_train --example pgo_train_cutcore` are passed), so
 the instrumented and optimised builds resolve an identical dependency graph and
-`indicatrix-cut-core`'s crate hash matches. The two examples need distinct names because
+`pleochroma-cut-core`'s crate hash matches. The two examples need distinct names because
 Cargo's example-binary output-path uplift is keyed by name alone, not by package; an
 earlier separate cut-core invocation had a different dependency graph and its profile
 never applied. The `worker` target does not link cut-core and skips this step.
 
-Both scripts also train a third binary, `indicatrix-net`'s `scene_roundtrip`
+Both scripts also train a third binary, `pleochroma-net`'s `scene_roundtrip`
 integration test, under the same instrumentation: `SceneState`'s postcard
 wire-protocol encode/decode, the one hot path `pgo_train` cannot reach directly (a
-`indicatrix` example can't depend on `indicatrix-net`, which itself depends on
-`indicatrix`). Both scripts then rebuild both applications against the merged profile
-and check that the profile applied: `indicatrix` for every target, plus
-`indicatrix-cut-core` for the `cut` target (each crate's hash is compared separately).
+`pleochroma` example can't depend on `pleochroma-net`, which itself depends on
+`pleochroma`). Both scripts then rebuild both applications against the merged profile
+and check that the profile applied: `pleochroma` for every target, plus
+`pleochroma-cut-core` for the `cut` target (each crate's hash is compared separately).
 
 **Training coverage is a known limitation, not a complete picture.** The training
 binaries do not exercise the radiance (HDR) image codecs, the solid rasterizer,
-`guide_pass`, the `indicatrix-vault` database, the desktop editor's event loops and GUI
+`guide_pass`, the `pleochroma-vault` database, the desktop editor's event loops and GUI
 code, or the `GpuBackend` type, so those paths are optimised as cold code. The `gpu`
 tier's `train_gpu` stage trains `render_hybrid`, which no app calls today. Do not read a
 successful crate-hash check as "the whole program is profiled": it proves the profile
@@ -217,22 +219,40 @@ applied to the trained crates, nothing about how much of them it covers.
 | [`scripts/pgo-build.ps1`](scripts/pgo-build.ps1) | Windows (PowerShell) | PGO, over AVX2/scalar x GPU/CPU by default (`-Cpu all`/`-Cpu avx512` auto-skip/refuse AVX-512 on a host without it) |
 | [`scripts/pgo-bolt-build.sh`](scripts/pgo-bolt-build.sh) | Linux or Windows (bash); a Linux host can also build Windows binaries with `--os windows` | PGO over AVX2/scalar x GPU/CPU by default (`--isa all`/`--isa avx512` auto-skip/refuse the same way), plus BOLT on Linux |
 
-By default (`--target all` / `-Target all`) both scripts build `indicatrix-worker` and
-`indicatrix-cut` together: per combination ONE instrumented cargo invocation over both
+By default (`--target all` / `-Target all`) both scripts build `pleochroma-worker` and
+`pleochroma-cut` together: per combination ONE instrumented cargo invocation over both
 apps, one training run, one merged profile and one optimised build that emits both
-binaries. A single package set gives `indicatrix` one crate hash for both apps, so one
+binaries. A single package set gives `pleochroma` one crate hash for both apps, so one
 profile applies to both and the work is done once instead of twice; the trade-off is that
 the worker is compiled with cut's (additive) features enabled, a somewhat larger binary
 with unchanged behaviour. `--target worker` / `--target cut` still build one app on its
 own, with its own profile.
 
+The PowerShell script targets **Windows MSVC**; the bash script's Windows target is
+**Windows GNU**, including when run through Wine. They do not use interchangeable
+profiles. For the LLVM 23 MSVC failure `Missing .seh_endepilogue` during the final
+PGO build, PowerShell now disables LLVM machine tail merging in both the training
+and final builds (`-C llvm-args=-enable-tail-merge=false`). PGO, LTO and exception
+unwinding remain enabled. This is a targeted compiler workaround pending a native
+rebuild, not a change to Naga or the renderer. Use `-DisableSehWorkaround` only to
+check a corrected toolchain. Profiles are isolated below
+`pgo-profile/msvc-no-tail-merge/` (or `msvc-default/` with that switch), so the first
+run retrains even with `-SkipTrain`; old GNU, legacy and opposite-mode profiles
+are not reused. The script prints the Rust/LLVM version to identify future reports.
+
+Retry an AVX2 desktop GPU build on Windows with:
+
+```powershell
+.\scripts\pgo-build.ps1 -Cpu avx2 -Gpu gpu -Target cut
+```
+
 Each build is emitted as `<binary>-<os>-<isa>-<gpu>`, so the variants can coexist in
 one output directory. `--native` (bash) / `-Native` (PowerShell) builds only the
 host-CPU tier (`-C target-cpu=native`) instead of the generic tiers, for a quick
 "this machine only" build. The ISA tier is a compile-time `-C target-cpu` baseline and is
-independent of `indicatrix`'s runtime SIMD dispatch, which detects AVX-512/AVX2 on any
-build unless `INDICATRIX_SIMD` caps it; the training run sets that variable to match the
-tier being built, which means a profile trained under `INDICATRIX_SIMD=avx2` leaves the
+independent of `pleochroma`'s runtime SIMD dispatch, which detects AVX-512/AVX2 on any
+build unless `PLEOCHROMA_SIMD` caps it; the training run sets that variable to match the
+tier being built, which means a profile trained under `PLEOCHROMA_SIMD=avx2` leaves the
 avx512 and scalar SIMD kernels with zero profile counts (LLVM then treats them as
 cold/size-optimised in that binary) -- ship the avx2 build to AVX2-and-newer machines
 (including AVX-512 ones) and the scalar build only to machines without AVX2.
@@ -259,29 +279,52 @@ target. Cross-built Windows binaries get their icon only when
 `x86_64-w64-mingw32-windres` is installed (`winresource` warns and continues
 otherwise). Building Linux binaries from a Windows host is not supported.
 
-BOLT runs on Linux only — it has no PE/COFF backend — and only on `indicatrix-worker`,
+BOLT runs on Linux only — it has no PE/COFF backend — and only on `pleochroma-worker`,
 which has a headless, deterministic `render` workload to profile (`render --scene
 <scene.json> ... --only-cpu`; `scripts/pgo-bolt-build.sh` generates a fixed training
-scene via `indicatrix-worker`'s `write_pgo_scene` example). `indicatrix-cut` is an
+scene via `pleochroma-worker`'s `write_pgo_scene` example). `pleochroma-cut` is an
 interactive desktop app with no scriptable workload, and a startup-only profile would
 give it a worse code layout than no BOLT at all.
 
+## macOS builds with GitHub Actions
+
+The [macOS workflow](.github/workflows/build-macos.yml) builds **Pleochroma Cut**
+for Apple Silicon and Intel, with GPU support (Metal) and the existing CPU fallback.
+In GitHub, open **Actions > Build macOS desktop app > Run workflow**, or push a
+`v*` tag. It uploads separate versioned `macos-arm64.zip` and `macos-x86_64.zip`
+artifacts containing **Pleochroma Cut.app**; it does not publish a release.
+
+The architectures run sequentially (`max-parallel: 1`), overlapping workflow runs
+are serialized, and Cargo uses one build job (`CARGO_BUILD_JOBS=1`, `--jobs 1`).
+The workflow builds only the desktop executable, uses the lockfile, and disables
+fat LTO, debug information and incremental compilation to reduce memory/disk use.
+These are ordinary release builds, not PGO builds. It installs current stable
+Rust; the manifest's `rust-version` is a minimum, not a compiler pin.
+
+The bundles target **macOS 13 or newer** and the named processor architecture.
+They contain an icon and license; the library database is not included. They are
+not Developer ID signed or notarized, so downloaded bundles may require approval
+in macOS Privacy & Security. Optional FFmpeg-backed video exports still need
+FFmpeg on the user's machine. The packaging script checks the executable's
+architecture, property list and dynamic libraries, rejecting unbundled non-system
+dependencies. The workflow and packaged application still need a first macOS run.
+
 ## Feature flags
 
-All of the following are **off by default**, except `indicatrix-net`'s `compression`.
+All of the following are **off by default**, except `pleochroma-net`'s `compression`.
 
 | Crate | Feature | Adds |
 |---|---|---|
-| `indicatrix-net` | `compression` (**on** by default) | The lossless compressed payload encodings (byte shuffle + zstd / LZ4) and the PNG display-frame codec. Without it the protocol still works, sending raw payloads. |
-| `indicatrix` | `gpu` | `renderer::gpu`: the verified GPU port of the spectral transport physics and its equivalence harness. Pulls in `wgpu`, `pollster`. |
-| `indicatrix` | `hdr` | Radiance `.hdr` equirectangular environment-map *decoding* for `renderer::env_map`. Pulls in `image` (default features off, `hdr` format only). |
-| `indicatrix` | `serde` | `Serialize`/`Deserialize` on the scene-description types (`GemMaterial`, `GpuFacetPlane`, `LightingPreset`) that `indicatrix-net`'s wire protocol needs. |
-| `indicatrix-net` | `render` | `SceneState`/`RenderRequest` and everything else that needs `indicatrix`'s resolved scene/material types. Off by default so a library-only `indicatrix-worker` build never compiles `indicatrix` in at all. |
-| `apps/indicatrix-cut` | `gpu` | Routes the viewport's progressive accumulation and the high-resolution export worker through `indicatrix`'s GPU megakernel, falling back to the CPU tracer per frame whenever it declines. See [`apps/indicatrix-cut/docs/gpu.md`](apps/indicatrix-cut/docs/gpu.md). |
-| `apps/indicatrix-cut` | `physical-color` | Shows the physics-based color editor in the Gem Material Editor (the Fantasy/Physics toggle and the host-crystal and element-recipe section). UI only: a material's stored color mode and recipe are kept and rendered in every build, with or without this feature; without it the editor always shows the plain Fantasy colors. Not part of the shipped or PGO builds. |
-| `apps/indicatrix-cut` | `experimental` | Bundle that turns on `physical-color`. |
-| `apps/indicatrix-worker` | `worker` | Render capacity: the coordinator's worker port and job execution on `serve`, `serve --render`, the `join` subcommand, and the `render` subcommand actually working. Turns on `indicatrix-net/render`. Without it, `indicatrix-worker` serves a read-only design library only. |
-| `apps/indicatrix-worker` | `gpu` | Implies `worker`. Routes `render`/`serve --render`/`join` tracing through `indicatrix`'s GPU megakernel, falling back to the CPU tracer whenever it declines. |
+| `pleochroma-net` | `compression` (**on** by default) | The lossless compressed payload encodings (byte shuffle + zstd / LZ4) and the PNG display-frame codec. Without it the protocol still works, sending raw payloads. |
+| `pleochroma` | `gpu` | `renderer::gpu`: the verified GPU port of the spectral transport physics and its equivalence harness. Pulls in `wgpu`, `pollster`. |
+| `pleochroma` | `hdr` | Radiance `.hdr` equirectangular environment-map *decoding* for `renderer::env_map`. Pulls in `image` (default features off, `hdr` format only). |
+| `pleochroma` | `serde` | `Serialize`/`Deserialize` on the scene-description types (`GemMaterial`, `GpuFacetPlane`, `LightingPreset`) that `pleochroma-net`'s wire protocol needs. |
+| `pleochroma-net` | `render` | `SceneState`/`RenderRequest` and everything else that needs `pleochroma`'s resolved scene/material types. Off by default so a library-only `pleochroma-worker` build never compiles `pleochroma` in at all. |
+| `apps/pleochroma-cut` | `gpu` | Routes the viewport's progressive accumulation and the high-resolution export worker through `pleochroma`'s GPU megakernel, falling back to the CPU tracer per frame whenever it declines. See [`apps/pleochroma-cut/docs/gpu.md`](apps/pleochroma-cut/docs/gpu.md). |
+| `apps/pleochroma-cut` | `physical-color` | Shows the physics-based color editor in the Gem Material Editor (the Fantasy/Physics toggle and the host-crystal and element-recipe section). UI only: a material's stored color mode and recipe are kept and rendered in every build, with or without this feature; without it the editor always shows the plain Fantasy colors. Not part of the shipped or PGO builds. |
+| `apps/pleochroma-cut` | `experimental` | Bundle that turns on `physical-color`. |
+| `apps/pleochroma-worker` | `worker` | Render capacity: the coordinator's worker port and job execution on `serve`, `serve --render`, the `join` subcommand, and the `render` subcommand actually working. Turns on `pleochroma-net/render`. Without it, `pleochroma-worker` serves a read-only design library only. |
+| `apps/pleochroma-worker` | `gpu` | Implies `worker`. Routes `render`/`serve --render`/`join` tracing through `pleochroma`'s GPU megakernel, falling back to the CPU tracer whenever it declines. |
 
 ## Screenshots
 
@@ -310,7 +353,7 @@ All screenshots live in [`assets/`](assets/); click one for full size.
 | [<img src="assets/retarget_dialog.png" alt="Retarget for Material dialog: before and after side by side, path traced" width="400">](assets/retarget_dialog.png)<br>Retarget for another material | [<img src="assets/retarget_dialog_1.png" alt="The Retarget dialog in overlay mode: the stone before (red) and after (green)" width="400">](assets/retarget_dialog_1.png)<br>Retarget overlay |
 | [<img src="assets/retarget_gear_2.png" alt="Confirm Index Remap dialog after choosing a different index gear" width="400">](assets/retarget_gear_2.png)<br>Index-gear remap | [<img src="assets/retarget_merge.png" alt="A gear change from 96 to 64 teeth, before and after" width="400">](assets/retarget_merge.png)<br>Gear change, before and after |
 | [<img src="assets/optimizer_1.png" alt="Optimize tab with the objective list open" width="400">](assets/optimizer_1.png)<br>Optimize: objectives | [<img src="assets/optimizer_2.png" alt="Optimize tab after a run: the start design and five candidates with their scores" width="400">](assets/optimizer_2.png)<br>Optimize: candidates |
-| [<img src="assets/optimizer__compare_1.png" alt="Compare window in overlay mode: removed facets red, added facets green" width="400">](assets/optimizer__compare_1.png)<br>Compare, overlay | [<img src="assets/optimizer__compare_2.png" alt="Compare window side by side, path traced, with tilt-averaged metrics" width="400">](assets/optimizer__compare_2.png)<br>Compare, path traced |
+| [<img src="assets/optimizer__compare_1.png" alt="Optimize comparison in the editor viewport, overlay mode: removed facets red, added facets green" width="400">](assets/optimizer__compare_1.png)<br>Compare, overlay | [<img src="assets/optimizer__compare_2.png" alt="Optimize comparison side by side, path traced, with tilt-averaged metrics" width="400">](assets/optimizer__compare_2.png)<br>Compare, path traced |
 
 ### Dialogs and tools
 
@@ -345,12 +388,12 @@ All screenshots live in [`assets/`](assets/); click one for full size.
 
 ### Mobile app
 
-Indicatrix also runs on Android phones and tablets. The app is not in an app store yet, but you
+Pleochroma also runs on Android phones and tablets. The app is not in an app store yet, but you
 can build it and install it on your own device (a debug APK from Android Studio, or `gradlew
 assembleDebug` plus `adb install`; see
-[`apps/indicatrix-mobile-android/README.md`](apps/indicatrix-mobile-android/README.md)). The
+[`apps/pleochroma-mobile-android/README.md`](apps/pleochroma-mobile-android/README.md)). The
 same UI also runs on the desktop:
-`cargo run -p indicatrix-mobile-android --features desktop-preview --bin indicatrix-mobile-preview -- --size phone`.
+`cargo run -p pleochroma-mobile-android --features desktop-preview --bin pleochroma-mobile-preview -- --size phone`.
 
 | | | | |
 |---|---|---|---|
@@ -366,52 +409,68 @@ rewrites them from the desktop preview, `cargo ui-screens` the desktop ones.
 `cargo tutorial-videos` plays every built-in tutorial in the real app (Slint's software renderer, a
 throw-away profile) and records it: a drawn mouse cursor glides to what each step is about, a click
 ripple shows the press, the app reacts, and long background work (solves, renders) is sped up or cut
-out. Per tutorial it writes, into `videos/` (or the folder `INDICATRIX_VIDEOS_OUT` names):
+out. Per tutorial it writes, into one folder per tutorial category under `videos/` (or the folder
+`PLEOCHROMA_VIDEOS_OUT` names), for example `videos/05-solving-and-checking/`:
 
-- `<tutorial-id>.mp4`: 1920 x 1080, 30 fps, H.264, ready for YouTube;
-- `<tutorial-id>.srt`: captions, the step title and text;
-- `<tutorial-id>.chapters.txt`: a YouTube chapter list, one chapter per step.
+- `<nn>-<tutorial-id>.mp4`: 1920 x 1080, 30 fps, H.264, ready for YouTube;
+- `<nn>-<tutorial-id>.srt`: captions, the step title and text;
+- `<nn>-<tutorial-id>.chapters.txt`: a YouTube chapter list, one chapter per step.
+
+The category folders and the `<nn>` numbers follow the order of the tutorial browser, so sorting by
+name gives the upload order; `videos/playlist.md` lists every video with its category and file.
 
 ```
 cargo tutorial-videos                      # every built-in tutorial
 cargo tutorial-videos -- welcome worked    # only tutorials whose id contains one of these words
-INDICATRIX_VIDEOS_4K=1 cargo tutorial-videos -- welcome    # keep the 3840 x 2160 capture
+PLEOCHROMA_VIDEOS_4K=1 cargo tutorial-videos -- welcome    # keep the 3840 x 2160 capture
 ```
 
-Environment variables: `INDICATRIX_VIDEOS_OUT` (output folder), `INDICATRIX_VIDEOS_4K` (no
-downscale to 1920 x 1080), `INDICATRIX_VIDEOS_FPS` (24 to 60, default 30),
-`INDICATRIX_HARNESS_LIBRARY` (optional: a `facet_diagrams.sqlite` to copy into the throw-away
+Environment variables: `PLEOCHROMA_VIDEOS_OUT` (output folder), `PLEOCHROMA_VIDEOS_4K` (no
+downscale to 1920 x 1080), `PLEOCHROMA_VIDEOS_FPS` (24 to 60, default 30),
+`PLEOCHROMA_VIDEOS_DEBUG` (debug mode, see below),
+`PLEOCHROMA_HARNESS_LIBRARY` (optional: a `facet_diagrams.sqlite` to copy into the throw-away
 profile; without it a small fixture library is used), `UIPROBE_JOBS=serial` (one tutorial at a
-time) and `UIPROBE_FFMPEG` (the ffmpeg executable). ffmpeg must be on `PATH` or named by
-`UIPROBE_FFMPEG`.
+time) and `UIPROBE_FFMPEG` (the ffmpeg executable). For videos, ffmpeg must be on `PATH` or named
+by `UIPROBE_FFMPEG`; debug mode needs no ffmpeg.
 
 A tutorial whose run hits a step the recorder cannot show (a step that only a direct event can
 finish), a skipped step, a timeout, a panic, an error toast or private text on screen writes no
 video: the old file stays and the run reports a finding in `target/tutorial-videos/report.md`.
 Videos are written to `<name>.mp4.part` and renamed when they are complete.
 
+**Debug mode** (`PLEOCHROMA_VIDEOS_DEBUG=1`) is for finding out why a video failed without
+watching it. No video is recorded (no recorder, no ffmpeg needed); each tutorial instead leaves `<out>/debug/<tutorial-id>/` with a
+`steps.md` and `steps.json` step log and, per step, before and after screenshots of every open
+window (at most 1920 pixels wide, with the clicks, cursor moves and wheel turns drawn on them).
+The privacy scan runs before every screenshot and over every logged text. The run is much faster
+than a video run. `tests/tutorial_videos/DEBUG_MODE.md` says how to read the folder.
+
+```
+PLEOCHROMA_VIDEOS_DEBUG=1 cargo tutorial-videos -- welcome    # debug one tutorial
+```
+
 ## The design library is yours to build
 
-The SQLite design catalogue (`facet_diagrams.sqlite`) that `indicatrix-cut` and
-`indicatrix-worker` open is **your own data, and it is not part of this
+The SQLite design catalogue (`facet_diagrams.sqlite`) that `pleochroma-cut` and
+`pleochroma-worker` open is **your own data, and it is not part of this
 repository** — `.gitignore` excludes `*.sqlite`/`*.sqlite2`/`*.sqlite.bak`, so
 nothing of the kind is tracked, shipped, or downloadable from here. There is
 no starter catalogue bundled with this project. You build your own library
 entirely by importing your own `.asc` cutting-instructions files, either through
-`indicatrix-cut`'s Import button (see that app's README) or by calling
-`indicatrix_vault::local::import_asc` directly.
+`pleochroma-cut`'s Import button (see that app's README) or by calling
+`pleochroma_vault::local::import_asc` directly.
 
 ## Documentation
 
 Per-crate documentation is linked from the workspace map above — start with a
 crate's own README, then its `docs/` folder if it has one:
 
-- [`crates/indicatrix/docs/`](crates/indicatrix/docs/) — the physics's deliberate
+- [`crates/pleochroma/docs/`](crates/pleochroma/docs/) — the physics's deliberate
   deviations and known simplifications, and the GPU equivalence harness.
-- [`apps/indicatrix-cut/docs/`](apps/indicatrix-cut/docs/) — the settings file
+- [`apps/pleochroma-cut/docs/`](apps/pleochroma-cut/docs/) — the settings file
   format, the preview-then-handoff remote-rendering model, import/export, and
   the `gpu` feature's fallback rules.
-- [`apps/indicatrix-worker/docs/`](apps/indicatrix-worker/docs/) — the trust model
+- [`apps/pleochroma-worker/docs/`](apps/pleochroma-worker/docs/) — the trust model
   behind its mutual-TLS server (viewer and worker roles), and its internal
   architecture, including the coordinator.
 

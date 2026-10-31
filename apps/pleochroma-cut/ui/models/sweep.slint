@@ -1,0 +1,222 @@
+// The Angle Sweep dialog's state (`components/sweep_dialog.slint` is its view).
+//
+// Edit > Angle Sweep... tries one tier's angle over a range: each angle is solved and
+// scored on a copy of the design, and the figures come back as a table, a chart and CSV
+// text. The sweep itself lives in `pleochroma_editor::sweep`; `gui::editor::sweep` runs it
+// on a worker thread and fills this global.
+//
+// Rust owns everything the dialog shows besides the three number fields, the tier choice
+// and the tilt checkbox (the form), so the view only draws what it is given: the table
+// rows already carry their text, the chart lines are SVG path data, and the readout under
+// the chart is a finished sentence. A figure is a "series" numbered like the sweep's
+// figures (0 brilliance, 1 windowing, 2 extinction, 3 fire, 4 scintillation, 5 yield,
+// 6..8 the tilt averages); `SweepStyle` (components/sweep_dialog/sweep_style.slint) gives
+// each its colour.
+
+// One figure of one row: the text shown, and whether it is the best of its column.
+export struct SweepCellItem {
+    text: string,
+    best: bool,
+}
+
+// One angle of the sweep.
+export struct SweepRowItem {
+    // The angle as a positive number with two decimals, for example "41.00".
+    angle: string,
+    // "Current", "Current (not valid)", "Not valid", or empty for any other valid angle.
+    status: string,
+    is_current: bool,
+    // False when the angle gives no stone; `notes` says why.
+    is_valid: bool,
+    // The figures, in the order of `SweepModel.columns`.
+    cells: [SweepCellItem],
+    notes: string,
+}
+
+// One figure column of the table; also the chart's toggle for that figure's line.
+export struct SweepColumnItem {
+    title: string,
+    series: int,
+    // Whether the figure's line is drawn on the chart.
+    shown: bool,
+}
+
+// One line of the chart: SVG path data in a 0..100 by 0..100 viewbox.
+export struct SweepPathItem {
+    commands: string,
+    series: int,
+}
+
+// One entry under the chart: a drawn line's name and the range its height stands for.
+export struct SweepLegendItem {
+    text: string,
+    series: int,
+}
+
+export global SweepModel {
+    // Whether the dialog is showing.
+    in-out property <bool> dialog_open: false;
+
+    // --- The form -----------------------------------------------------------------
+    // The tiers a sweep can take, as the combo shows them ("3. Crown Main (34.50°)").
+    in property <[string]> tier_names: [];
+    in-out property <int> tier_index: 0;
+    // The three number fields; each takes arithmetic (`41.5 - 3`).
+    in-out property <string> from_text: "";
+    in-out property <string> to_text: "";
+    in-out property <string> step_text: "";
+    // Also average the tilt performance of every angle (slower).
+    in-out property <bool> tilt_average: false;
+    // How many angles and how long it takes, or what is wrong with the form.
+    in property <string> summary_text: "";
+    // Whether the form can run.
+    in property <bool> form_ok: false;
+    // A hint about the tier list (tiers left out), or empty.
+    in property <string> notice_text: "";
+
+    // --- The run ------------------------------------------------------------------
+    in property <bool> running: false;
+    // 0..1.
+    in property <float> progress: 0.0;
+    // "3 of 21 angles done" while running; how it ended afterwards.
+    in property <string> status_text: "";
+
+    // --- The results --------------------------------------------------------------
+    in property <bool> has_results: false;
+    // "Pavilion Main: 21 angles, 18 valid".
+    in property <string> result_title: "";
+    in property <[SweepColumnItem]> columns: [];
+    in property <[SweepRowItem]> rows: [];
+    // The chart: a line per shown figure, the names under it, and the ends of its x axis.
+    in property <[SweepPathItem]> paths: [];
+    in property <[SweepLegendItem]> legend: [];
+    in property <string> axis_low: "";
+    in property <string> axis_high: "";
+    // x positions on the chart in percent (0..100); negative means "not shown".
+    in property <float> current_x: -1.0;
+    in property <float> selected_x: -1.0;
+    in property <float> hover_x: -1.0;
+    // The row selected in the table (or by a click on the chart); -1 for none.
+    in property <int> selected_row: -1;
+    // The row under the pointer on the chart; -1 for none.
+    in property <int> hover_row: -1;
+    // The sentence for the row under the pointer, else for the selected row.
+    in property <string> readout_text: "";
+    // Whether "Use this angle" can be pressed, and what it says.
+    in property <bool> selected_usable: false;
+    in property <string> use_label: "Use This Angle";
+
+    // --- Two Tiers ----------------------------------------------------------------
+    // The dialog's mode: 0 One Tier (everything above), 1 Two Tiers (everything below). The
+    // across tier is the form's `tier_index` with `from_text`, `to_text` and `step_text`;
+    // `tier_names` and `tilt_average` are shared by both modes.
+    in-out property <int> mode: 0;
+    // The down tier and its three number fields (each takes arithmetic).
+    in-out property <int> tier_b_index: 0;
+    in-out property <string> from_b_text: "";
+    in-out property <string> to_b_text: "";
+    in-out property <string> step_b_text: "";
+    // "21 × 17 = 357 angles · about 12 seconds", or what is wrong with the form.
+    in property <string> cells_summary: "";
+    // Whether the two-tier form can run.
+    in property <bool> form_ok_2d: false;
+    // The question the form asks once before a long sweep with tilt averages; empty for none.
+    in property <string> confirm_tilt_text: "";
+    // Whether a finished two-tier sweep is shown.
+    in property <bool> has_results_2d: false;
+    // "Crown Main and Pavilion Main: 357 angle pairs, 340 valid".
+    in property <string> result_title_2d: "";
+    // The heat map: one image, one block per angle pair, the grid's size and the share of the
+    // image one cell takes (1 / columns, 1 / rows). `heat_aspect` is the image's width over
+    // its height. The marks below are cell centers as fractions of the image (0..1); negative
+    // means "not shown".
+    in property <image> heatmap_image;
+    in property <float> heat_aspect: 1.0;
+    in property <int> heat_cols: 0;
+    in property <int> heat_rows: 0;
+    in property <float> heat_cell_w: 0.0;
+    in property <float> heat_cell_h: 0.0;
+    in property <float> heat_current_x: -1.0;
+    in property <float> heat_current_y: -1.0;
+    in property <float> heat_best_x: -1.0;
+    in property <float> heat_best_y: -1.0;
+    in property <float> heat_selected_x: -1.0;
+    in property <float> heat_selected_y: -1.0;
+    in property <float> heat_hover_x: -1.0;
+    in property <float> heat_hover_y: -1.0;
+    // The figure the map shows (the combo), and whether the plateau of cells as good as the
+    // best, within the figure's noise, is outlined.
+    in property <[string]> heat_figure_options: [];
+    in-out property <int> heat_figure_index: 0;
+    in-out property <bool> contour: true;
+    // The color scale under the map: a gradient image, the values at its dark and bright ends
+    // in the figure's units, and a sentence about the marks.
+    in property <image> legend_image;
+    in property <string> legend_low: "";
+    in property <string> legend_high: "";
+    in property <string> legend_note: "";
+    // The axes: each tier's name and the range of its angles.
+    in property <string> across_label: "";
+    in property <string> down_label: "";
+    // The readout of the pair under the pointer, else the selected pair: the pair's angles,
+    // then each figure with its change against the design's own pair (tone 0 about the same,
+    // 1 better, 2 worse), then notes.
+    in property <string> selected_cell_text: "";
+    in property <[string]> readout_items: [];
+    in property <[int]> readout_tones: [];
+    in property <string> readout_notes: "";
+    // Whether "Use These Angles" and "Refine Around This" can be pressed.
+    in property <bool> cells_usable: false;
+    in property <bool> cell_selected: false;
+
+    // --- Callbacks ----------------------------------------------------------------
+    // Edit > Angle Sweep..., the command palette: Rust fills the form and shows the dialog.
+    callback open_dialog();
+    // Closes the dialog (and stops a running sweep).
+    callback close_dialog();
+    // A number field or the tilt checkbox changed: Rust re-checks the form.
+    callback form_changed();
+    // Another tier was chosen: Rust resets the range to that tier's default.
+    callback tier_changed();
+    // Run the sweep.
+    callback run();
+    // Stop the running sweep (the finished rows stay).
+    callback cancel();
+    // A table row or the chart was clicked.
+    callback select_row(int);
+    // A figure's pill was clicked: show or hide its line.
+    callback toggle_series(int);
+    // The pointer moved over the chart: the fraction across the plot (0..1), or -1 when it left.
+    callback chart_hover(float);
+    // "Use this angle": make the selected row's angle the tier's angle, as one undo step.
+    callback use_selected();
+    callback copy_csv();
+    callback save_csv();
+
+    // --- Two Tiers callbacks ------------------------------------------------------
+    // The mode pill was clicked (`mode` already holds the new mode).
+    callback mode_changed();
+    // A number field or the tilt checkbox of the two-tier form changed.
+    callback form_changed_2d();
+    // The across or the down tier was chosen: its own range goes into its fields.
+    callback tier_a_changed();
+    callback tier_b_changed();
+    // Run the two-tier sweep (the same Cancel stops it).
+    callback run_2d();
+    // The answer to the tilt question: true runs the sweep, false drops the question.
+    callback confirm_tilt(bool);
+    // The pointer over the map: x and y are fractions of the image (negative when it left);
+    // `kind` is 0 for a move, 1 for a click, 2 for the pointer leaving.
+    callback heat_pointer(float, float, int);
+    // A key on the map: 0 left, 1 right, 2 up, 3 down, 4 Enter (use the pair).
+    callback heat_key(int);
+    // The figure combo or the outline checkbox changed.
+    callback heat_figure_changed();
+    callback contour_changed();
+    // "Use These Angles": the selected pair becomes the two tiers' angles, as one undo step.
+    callback use_cells();
+    // "Refine Around This": a finer grid around the selected pair, run at once.
+    callback refine();
+    callback copy_csv_2d();
+    callback save_csv_2d();
+}

@@ -1,0 +1,207 @@
+// Cutting Mode in the browser: the cutting instructions one step per page, filling the window.
+//
+// Slint owns whether the screen is open and what the keys do; Rust (`src/editor/cutting_mode`)
+// owns the steps, the done marks (kept in this browser's local storage, never in the design
+// file) and everything the page shows, and pushes it into the `in` properties below whenever
+// the page changes. The pure model behind the texts is `pleochroma_editor::cutting_mode`.
+//
+// Entry points (the header's "Cut" button, and the menu item and shortcut `app.slint` adds)
+// all call `open-cutting-mode()`. The button is disabled while `unavailable-reason` says why;
+// the shortcut opens the screen anyway and the screen shows that reason, so the command never
+// fails silently.
+//
+// Named in `app.slint`'s export block together with the four structs, which is what makes
+// them Rust types.
+
+// One index chip: the position as the cutting sheet prints it, and whether it is ticked.
+export struct CmChip {
+    text: string,
+    ticked: bool,
+}
+
+// One marked index on the wheel: its dot on the ring and its number outside it, as fractions
+// of the wheel's square (0 = left or top, 1 = right or bottom). An empty `label` draws no
+// number.
+export struct CmWheelMark {
+    x: float,
+    y: float,
+    label-x: float,
+    label-y: float,
+    label: string,
+    ticked: bool,
+}
+
+// A tooth number printed inside the ring at a major tick, positioned like a mark.
+export struct CmWheelScale {
+    x: float,
+    y: float,
+    label: string,
+}
+
+// One line of the schedule list (and one segment of the step strip): a step in cutting order.
+export struct CmScheduleRow {
+    // The tier's code, `P1`.
+    code: string,
+    // The angle, `42.80\u{00B0}`.
+    angle: string,
+    // The indices, joined (`96, 12, 24 ...`).
+    indices: string,
+    // 0 not done, 1 done, 2 changed since it was marked.
+    state: int,
+}
+
+export global CuttingModeModel {
+    // Whether the screen is showing.
+    in-out property <bool> open: false;
+    // True from the moment the screen opens until Rust has the first page ready (or an error).
+    in-out property <bool> busy: false;
+    // Why there is nothing to step through: no design, no tiers, a design that does not solve,
+    // or a failure while preparing. The screen shows it instead of a page. Empty when fine.
+    in-out property <string> error: "";
+    // A line over the page that is not an error: the design changed and the steps were built
+    // again, or the browser refused to store the marks. Empty hides it.
+    in-out property <string> notice: "";
+    // The "Reset progress" question is showing.
+    in-out property <bool> confirm-reset: false;
+    // Bumped by `app.slint` when the last dialog above the screen closes, so the screen takes
+    // the keyboard back (a dialog opened from the menu bar had it).
+    in-out property <int> focus-pulse: 0;
+
+    // Why Cutting Mode cannot open right now, or empty when it can. Kept up to date by a
+    // short poll in Rust (`src/editor/cutting_mode/screen.rs`).
+    in property <string> unavailable-reason: "";
+    // Where the marks are kept ("this browser only"), shown under the buttons.
+    in property <string> marks-note: "";
+
+    // The open design's name, as the header shows it.
+    in property <string> design-name: "";
+    // How many steps, and which one is showing (counting from 0).
+    in property <int> step-count: 0;
+    in property <int> step-index: 0;
+    // `Step 3 of 12`.
+    in property <string> heading: "";
+    // The tier's code, as the cutting sheet labels it: `P1`, `G1`, `C2`, `T`.
+    in property <string> tier-name: "";
+    // Crown, Pavilion or Girdle.
+    in property <string> side-label: "";
+    // The angle, huge: `42.50\u{00B0}`.
+    in property <string> angle-text: "";
+    in property <[CmChip]> chips: [];
+    // The sheet's instruction text: the tier's name, then what the facet closes against.
+    in property <string> meet-text: "";
+    // Depth in millimetres and mast; empty for a concave tier.
+    in property <string> depth-text: "";
+    // `Cheater offset +1.50`; empty without one.
+    in property <string> cheater-text: "";
+    // The cutter's own note on the tier; on the first step also how to orient the rough for
+    // the crystal axis. Empty without one.
+    in property <string> notes-text: "";
+    // A concave tier's tool line; empty for a flat tier.
+    in property <string> tool-text: "";
+    // 0 not done, 1 done, 2 changed since it was marked.
+    in property <int> step-state: 0;
+    // `Done`, `Changed since you marked it`, or empty.
+    in property <string> state-text: "";
+    in property <bool> has-previous: false;
+    in property <bool> has-next: false;
+    // Whether anything is marked at all (a Reset has something to clear).
+    in property <bool> has-marks: false;
+    // How many steps are done, as a line (`4 of 12 steps done`) and as a fraction of the bar.
+    in property <int> done-count: 0;
+    in property <string> progress-text: "";
+    in property <float> progress-fraction: 0;
+    // The caption under the picture of the stone, and under the index wheel.
+    in property <string> stone-caption: "";
+    in property <string> wheel-caption: "";
+    // The index wheel: SVG path commands in a 200 x 200 box for the minor ticks, the major
+    // ticks and the lines to the marked indices, then the marks and the scale numbers.
+    in property <string> wheel-minor: "";
+    in property <string> wheel-major: "";
+    in property <string> wheel-spokes: "";
+    in property <[CmWheelMark]> wheel-marks: [];
+    in property <[CmWheelScale]> wheel-scale: [];
+
+    // The crystal axis picture of the first step, for a stone whose axis is set: the outlines
+    // and the axis as SVG path commands in a 380 x 190 box (`pleochroma_editor::cutting_mode::
+    // axis_picture`), and the words for a screen reader. `axis-shown` is false on every other
+    // page and for a stone without an axis.
+    in property <bool> axis-shown: false;
+    in property <string> axis-frame: "";
+    in property <string> axis-path: "";
+    in property <string> axis-description: "";
+
+    // Every step in cutting order, for the schedule list and the step strip.
+    in property <[CmScheduleRow]> schedule: [];
+
+    // A click on step `i` of the schedule list or the strip: shows that step.
+    callback jump-to(int);
+    // Fired once the screen has opened; Rust checks the design, builds the steps, fills the
+    // page and clears `busy` (or fills `error`).
+    callback open-requested();
+    // Fired after the screen closed, however it was closed; Rust drops the steps and puts the
+    // Solid view back the way it was.
+    callback closed();
+    callback previous();
+    callback next();
+    // The "Mark step done" button: marks the step, or takes the mark back if it is done.
+    callback toggle-done();
+    // Space or D: marks the step done and goes on to the next one.
+    callback mark-done-and-next();
+    // A click on index chip `i` of this step.
+    callback chip-clicked(int);
+    // The answer yes to "Reset progress": every mark of this design is removed.
+    callback reset-confirmed();
+
+    // Opens the screen. Called from the header button and the menu item. The screen opens
+    // busy; Rust answers with the first page, or with the reason there is none.
+    public function open-cutting-mode() {
+        if root.open {
+            return;
+        }
+        root.confirm-reset = false;
+        root.error = "";
+        root.notice = "";
+        root.busy = true;
+        root.open = true;
+        root.open-requested();
+    }
+
+    // Closes the screen.
+    public function close() {
+        if !root.open {
+            return;
+        }
+        root.confirm-reset = false;
+        root.busy = false;
+        root.open = false;
+        root.closed();
+    }
+
+    // What a key does while the screen is open. `command` is true when Ctrl, Alt or Meta is
+    // held: those keys do nothing here (the screen swallows them so the shortcuts underneath
+    // cannot act on the design). `repeat` is true for a held key's auto-repeat: the arrows
+    // keep moving, but Space or D marks one step per press, never a whole run of them.
+    public function handle-key(text: string, command: bool, repeat: bool) {
+        if !root.open || command {
+            return;
+        }
+        if root.confirm-reset {
+            // The confirmation dialog has the keyboard; this is only the fallback.
+            if text == Key.Escape {
+                root.confirm-reset = false;
+            }
+            return;
+        }
+        if text == Key.Escape {
+            root.close();
+        } else if root.busy || root.error != "" {
+            return;
+        } else if text == Key.LeftArrow || text == Key.UpArrow || text == Key.PageUp {
+            root.previous();
+        } else if text == Key.RightArrow || text == Key.DownArrow || text == Key.PageDown {
+            root.next();
+        } else if (text == " " || text == "d" || text == "D") && !repeat {
+            root.mark-done-and-next();
+        }
+    }
+}

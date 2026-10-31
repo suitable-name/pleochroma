@@ -1,0 +1,335 @@
+// The Empty Design card of the New Design page. Tapping its header expands the short
+// form (shape, ratio, gear, symmetry, mirror, material, stone width) inside the card;
+// "Create" asks Rust to build the design from the values held in `DocumentModel`.
+import { Theme } from "../../theme.slint";
+import { Icons } from "../../icons.slint";
+import { Icon } from "../../shell/icon.slint";
+import { StateLayer } from "../../shell/state_layer.slint";
+import { Chip } from "../../shell/chips.slint";
+import { Toggle } from "../../shell/toggle.slint";
+import { PrimaryButton } from "../../shell/buttons.slint";
+import { DocumentModel } from "../document_model.slint";
+import { NumberEntry } from "number_entry.slint";
+
+component FormLabel inherits Text {
+    color: Theme.on-surface-variant;
+    font-size: Theme.text-label-large;
+    font-weight: 500;
+}
+
+// The scrolling list of built-in material names.
+component MaterialList inherits Rectangle {
+    height: 4 * Theme.row-height;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: Theme.outline;
+    clip: true;
+
+    Flickable {
+        content-height: names.preferred-height;
+
+        names := VerticalLayout {
+            x: 0px;
+            y: 0px;
+            width: root.width;
+            alignment: start;
+
+            for name[index] in DocumentModel.material-options: Rectangle {
+                height: Theme.row-height;
+                background: index == DocumentModel.form-material ? Theme.secondary-container : transparent;
+                accessible-role: AccessibleRole.button;
+                accessible-label: name;
+                accessible-checkable: true;
+                accessible-checked: index == DocumentModel.form-material;
+
+                StateLayer {
+                    pressed: row-touch.pressed;
+                    hovered: row-touch.has-hover;
+                }
+
+                HorizontalLayout {
+                    padding-left: Theme.space-lg;
+                    padding-right: Theme.space-lg;
+                    spacing: Theme.space-md;
+
+                    Text {
+                        text: name;
+                        color: index == DocumentModel.form-material ? Theme.on-secondary-container : Theme.on-surface;
+                        font-size: Theme.text-body-large;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+
+                    if index == DocumentModel.form-material: Icon {
+                        source: Icons.check;
+                        tint: Theme.on-secondary-container;
+                        glyph: 20px;
+                    }
+                }
+
+                row-touch := TouchArea {
+                    clicked => {
+                        DocumentModel.form-material = index;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// One index gear chip: dimmed when the selected symmetry does not divide it.
+component GearChip inherits Chip {
+    in property <int> gear;
+
+    text: "" + root.gear;
+    selected: DocumentModel.form-gear == root.gear;
+    muted: Math.mod(root.gear, DocumentModel.form-symmetry) != 0;
+    muted-reason: "does not fit " + DocumentModel.form-symmetry + "-fold symmetry";
+    clicked => {
+        let fold = DocumentModel.symmetry-for-gear(root.gear, DocumentModel.form-symmetry);
+        DocumentModel.form-pair-note = fold != DocumentModel.form-symmetry ? "Symmetry changed to " + fold + "-fold, which fits the " + root.gear + " gear." : "";
+        DocumentModel.form-gear = root.gear;
+        DocumentModel.form-symmetry = fold;
+    }
+}
+
+// One symmetry chip: dimmed when it does not divide the selected gear.
+component SymmetryChip inherits Chip {
+    in property <int> fold;
+
+    text: "" + root.fold;
+    selected: DocumentModel.form-symmetry == root.fold;
+    muted: Math.mod(DocumentModel.form-gear, root.fold) != 0;
+    muted-reason: "does not fit the " + DocumentModel.form-gear + " gear";
+    clicked => {
+        let gear = DocumentModel.gear-for-symmetry(root.fold, DocumentModel.form-gear);
+        DocumentModel.form-pair-note = gear != DocumentModel.form-gear ? "Gear changed to " + gear + ", which fits " + root.fold + "-fold symmetry." : "";
+        DocumentModel.form-symmetry = root.fold;
+        DocumentModel.form-gear = gear;
+    }
+}
+
+export component EmptyDesignCard inherits Rectangle {
+    background: Theme.surface-container;
+    border-radius: Theme.radius-lg;
+    border-width: 1px;
+    border-color: Theme.outline-variant;
+    clip: true;
+    height: content.preferred-height;
+
+    property <bool> has-ratio: DocumentModel.form-shape == 1 || DocumentModel.form-shape == 3;
+
+    content := VerticalLayout {
+        header := Rectangle {
+            height: Theme.row-height + Theme.space-sm;
+            accessible-role: AccessibleRole.button;
+            accessible-label: "Empty Design, start from a blank preform";
+            accessible-expandable: true;
+            accessible-expanded: DocumentModel.form-open;
+
+            StateLayer {
+                pressed: header-touch.pressed;
+                hovered: header-touch.has-hover;
+            }
+
+            HorizontalLayout {
+                padding-left: Theme.space-lg;
+                padding-right: Theme.space-lg;
+                spacing: Theme.space-lg;
+
+                Rectangle {
+                    width: 24px;
+
+                    Icon {
+                        source: Icons.add;
+                        tint: Theme.primary;
+                    }
+                }
+
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 1;
+
+                    Text {
+                        text: "Empty Design";
+                        color: Theme.on-surface;
+                        font-size: Theme.text-title;
+                        font-weight: 500;
+                    }
+
+                    Text {
+                        text: "Start from a blank preform and cut it your way";
+                        color: Theme.on-surface-variant;
+                        font-size: Theme.text-body;
+                        wrap: word-wrap;
+                    }
+                }
+
+                Rectangle {
+                    width: 24px;
+
+                    Icon {
+                        source: DocumentModel.form-open ? Icons.close : Icons.chevron-right;
+                        tint: Theme.on-surface-variant;
+                    }
+                }
+            }
+
+            header-touch := TouchArea {
+                clicked => {
+                    DocumentModel.form-open = !DocumentModel.form-open;
+                }
+            }
+        }
+
+        if DocumentModel.form-open: VerticalLayout {
+            padding-left: Theme.space-lg;
+            padding-right: Theme.space-lg;
+            padding-bottom: Theme.space-lg;
+            spacing: Theme.space-sm;
+
+            FormLabel {
+                text: "Shape";
+            }
+
+            HorizontalLayout {
+                alignment: start;
+                spacing: Theme.space-sm;
+
+                Chip {
+                    text: "Round";
+                    selected: DocumentModel.form-shape == 0;
+                    clicked => {
+                        DocumentModel.form-shape = 0;
+                    }
+                }
+
+                Chip {
+                    text: "Oval";
+                    selected: DocumentModel.form-shape == 1;
+                    clicked => {
+                        DocumentModel.form-shape = 1;
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                alignment: start;
+                spacing: Theme.space-sm;
+
+                Chip {
+                    text: "Square";
+                    selected: DocumentModel.form-shape == 2;
+                    clicked => {
+                        DocumentModel.form-shape = 2;
+                    }
+                }
+
+                Chip {
+                    text: "Rectangle";
+                    selected: DocumentModel.form-shape == 3;
+                    clicked => {
+                        DocumentModel.form-shape = 3;
+                    }
+                }
+            }
+
+            if root.has-ratio: FormLabel {
+                text: "Length Over Width";
+            }
+
+            if root.has-ratio: NumberEntry {
+                text <=> DocumentModel.form-ratio;
+                placeholder: "1.35";
+                caption: "Length Over Width";
+            }
+
+            // Gear and symmetry depend on each other: the fold must divide the gear. A
+            // choice that does not fit the other field is dimmed but still tappable; the
+            // tap moves the other field to the nearest value that fits and says so.
+            FormLabel {
+                text: "Index Gear";
+            }
+
+            for gears in [[120, 96, 84], [80, 72, 64]]: HorizontalLayout {
+                alignment: start;
+                spacing: Theme.space-sm;
+
+                for gear in gears: GearChip {
+                    gear: gear;
+                }
+            }
+
+            FormLabel {
+                text: "Symmetry";
+            }
+
+            for folds in [[1, 2, 3, 4, 5], [6, 8, 10, 12, 16]]: HorizontalLayout {
+                alignment: start;
+                spacing: Theme.space-sm;
+
+                for fold in folds: SymmetryChip {
+                    fold: fold;
+                }
+            }
+
+            Text {
+                text: DocumentModel.form-pair-note != "" ? DocumentModel.form-pair-note : "Dimmed choices need a different gear or symmetry. Tapping one adjusts the other.";
+                color: DocumentModel.form-pair-note != "" ? Theme.primary : Theme.on-surface-variant;
+                font-size: Theme.text-body;
+                wrap: word-wrap;
+            }
+
+            HorizontalLayout {
+                spacing: Theme.space-lg;
+
+                Text {
+                    text: "Mirror";
+                    color: Theme.on-surface;
+                    font-size: Theme.text-body-large;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+
+                Toggle {
+                    checked: DocumentModel.form-mirror;
+                    toggled(value) => {
+                        DocumentModel.form-mirror = value;
+                    }
+                }
+            }
+
+            FormLabel {
+                text: "Material";
+            }
+
+            MaterialList { }
+
+            FormLabel {
+                text: "Stone Width (mm)";
+            }
+
+            NumberEntry {
+                text <=> DocumentModel.form-width;
+                placeholder: "Optional, for example 7.5";
+                caption: "Stone Width";
+                unit: "mm";
+                clearable: true;
+            }
+
+            HorizontalLayout {
+                alignment: end;
+                padding-top: Theme.space-sm;
+
+                PrimaryButton {
+                    text: "Create";
+                    icon: Icons.check;
+                    clicked => {
+                        DocumentModel.create-empty();
+                    }
+                }
+            }
+        }
+    }
+}

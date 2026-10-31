@@ -1,0 +1,407 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { RetargetRowItem } from "../types.slint";
+import { RetargetModel } from "../models/retarget.slint";
+import { GuideModel } from "../models/guide.slint";
+import { HelpTopics } from "../models/help.slint";
+import { CompareView } from "compare_view.slint";
+import { HelpButton } from "help_button.slint";
+import { IconButton } from "icon_button.slint";
+import { ActionButton } from "chip_toggle.slint";
+import { SegmentPill } from "pill_button.slint";
+import { ToggleRow } from "toggle_switch.slint";
+import { FieldCaption } from "tip_box.slint";
+import { AdvancedNote } from "advanced_note.slint";
+import { BaselineComparePanel } from "retarget_dialog/baseline_compare.slint";
+import { CrownHandlingSection } from "retarget_dialog/crown_section.slint";
+import { OptimizeSection } from "retarget_dialog/optimize_section.slint";
+import { ProposalTable } from "retarget_dialog/proposal_table.slint";
+import { TargetMaterialSection } from "retarget_dialog/target_section.slint";
+import { VerdictBlock, OpticalComparison } from "retarget_dialog/verdict_section.slint";
+
+export { RetargetRowItem }
+
+// "Retarget for material": reviews a proposal before it is applied as ONE undoable edit.
+// Shift moves every crown and pavilion angle by a formula; Optimize searches for better ones
+// inside a range. The same modal shell carries the "Compare to Snapshot" panel.
+//
+// Simple and Advanced (`GuideModel.shows_advanced()`): the Simple interface keeps the target
+// material, the Shift/Optimize switch, Search, the options, the table, the verdict and Apply. It
+// hides Crown Handling and the Optimize objective, range and effort. They keep their values and
+// the search uses them; a line says so when one is off its default
+// (`RetargetModel.advanced_in_use`).
+//
+// Keyboard: Tab walks the controls, Escape closes (Cancel stops a running search instead), Return
+// applies when the proposal is ready. The option list is one Tab stop; Up and Down pick the
+// previous or next option, Space picks the first.
+//
+// The sections live in `retarget_dialog/`: `BaselineComparePanel` (the Compare to Baseline
+// face), `TargetMaterialSection`, `OptimizeSection`, `CrownHandlingSection`, `ProposalTable`,
+// `VerdictBlock` and `OpticalComparison`, with the shared row and heading parts in `parts.slint`.
+export component RetargetDialog inherits Rectangle {
+    callback close();
+    close => { RetargetModel.is_open = false; RetargetModel.close(); }
+
+    // A proposal exists and nothing is busy.
+    property <bool> has_proposal: RetargetModel.rows.length > 0 && RetargetModel.anchored_tier_errors.length == 0 && RetargetModel.solve_error == "" && !RetargetModel.is_busy;
+    // Return and Apply use the same finished validation gate. In stage two, the
+    // Shift reference is view-only until an optimized candidate is selected.
+    out property <bool> can_apply: root.has_proposal && RetargetModel.validity_state == 2
+        && !RetargetModel.stale
+        && (RetargetModel.mode_index == 0 || RetargetModel.selected_candidate >= 0);
+    // Why Apply is not available yet, in plain words (the tooltip of the dimmed button).
+    property <string> apply_hint: root.can_apply
+        ? "Apply the new angles, the adjusted facet heights and the new material as one edit you can undo, then solve the design again."
+        : (RetargetModel.is_busy ? "Wait for the search to finish, or cancel it."
+        : (RetargetModel.stale ? "The design changed; refresh the proposal."
+        // In the Optimize stage the Shift verdict below describes the reference, not a pick.
+        : (RetargetModel.mode_index == 1 && RetargetModel.selected_candidate < 0 ? "Search, then pick one of the options first."
+        : (root.has_proposal && RetargetModel.validity_state == 0 ? "Waiting for the check."
+        : (RetargetModel.validity_state == 1 ? "Wait: the change is still being checked."
+        : (RetargetModel.validity_state == 3 ? "The change is not valid, so it cannot be applied. The reasons are listed above."
+        : (RetargetModel.validity_state == 4 ? "The change could not be checked, so it cannot be applied."
+        : "There is no change to apply.")))))));
+    // Narrow card only: the second page (the comparison pane) is showing instead of the controls.
+    property <bool> pane_page: false;
+    // A hidden (Simple mode) setting is off its default.
+    property <bool> advanced_note_visible: !GuideModel.shows_advanced() && RetargetModel.advanced_in_use(RetargetModel.crown_fraction, RetargetModel.scale_crown_by_ratio, RetargetModel.objective_index, RetargetModel.range_index, RetargetModel.effort_index, RetargetModel.crown_follows_pavilion, RetargetModel.keep_look, RetargetModel.girdle_allowance);
+
+    // This same modal shell is reused for the "Compare to Snapshot" panel
+    // (`BaselineComparePanel` below) -- there is no `app.slint` export to wire up a
+    // second dialog component, and Compare needs no target-material machinery
+    // of its own, so it piggybacks on this one rather than inventing a second
+    // mechanism.
+    visible: RetargetModel.is_open || RetargetModel.compare_open;
+    background: Theme.overlay-backdrop;
+
+    TouchArea {
+        clicked => {
+            if (RetargetModel.compare_open) {
+                RetargetModel.compare_close();
+            } else if (!RetargetModel.is_busy) {
+                root.close();
+            }
+        }
+    }
+
+    // This component stays instantiated the whole time (`visible: RetargetModel.
+    // is_open`, never wrapped in an `if`), so `init => { self.focus(); }` alone
+    // would only ever fire once, the first time the dialog is ever opened. Mirrors
+    // `RetargetModel.is_open` into a local property instead and watches THAT with
+    // `changed`, so this re-focuses every time the dialog reopens -- `self.…`,
+    // not `root.…`, in the handler, matching this codebase's own
+    // `changed`-handler trap (a global's own property can't be watched directly).
+    //
+    // The card is a child of this scope, so Escape and Return reach it from whichever control
+    // holds the keyboard. Escape closes (unless a search is running, matching the header X/backdrop's
+    // own busy guard); Return applies when the proposal is ready. Every other key
+    // is swallowed (`accept`) so it cannot bubble to `global_shortcuts` and fire a
+    // shortcut on the design underneath -- except the keys a control inside has not used
+    // (Tab keeps walking: it is handled before it reaches the scope).
+    key_scope := FocusScope {
+        property <bool> open_mirror: RetargetModel.is_open || RetargetModel.compare_open;
+        changed open_mirror => {
+            if (self.open_mirror) {
+                // A narrow card opens on the controls, not on the comparison page.
+                root.pane_page = false;
+                self.focus();
+            }
+        }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                if (RetargetModel.compare_open) {
+                    RetargetModel.compare_close();
+                } else if (!RetargetModel.is_busy) {
+                    root.close();
+                }
+                return accept;
+            } else if event.text == Key.Return {
+                if (!RetargetModel.compare_open && root.can_apply) {
+                    RetargetModel.apply();
+                }
+                return accept;
+            } else if event.text == Key.Tab || event.text == Key.Backtab {
+                // Tab keeps walking the controls.
+                return reject;
+            }
+            accept
+        }
+
+        // Sized from `root`, never from its content, so the wide Retarget card (proposal
+        // column plus the embedded comparison pane) cannot raise the window's minimum
+        // size. The Snapshot panel keeps its narrow single-column card.
+        card := Rectangle {
+            // Below this card width the comparison pane no longer fits beside the controls
+            // (controls need ~420 px, the pane ~240 px, plus padding and gap): the pane moves
+            // behind an Options / Comparison switch and the controls take the whole card.
+            property <length> side_by_side_min_width: 700px;
+            property <bool> narrow: !RetargetModel.compare_open && self.width < self.side_by_side_min_width;
+
+            width: RetargetModel.compare_open ? min(600px, root.width - 48px) : min(root.width - 48px, 1280px);
+            // The Baseline comparison card is as tall as its table: about 236 px of header, label,
+            // column headings and buttons plus 26 px a row (four rows measured 100 px of empty
+            // block above the buttons at a 320 px base), so a short table does not leave an
+            // empty block above the buttons (a longer table scrolls inside the 680 px cap).
+            height: RetargetModel.compare_open
+                ? min(680px, root.height - 40px, max(300px, 236px + RetargetModel.compare_rows.length * 26px))
+                : min(root.height - 48px, 820px);
+            background: Theme.surface-dialog;
+            border-radius: Theme.radius-md;
+            border-width: 1px;
+            border-color: Theme.border-dialog;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: Theme.modal-shadow;
+            clip: true;
+
+            TouchArea {} // Isolate clicks inside the modal.
+
+            // "Compare to Baseline": header, tier table, Compare Visually and Close.
+            if RetargetModel.compare_open: BaselineComparePanel {}
+
+            // Two columns: the proposal controls and table on the left, the live
+            // before/after comparison (`CompareView`, driven by the main window's own
+            // `CompareModel` instance) on the right. The main viewport is paused while
+            // this dialog is open, so the comparison pane is the one place the change
+            // is visible.
+            if !RetargetModel.compare_open: HorizontalLayout {
+                padding: 16px;
+                spacing: 16px;
+
+                VerticalLayout {
+                    // Side by side the controls keep their 480 px and the pane takes the rest;
+                    // narrow, the controls own the whole card.
+                    horizontal-stretch: card.narrow ? 1 : 0;
+                    preferred-width: 480px;
+                    min-width: 300px;
+                    spacing: 12px;
+
+                    // 1. Header
+                    HorizontalLayout {
+                        alignment: space-between;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            // Uses the gem icon, not a save icon, since Retarget previews a
+                            // material swap that is applied only via the footer's own
+                            // explicit "Apply" button below.
+                            VerticalLayout {
+                                alignment: center;
+                                Image { source: @image-url("../icons/gem.svg"); colorize: Theme.text-primary; width: 15px; height: 15px; }
+                            }
+                            Text { text: "Retarget for Material"; font-size: 14px; font-weight: 700; color: Theme.text-primary; vertical-alignment: center; }
+                        }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            VerticalLayout {
+                                alignment: center;
+                                HelpButton { topic: HelpTopics.retarget; hint: "Open the manual page on retargeting a design for another material"; }
+                            }
+                            IconButton {
+                                icon: @image-url("../icons/close.svg");
+                                hint: "Close without changing the design";
+                                tint: Theme.text-muted;
+                                hover_fill: Theme.surface-control-hover;
+                                enabled: !RetargetModel.is_busy;
+                                clicked => { root.close(); }
+                            }
+                        }
+                    }
+
+                    Rectangle { height: 1px; background: Theme.surface-raised; }
+
+                    // Narrow card: the comparison pane is a second page of the same body.
+                    if card.narrow: HorizontalLayout {
+                        spacing: 4px;
+                        SegmentPill {
+                            text: "Options";
+                            hint: "Show the target material, the stage and the proposal table.";
+                            selected: !root.pane_page;
+                            picked => { root.pane_page = false; }
+                        }
+                        SegmentPill {
+                            text: "Comparison";
+                            hint: "Show the Before and After stones, side by side, as an overlay or with a split slider.";
+                            selected: root.pane_page;
+                            picked => { root.pane_page = true; }
+                        }
+                    }
+
+                    // Narrow card, Comparison page: the pane fills the body.
+                    if card.narrow && root.pane_page && RetargetModel.is_open: CompareView {
+                        show_split: true;
+                        show_metrics: true;
+                        vertical-stretch: 1;
+                        min-height: 240px;
+                    }
+
+                    // Scrollable body between the fixed header above and the fixed footer
+                    // below: the sections need about 555px, so on a short window the
+                    // footer's Cancel / Apply would otherwise be clipped.
+                    if !(card.narrow && root.pane_page): ScrollView {
+                        vertical-stretch: 1;
+                        content-width: self.visible-width;
+
+                        VerticalLayout {
+                            spacing: 12px;
+                            padding-right: 12px;
+                            // Air under the last section so its final line (a wrapped toggle
+                            // label, a note) is not cut by the footer rule when scrolled to the end.
+                            padding-bottom: 12px;
+
+                            // 2. + 3. Target material picker, readout and custom n_D error.
+                            TargetMaterialSection {}
+
+                            // 4. Mode selector
+                            VerticalLayout {
+                                spacing: 4px;
+                                FieldCaption {
+                                    text: "Stage";
+                                    hint: "Shift moves every crown and pavilion angle by a formula: deterministic, always available, but it can leave a stone that is not valid. Optimize starts from the Shift result and searches every crown and pavilion angle inside a range you pick for the best score in the target material. The girdle, the table and the culet stay, and every option it offers is valid.";
+                                }
+
+                                HorizontalLayout {
+                                    spacing: 4px;
+
+                                    SegmentPill {
+                                        text: "1. Shift";
+                                        hint: "Move every crown and pavilion angle by a formula. It is quick and always available, but the result may not be a valid stone.";
+                                        selected: RetargetModel.mode_index == 0;
+                                        enabled: !RetargetModel.is_busy;
+                                        picked => { RetargetModel.mode_index = 0; RetargetModel.proposal_changed(); }
+                                    }
+
+                                    SegmentPill {
+                                        text: "2. Optimize";
+                                        hint: "Search for the best crown and pavilion angles in the new material. It takes longer, and every option it offers is valid.";
+                                        selected: RetargetModel.mode_index == 1;
+                                        enabled: !RetargetModel.is_busy;
+                                        picked => { RetargetModel.mode_index = 1; RetargetModel.proposal_changed(); }
+                                    }
+                                }
+                            }
+
+                            // 4b. Optimize mode: settings, Search, progress and the options.
+                            if RetargetModel.mode_index == 1: OptimizeSection {}
+
+                            Text {
+                                text: card.narrow
+                                    ? (RetargetModel.mode_index == 1
+                                        ? "Open Comparison above to see the Shift result next to the selected optimized candidate."
+                                        : "Open Comparison above to review the Shift result, then Apply or continue to Optimize.")
+                                    : (RetargetModel.mode_index == 1
+                                        ? "Compare the Shift result on the left with the selected optimized candidate on the right."
+                                        : "Review the Shift result in the comparison pane, then Apply or continue to Optimize.");
+                                font-size: 11px;
+                                color: Theme.text-secondary;
+                                wrap: word-wrap;
+                            }
+
+                            // 5. Crown handling -- Advanced mode only.
+                            if GuideModel.shows_advanced(): CrownHandlingSection {}
+
+                            // 5b. Girdle allowance -- Advanced mode only; on by default.
+                            if GuideModel.shows_advanced(): ToggleRow {
+                                text: "Allow a Thicker Girdle (up to +10 %)";
+                                hint: "When the new angles would pinch the girdle at its corners, thicken the girdle band by 5 % and then 10 % (never thinner) before giving up. Plan view, table and culet size and the crown-to-pavilion ratio are kept exactly; only the total depth grows by the girdle change. The result text says which step was used.";
+                                checked: RetargetModel.girdle_allowance;
+                                enabled: !RetargetModel.is_busy;
+                                label_color: Theme.text-secondary;
+                                toggled => {
+                                    RetargetModel.girdle_allowance = !RetargetModel.girdle_allowance;
+                                    RetargetModel.proposal_changed();
+                                }
+                            }
+
+                            Rectangle { height: 1px; background: Theme.surface-raised; }
+
+                            // 6. Errors: shown instead of the table whenever the current mode/crown
+                            // combination cannot produce a valid proposal.
+                            if RetargetModel.solve_error != "": Text {
+                                text: "Design does not solve: " + RetargetModel.solve_error;
+                                font-size: 11px;
+                                font-weight: 600;
+                                color: Theme.danger;
+                                wrap: word-wrap;
+                            }
+
+                            // 7. The proposal table -- one row per pavilion/crown tier.
+                            if RetargetModel.solve_error == "" && RetargetModel.anchored_tier_errors.length == 0: ProposalTable { avail_width: card.narrow ? card.width - 60px : 452px; }
+
+                            // 7b. The verdict on the retargeted stone (Shift mode).
+                            if RetargetModel.validity_state != 0: VerdictBlock {}
+
+                            // 7c. The optical comparison of the current, material-swapped and
+                            // retargeted stone.
+                            if RetargetModel.metrics_cells.length == 9: OpticalComparison {}
+
+                            // 8. Notes
+                            if RetargetModel.notes.length > 0: VerticalLayout {
+                                spacing: 2px;
+                                for line in RetargetModel.notes: Text {
+                                    text: line;
+                                    font-size: 10px;
+                                    font-italic: true;
+                                    color: Theme.text-muted;
+                                    wrap: word-wrap;
+                                }
+                            }
+
+                            if root.advanced_note_visible: AdvancedNote {}
+
+                        } // end scrolling body layout
+                    } // end body ScrollView
+
+                    Rectangle { height: 1px; background: Theme.surface-raised; }
+
+                    // 9. Footer
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        // While busy this cancels the running Optimize search instead of
+                        // closing the dialog -- see `RetargetModel.cancel_optimize`'s own
+                        // doc comment. Always enabled (unlike the header's X and the
+                        // backdrop click, which stay disabled while busy): this is the
+                        // one control that can actually stop a running search.
+                        ActionButton {
+                            width: 90px;
+                            height: 32px;
+                            text: "Cancel";
+                            hint: RetargetModel.is_busy ? "Stop the running search. The dialog stays open." : "Close this dialog without changing the design.";
+                            ink: Theme.text-secondary;
+                            clicked => {
+                                if (RetargetModel.is_busy) {
+                                    RetargetModel.cancel_optimize();
+                                } else {
+                                    root.close();
+                                }
+                            }
+                        }
+
+                        ActionButton {
+                            horizontal-stretch: 1;
+                            height: 32px;
+                            text: "Apply";
+                            hint: root.apply_hint;
+                            fill: Theme.accent-cyan;
+                            hover_fill: Theme.accent-cyan-hover;
+                            ink: Theme.text-on-accent;
+                            edge: Theme.accent-cyan;
+                            font_size: 12px;
+                            weight: 700;
+                            enabled: root.can_apply;
+                            clicked => { RetargetModel.apply(); }
+                        }
+                    }
+                } // end proposal column
+
+                // The complete comparison stays in this window, including split, optical
+                // figures, and tilt averages. Only this pane owns the comparison sizes.
+                if RetargetModel.is_open && !card.narrow: CompareView {
+                    show_split: true;
+                    show_metrics: true;
+                    horizontal-stretch: 1;
+                    min-width: 240px;
+                }
+            } // end two-column layout
+        }
+    }
+}

@@ -1,0 +1,78 @@
+import { Theme } from "../../theme.slint";
+import { RetargetCandidateItem } from "../../models/retarget.slint";
+
+// One option a finished Optimize search found. A click picks it, and so do Space and the arrow
+// keys while the list has the keyboard (`ringed` draws that cursor).
+export component CandidateRow inherits Rectangle {
+    in property <RetargetCandidateItem> item;
+    in property <bool> selected: false;
+    in property <bool> ringed: false;
+    in property <bool> active: true;
+    callback clicked();
+
+    // Padding 6 + title 15 + two figure lines 13 + two gaps 4 + padding 6.
+    height: 64px;
+    border-radius: Theme.radius-sm;
+    background: root.selected || cand_touch.has-hover ? Theme.surface-raised : Theme.surface-sunken;
+    border-width: root.ringed ? 2px : 1px;
+    border-color: root.ringed ? Theme.accent-cyan-hover : (root.selected ? Theme.accent-cyan : Theme.border-dialog);
+
+    accessible-role: AccessibleRole.list-item;
+    accessible-label: "" + root.item.rank + ". " + root.item.label + ", score " + root.item.score + ", " + root.item.verdict;
+    accessible-description: "Windowing " + root.item.windowing + ", brilliance " + root.item.brilliance + ", extinction " + root.item.extinction + ", yield loss " + root.item.yield_loss;
+    accessible-item-selectable: true;
+    accessible-item-selected: root.selected;
+    accessible-action-default => { root.clicked(); }
+
+    Tooltip { text: @markdown("Windowing is light leaking straight out of the pavilion, brilliance is light returned to the eye as the stone is tilted, extinction is light trapped or lost, yield loss is the share of the rough the finished stone gives up. The score combines the first three under your objective, from 0 (worst) to 100 (best): higher is better."); }
+
+    cand_touch := TouchArea {
+        enabled: root.active;
+        mouse-cursor: root.active ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
+
+    VerticalLayout {
+        padding: 6px;
+        spacing: 4px;
+
+        HorizontalLayout {
+            spacing: 6px;
+            Text { text: "" + root.item.rank + ". " + root.item.label; font-size: 11px; font-weight: 700; color: Theme.text-primary; horizontal-stretch: 1; min-width: 0px; vertical-alignment: center; overflow: elide; }
+            Text { text: "Score " + root.item.score; font-size: 11px; color: Theme.text-secondary; vertical-alignment: center; }
+            Text { text: root.item.verdict; font-size: 11px; font-weight: 700; color: Theme.success; vertical-alignment: center; }
+        }
+
+        // Two figures a line: four across left each about 70 px and every number was elided.
+        HorizontalLayout {
+            spacing: 6px;
+            Text { text: "Windowing " + root.item.windowing; font-size: 10px; color: Theme.text-secondary; horizontal-stretch: 1; min-width: 0px; overflow: elide; }
+            Text { text: "Brilliance " + root.item.brilliance; font-size: 10px; color: Theme.text-secondary; horizontal-stretch: 1; min-width: 0px; overflow: elide; }
+        }
+
+        HorizontalLayout {
+            spacing: 6px;
+            Text { text: "Extinction " + root.item.extinction; font-size: 10px; color: Theme.text-secondary; horizontal-stretch: 1; min-width: 0px; overflow: elide; }
+            Text { text: "Yield Loss " + root.item.yield_loss; font-size: 10px; color: Theme.text-secondary; horizontal-stretch: 1; min-width: 0px; overflow: elide; }
+        }
+    }
+}
+
+// A small column heading of the proposal table, with the plain-language tooltip.
+export component ColumnHeading inherits Rectangle {
+    in property <string> text;
+    in property <string> hint;
+    in property <TextHorizontalAlignment> align: TextHorizontalAlignment.right;
+
+    height: head.preferred-height;
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+    head := Text {
+        text: root.text;
+        font-size: 10px;
+        font-weight: 700;
+        color: Theme.text-muted;
+        width: 100%;
+        horizontal-alignment: root.align;
+        overflow: elide;
+    }
+}

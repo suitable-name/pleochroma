@@ -1,0 +1,464 @@
+//! Saving the results on screen as a stored plan.
+//!
+//! What is saved comes from the snapshot the results were planned for (model, settings,
+//! material), never from the form or the live-edited model. The write itself, including
+//! the shapes of the used designs, runs on a worker thread.
+
+use super::{
+    LoadedFingerprints, announce,
+    convert::CandidateSource,
+    dto::{DesignShape, SavedDesignDto},
+    format::{RankedLayout, SerializeInput, design_shape, serialize_checked_plan_with_planned},
+    naming::{clean_plan_name, current_unix_time, default_plan_name},
+    show_error, spawn_task,
+    stone_choices::{clear_removed_stone_choices, remap_to_saved, save_stone_choices},
+    store,
+};
+use crate::{
+    RoughPlanModel,
+    gui::rough_plan::{
+        editing,
+        host::Host,
+        run::{ResultsSource, RunState},
+        session::Session,
+    },
+};
+use pleochroma_cut_core::rough_plan::{
+    PlanSettings, RoughLayout, RoughModel, orientation::PlanSettingsOverrides,
+};
+use pleochroma_vault::db::sqlite::Database;
+use slint::ComponentHandle;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    rc::Rc,
+    sync::{Mutex, PoisonError},
+};
+
+/// Whose entry ids a saved plan carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum LibraryId {
+    /// This library's: results planned here, every id is one of its designs.
+    Local,
+    /// The library a loaded plan came from (none if the file named none): the ids of
+    /// designs that were not found here are still that library's.
+    Kept(Option<u32>),
+}
+
+/// Everything a save needs, copied off the session so the write can leave the UI thread.
+pub(super) struct Snapshot {
+    /// The model the layouts were planned for.
+    model: RoughModel,
+    /// The settings the layouts were planned with.
+    settings: PlanSettings,
+    /// The plan's material.
+    material_name: String,
+    /// The plan's weighed carat, if one was entered.
+    weighed_ct: Option<f64>,
+    /// Where the plan's candidate designs came from.
+    candidate_source: CandidateSource,
+    /// The layouts to save with their rank (1-based) in the plan they came from.
+    layouts: Vec<(usize, RoughLayout)>,
+    /// The design titles of every entry id in `layouts`.
+    titles: BTreeMap<i64, String>,
+    /// The shapes the designs had when the layouts were planned (a loaded plan: what its
+    /// file came with); they win over today's measurements.
+    stored_shapes: BTreeMap<i64, DesignShape>,
+    /// Whose ids the plan carries.
+    library: LibraryId,
+    /// The Crystal Axis settings the plan is saved with: its rule, the rules of its designs and
+    /// the choices for its stones (by the result row on screen). The default for a plan that
+    /// never used the axis, which is then written as it always was.
+    overrides: PlanSettingsOverrides,
+    /// The rules the layouts were planned with (`run.plan_overrides`), when the snapshot knows
+    /// them: written beside `overrides` only when they differ from it, so a reopened plan
+    /// still warns "Rules changed since planning".
+    planned: Option<PlanSettingsOverrides>,
+}
+
+/// The result rows a save covers: the ticked ones for "save selected" (all of them when
+/// none is ticked), every row otherwise.
+fn rows_to_save(row_count: usize, keep: &[bool], selected_only: bool) -> Vec<usize> {
+    let ticked: Vec<usize> = (0..row_count)
+        .filter(|&row| keep.get(row).copied().unwrap_or(false))
+        .collect();
+    if selected_only && !ticked.is_empty() {
+        ticked
+    } else {
+        (0..row_count).collect()
+    }
+}
+
+/// The shapes a save stores for the designs of `run`'s layouts, and whose entry ids they
+/// are.
+///
+/// A loaded plan that is still the one on screen (`loaded` names its stored plan) keeps
+/// the shapes its file came with and the library its file came from; every other result
+/// keeps the shapes it was planned with (`run.shapes`) in this library. Neither reads
+/// today's measurements, so a design that was rescaled since planning is not re-measured
+/// into the file.
+pub(super) fn stored_shapes_and_library(
+    run: &RunState,
+    loaded: Option<&LoadedFingerprints>,
+) -> (BTreeMap<i64, DesignShape>, LibraryId) {
+    match (&run.source, loaded) {
+        (ResultsSource::Loaded { plan_id, .. }, Some(loaded)) if loaded.plan_id == *plan_id => {
+            (loaded.shapes.clone(), LibraryId::Kept(loaded.library_id))
+        }
+        _ => (run.shapes.clone(), LibraryId::Local),
+    }
+}
+
+/// Copies what a save writes off the session.
+pub(super) fn snapshot(session: &Session, selected_only: bool) -> Result<Snapshot, String> {
+    let mut taken = snapshot_of(&session.run, session.saved.loaded.as_ref(), selected_only)?;
+    // The cutter's settings are saved as they are now: the plan's rule, the rules of its designs
+    // and the choices for its stones with their Reasons. A rule edited after planning is not lost
+    // by a save (the window keeps warning "Rules changed since planning" against
+    // `run.plan_overrides` for as long as the results are on screen).
+    taken.overrides = session.overrides.clone();
+    taken.planned = Some(session.run.plan_overrides.clone());
+    Ok(taken)
+}
+
+/// [`snapshot`] from the parts of the session it reads: the results on screen and the
+/// stored shapes of the loaded plan, if one is shown.
+pub(super) fn snapshot_of(
+    run: &RunState,
+    loaded: Option<&LoadedFingerprints>,
+    selected_only: bool,
+) -> Result<Snapshot, String> {
+    if run.layouts.is_empty() {
+        return Err("There are no results to save. Plan first.".to_string());
+    }
+    let (Some(model), Some(settings)) = (&run.plan_model, &run.plan_settings) else {
+        return Err("The results on screen carry no model to save.".to_string());
+    };
+    let layouts = rows_to_save(run.layouts.len(), &run.keep, selected_only)
+        .into_iter()
+        .filter_map(|row| Some((row + 1, run.layouts.get(row)?.clone())))
+        .collect();
+    let (stored_shapes, library) = stored_shapes_and_library(run, loaded);
+    Ok(Snapshot {
+        model: model.clone(),
+        settings: *settings,
+        material_name: run.material_name.clone(),
+        weighed_ct: run.weighed_ct,
+        candidate_source: run.candidate_source,
+        layouts,
+        titles: run.titles.clone(),
+        stored_shapes,
+        library,
+        overrides: PlanSettingsOverrides::default(),
+        planned: None,
+    })
+}
+
+/// `RoughPlanModel.begin_save`: opens the name row with the default name, and closes the
+/// saved list that would cover it.
+pub(super) fn begin_save(host: &Rc<Host>, selected_only: bool) {
+    let model = host.window.global::<RoughPlanModel>();
+    if model.get_running() {
+        show_error(host, "Wait for the plan to finish before saving.");
+        return;
+    }
+    // A field still being typed is committed first; an invalid one says why.
+    if let Err(message) = editing::commit_pending_base(host) {
+        show_error(host, &message);
+        return;
+    }
+    let name = {
+        let mut session = host.session.borrow_mut();
+        if let Err(message) = snapshot(&session, selected_only) {
+            drop(session);
+            show_error(host, &message);
+            return;
+        }
+        session.saved.selected_only = selected_only;
+        let planned = session.run.plan_model.as_ref().unwrap_or(&session.model);
+        default_plan_name(planned, &session.run.material_name, current_unix_time())
+    };
+    show_error(host, "");
+    model.set_save_name(name.into());
+    model.set_saved_open(false);
+    model.set_save_name_open(true);
+}
+
+/// The designs a save stores: title and shape of every design the layouts use.
+fn design_records(snapshot: &Snapshot, database: &Database) -> Result<Vec<SavedDesignDto>, String> {
+    let ids: Vec<i64> = snapshot
+        .layouts
+        .iter()
+        .flat_map(|(_, layout)| layout.stones.iter().map(|stone| stone.entry_id))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let extents = database
+        .solid_extents_for(&ids)
+        .map_err(|e| format!("Could not read the design measurements: {e}"))?;
+    Ok(ids
+        .into_iter()
+        .map(|entry_id| {
+            let shape = snapshot
+                .stored_shapes
+                .get(&entry_id)
+                .copied()
+                .or_else(|| {
+                    extents
+                        .get(&entry_id)
+                        .and_then(|row| row.extents)
+                        .map(|found| design_shape(&found))
+                })
+                .unwrap_or_default();
+            SavedDesignDto {
+                entry_id,
+                title: snapshot
+                    .titles
+                    .get(&entry_id)
+                    .cloned()
+                    .unwrap_or_else(|| format!("Design {entry_id}")),
+                fingerprint: shape.fingerprint,
+                width_caliper: shape.width_caliper,
+                extents_version: shape.extents_version,
+            }
+        })
+        .collect())
+}
+
+/// Serialises the snapshot, proves the text reads back, and stores it as a new plan
+/// (worker thread). The app saves through [`write_plan_with`]; this is the tests' shorthand.
+#[cfg(test)]
+pub(super) fn write_plan(
+    db: &Mutex<Database>,
+    name: &str,
+    snapshot: &Snapshot,
+) -> Result<i64, String> {
+    write_plan_with(db, name, snapshot, false)
+}
+
+/// [`write_plan`]; with `replace` the plan is stored in place of the saved plans that
+/// already have `name`, so the list never shows two plans with one name.
+pub(super) fn write_plan_with(
+    db: &Mutex<Database>,
+    name: &str,
+    snapshot: &Snapshot,
+    replace: bool,
+) -> Result<i64, String> {
+    let library_id = match snapshot.library {
+        LibraryId::Local => store::library_stamp(db),
+        LibraryId::Kept(id) => id,
+    };
+    let designs = {
+        let database = db.lock().unwrap_or_else(PoisonError::into_inner);
+        design_records(snapshot, &database)?
+    };
+    let ranked: Vec<RankedLayout<'_>> = snapshot
+        .layouts
+        .iter()
+        .map(|(rank, layout)| RankedLayout {
+            rank: *rank,
+            layout,
+        })
+        .collect();
+    let text = serialize_checked_plan_with_planned(
+        &SerializeInput {
+            name,
+            created_at: current_unix_time(),
+            library_id,
+            model: &snapshot.model,
+            material_name: &snapshot.material_name,
+            weighed_ct: snapshot.weighed_ct,
+            settings: &snapshot.settings,
+            candidate_source: snapshot.candidate_source,
+            designs: &designs,
+            layouts: &ranked,
+        },
+        &snapshot.overrides,
+        snapshot.planned.as_ref(),
+    )?;
+    let plan_id = if replace {
+        store::replace_plan(db, name, &text)?
+    } else {
+        store::save_plan(db, name, &text)?
+    };
+    // The stone choices live in the library beside the plan, by the position of each layout in
+    // the saved plan. A plan without any writes nothing; a stone the cutter set back to the
+    // default loses its stored row.
+    let ranks: Vec<usize> = ranked.iter().map(|ranked| ranked.rank).collect();
+    let stones = remap_to_saved(&snapshot.overrides.stones, &ranks);
+    let database = db.lock().unwrap_or_else(PoisonError::into_inner);
+    clear_removed_stone_choices(&database, plan_id, &stones, ranks.len())?;
+    save_stone_choices(&database, plan_id, &stones)?;
+    Ok(plan_id)
+}
+
+/// The confirmation line after a save.
+fn saved_message(count: usize, name: &str) -> String {
+    format!(
+        "Saved {count} result{} as \"{name}\".",
+        if count == 1 { "" } else { "s" }
+    )
+}
+
+/// A save that covered `saved` of the `rows` results that were on screen when it started
+/// makes them "saved" (what replacing them asks about) when it covered every one, and the
+/// same results are still on screen (no plan is running, the row count is the same).
+fn mark_saved(host: &Host, saved: usize, rows: usize) {
+    let model = host.window.global::<RoughPlanModel>();
+    let mut session = host.session.borrow_mut();
+    if saved == rows && !model.get_running() && session.run.layouts.len() == rows {
+        session.run.results_unsaved = false;
+        model.set_results_unsaved(false);
+    }
+}
+
+/// A save that is waiting for the answer to "Replace Saved Plan?": everything it needs,
+/// copied when Save was pressed, so the answer saves exactly what was asked for.
+pub(super) struct PendingSave {
+    /// The cleaned name the plan is saved under.
+    name: String,
+    /// What the save writes.
+    taken: Snapshot,
+    /// How many results were on screen when Save was pressed.
+    all_rows: usize,
+    /// Which results this save is of (see [`confirm_save`]).
+    fingerprint: u64,
+}
+
+/// `RoughPlanModel.confirm_save`: stores the plan under the name in the name row, after
+/// asking whether to replace a saved plan that already has that name.
+pub(super) fn confirm_save(host: &Rc<Host>) {
+    let model = host.window.global::<RoughPlanModel>();
+    if model.get_confirm_overwrite_open() {
+        // The question covers the name row; it is answered first.
+        return;
+    }
+    let name = clean_plan_name(&model.get_save_name());
+    if name.is_empty() {
+        show_error(host, "Enter a name for the saved plan.");
+        return;
+    }
+    let selected_only = host.session.borrow().saved.selected_only;
+    let taken = {
+        let session = host.session.borrow();
+        snapshot(&session, selected_only).map(|taken| (taken, session.run.layouts.len()))
+    };
+    let (taken, all_rows) = match taken {
+        Ok(taken) => taken,
+        Err(message) => {
+            show_error(host, &message);
+            return;
+        }
+    };
+    show_error(host, "");
+    model.set_save_name_open(false);
+    let pending = PendingSave {
+        name: name.clone(),
+        taken,
+        all_rows,
+        // Which results this save is of, so an open Rough colour wizard can take the new
+        // plan's id (only while those results are still on screen).
+        fingerprint: crate::gui::rough_plan::colour_link::results_fingerprint(
+            &host.session.borrow(),
+        ),
+    };
+    spawn_task(
+        host,
+        move |db| store::plan_ids_named(db, &name),
+        move |host, result| match result {
+            Ok(ids) if !ids.is_empty() => ask_to_replace(host, pending),
+            Ok(_) => start_save(host, pending, false),
+            Err(message) => {
+                show_error(host, &message);
+                reopen_name_row(host, &pending.name);
+            }
+        },
+    );
+}
+
+/// Puts the name row back with `name` in it (a save that did not happen).
+fn reopen_name_row(host: &Host, name: &str) {
+    let model = host.window.global::<RoughPlanModel>();
+    model.set_save_name(name.into());
+    model.set_save_name_open(true);
+}
+
+/// Shows "Replace Saved Plan?" above the name row, which stays open under it.
+fn ask_to_replace(host: &Host, pending: PendingSave) {
+    let model = host.window.global::<RoughPlanModel>();
+    model.set_confirm_overwrite_name(pending.name.as_str().into());
+    model.set_save_name(pending.name.as_str().into());
+    host.session.borrow_mut().saved.pending_save = Some(pending);
+    model.set_save_name_open(true);
+    model.set_confirm_overwrite_open(true);
+}
+
+/// `RoughPlanModel.confirm_overwrite`: `true` saves over the plan with that name, `false`
+/// keeps the name row open (the window selects the name) and saves nothing.
+pub(super) fn confirm_overwrite(host: &Rc<Host>, replace: bool) {
+    let pending = host.session.borrow_mut().saved.pending_save.take();
+    host.window
+        .global::<RoughPlanModel>()
+        .set_confirm_overwrite_open(false);
+    if let (true, Some(pending)) = (replace, pending) {
+        start_save(host, pending, true);
+    }
+}
+
+/// Writes `pending` on a worker thread; `replace` stores it in place of the saved plans
+/// that have its name.
+fn start_save(host: &Rc<Host>, pending: PendingSave, replace: bool) {
+    let model = host.window.global::<RoughPlanModel>();
+    model.set_save_name_open(false);
+    let name = pending.name.clone();
+    let all_rows = pending.all_rows;
+    let count = pending.taken.layouts.len();
+    let fingerprint = pending.fingerprint;
+    let task_name = pending.name;
+    let taken = pending.taken;
+    spawn_task(
+        host,
+        move |db| write_plan_with(db, &task_name, &taken, replace),
+        move |host, result| match result {
+            Ok(plan_id) => {
+                mark_saved(host, count, all_rows);
+                announce(host, &saved_message(count, &name));
+                super::list::refresh_list(host);
+                crate::gui::rough_plan::colour_link::plan_saved(host, plan_id, &name, fingerprint);
+                // A tutorial step may wait for results to be saved as a plan.
+                crate::gui::tutorial_events::raise_weak(
+                    &host.main,
+                    pleochroma_editor::guide::viewing_events::ROUGH_PLAN_SAVED,
+                );
+            }
+            Err(message) => {
+                show_error(host, &message);
+                // Give the name back so the user can retry.
+                let model = host.window.global::<RoughPlanModel>();
+                model.set_save_name(name.into());
+                model.set_save_name_open(true);
+            }
+        },
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn save_selected_covers_the_ticked_rows_or_everything_when_none_is_ticked() {
+        let keep = [false, true, false, true];
+        assert_eq!(rows_to_save(4, &keep, true), vec![1, 3]);
+        assert_eq!(rows_to_save(4, &keep, false), vec![0, 1, 2, 3]);
+        assert_eq!(rows_to_save(3, &[false; 3], true), vec![0, 1, 2]);
+        // A keep list shorter than the rows counts the missing ones as not ticked.
+        assert_eq!(rows_to_save(3, &[false, true], true), vec![1]);
+        assert_eq!(rows_to_save(0, &[], true), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn the_confirmation_counts_the_results() {
+        assert_eq!(saved_message(1, "A"), "Saved 1 result as \"A\".");
+        assert_eq!(saved_message(3, "B"), "Saved 3 results as \"B\".");
+    }
+}

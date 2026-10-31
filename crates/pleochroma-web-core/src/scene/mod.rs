@@ -1,0 +1,858 @@
+//! [`SceneSpec`]: a render scene as plain serde data, and [`OwnedScene`], which builds
+//! from it exactly the scene the desktop builds for the same settings.
+//!
+//! # Same scene as the desktop
+//!
+//! The desktop's live render loop (`apps/pleochroma-cut/src/bridge/render_thread`)
+//! assembles a frame from its settings in this order, and [`OwnedScene::build`] does the
+//! same with the same public `pleochroma` calls:
+//!
+//! 1. **Material.** The catalogue is `GemMaterial::all_materials()` plus the session's
+//!    custom materials. The linked design's override is
+//!    `pleochroma_editor::material_lookup::traced_gem_material` (the RI override and body
+//!    color applied through `MaterialSelection::apply_overrides`). Then
+//!    `render_setup::resolve_material_with_override` and
+//!    `render_setup::apply_material_overrides`, the stone width measured by
+//!    `render_setup::measure_model_width` only when the stone-size control is on.
+//! 2. **Finishes.** All polished, or `geometry::girdle::girdle_facet_finishes` for the
+//!    frosted-girdle toggle.
+//! 3. **Camera.** `Camera::new(yaw, pitch, distance, DEFAULT_FOV_DEG)`.
+//! 4. **Environment.** An HDR map when one is loaded, else
+//!    `preset.studio(exposure, light_yaw, light_pitch).with_backdrop(backdrop.resolve(preset,
+//!    light_yaw, light_pitch))` (the lit tray's radiance under that preset and pose).
+//!
+//! The one deliberate difference: an unresolvable material is a [`SceneError`] here,
+//! where the desktop suspends its render loop on the same condition
+//! (`SuspensionFlags::material_unresolved`) and never reaches its diamond fallback.
+
+use std::{fmt, sync::Arc};
+
+use pleochroma::{
+    geometry::{GpuFacetPlane, girdle::girdle_facet_finishes},
+    optics::{
+        chromophore::ChromophoreCatalogue,
+        fluorescence::Fluorescence,
+        materials::GemMaterial,
+        raytracer::{
+            Camera, DEFAULT_FOV_DEG, EnvironmentSource, FacetFinish, LightingPreset,
+            build_plane_soa,
+        },
+    },
+    render_setup::{
+        Backdrop, MaterialOverrides, apply_material_overrides, measure_model_width,
+        needs_model_width, resolve_material_with_override,
+    },
+    renderer::{env_map::EnvironmentMap, frame_scene::FrameScene},
+    simd::PlanesSoA32,
+};
+use pleochroma_cut_core::native::{
+    SnapshotColor, gem_material_from_custom_snapshot, snapshot_color,
+};
+use pleochroma_editor::material_lookup::{EditorMaterialLookup, traced_gem_material_at_width};
+use pleochroma_formats::native::{ColorRecipeDto, CustomMaterialSnapshot, RayBandsTable};
+use serde::{Deserialize, Serialize};
+
+mod design_effects;
+mod effects;
+mod engine;
+mod geometry;
+mod material_inclusions;
+mod orientation;
+pub use design_effects::design_effects_spec;
+pub use effects::{EdgeSpec, EffectsSpec, MachineSpec};
+pub use geometry::{GeometrySceneSpec, validate_tools};
+pub use material_inclusions::MaterialInclusionsSpec;
+
+#[cfg(test)]
+mod material_inclusions_tests;
+#[cfg(test)]
+mod physics_flag_tests;
+#[cfg(test)]
+mod tests;
+
+/// The largest frame, in pixels, a scene may ask for: a 4096 x 4096 export (the PNG
+/// export caps the long edge at 4096 px).
+pub const MAX_FRAME_PIXELS: u64 = 4096 * 4096;
+
+/// The unscaled surface glare (the desktop's `DEFAULT_SURFACE_GLARE`): the render as it was
+/// before the control existed.
+pub const DEFAULT_SURFACE_GLARE: f32 = 1.0;
+
+/// One facet plane as plain data: exactly `GpuFacetPlane`'s two fields (`n . x + d <= 0`
+/// is inside the stone).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PlaneData {
+    /// Outward unit normal.
+    pub normal: [f32; 3],
+    /// Plane offset.
+    pub d: f32,
+}
+
+impl From<GpuFacetPlane> for PlaneData {
+    fn from(plane: GpuFacetPlane) -> Self {
+        Self {
+            normal: plane.normal,
+            d: plane.d,
+        }
+    }
+}
+
+impl From<PlaneData> for GpuFacetPlane {
+    /// Copies the fields verbatim (no renormalisation), so a plane survives the round
+    /// trip bit for bit.
+    fn from(plane: PlaneData) -> Self {
+        Self {
+            normal: plane.normal,
+            d: plane.d,
+        }
+    }
+}
+
+/// Converts a plane list to its plain-data form.
+#[must_use]
+pub fn planes_to_data(planes: &[GpuFacetPlane]) -> Vec<PlaneData> {
+    planes.iter().copied().map(PlaneData::from).collect()
+}
+
+/// Per-facet surface finish.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum FinishSpec {
+    /// Every facet polished (the desktop's frosted-girdle toggle off).
+    #[default]
+    AllPolished,
+    /// The girdle band frosted, classified by `girdle_facet_finishes` exactly like the
+    /// desktop's `GirdleFinishCache` (the toggle on).
+    FrostedGirdle,
+    /// An explicit per-plane list, `true` = frosted, in plane order. A shorter list is
+    /// padded with polished facets, like `FrameScene::facet_finishes`.
+    PerFacet(Vec<bool>),
+}
+
+/// The per-ray body-color rows of a custom material on the wire: the three row lists of
+/// `pleochroma_formats::native::RayBandsTable`, each row `[centre_nm, width_nm,
+/// amplitude_per_mm]`.
+///
+/// A local mirror because `RayBandsTable` skips `beta` when it is `None` for TOML
+/// (`skip_serializing_if`), which postcard (positional, not self-describing) cannot decode.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RayBandsSpec {
+    /// The ordinary ray (alpha for a biaxial material).
+    pub o: Vec<[f64; 3]>,
+    /// The extraordinary ray (gamma for a biaxial material).
+    pub e: Vec<[f64; 3]>,
+    /// The beta ray of a biaxial material; `None` otherwise (always one tag byte on the wire).
+    pub beta: Option<Vec<[f64; 3]>>,
+}
+
+impl RayBandsSpec {
+    /// The wire rows of a snapshot's table (the numbers are copied verbatim).
+    #[must_use]
+    pub fn from_table(table: &RayBandsTable) -> Self {
+        Self {
+            o: table.o.clone(),
+            e: table.e.clone(),
+            beta: table.beta.clone(),
+        }
+    }
+
+    /// The snapshot table these rows stand for (the numbers are copied verbatim).
+    #[must_use]
+    pub fn to_table(&self) -> RayBandsTable {
+        RayBandsTable {
+            o: self.o.clone(),
+            e: self.e.clone(),
+            beta: self.beta.clone(),
+        }
+    }
+}
+
+/// A custom material as the design file's `[material.custom]` table records it --
+/// the fields `native::gem_material_from_custom_snapshot` reads.
+///
+/// A mirror rather than `CustomMaterialSnapshot` itself: that type flattens unknown TOML
+/// keys into a map, which postcard (not self-describing) cannot encode.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CustomMaterialSpec {
+    /// The name the material is registered and looked up under.
+    pub name: String,
+    /// Mean refractive index.
+    pub mean_ri: f64,
+    /// Dispersion (`n_F - n_C`-style delta).
+    pub dispersion_delta: f64,
+    /// Birefringence delta.
+    pub birefringence_delta: f64,
+    /// The body color (the snapshot's `absorption_rgb`); `None` is colorless.
+    pub absorption_rgb: Option<[f64; 3]>,
+    /// The snapshot's physics color recipe (`color_recipe`); when present the material
+    /// renders from its stored resolved bands, `absorption_rgb` being only the fallback.
+    pub color_recipe: Option<ColorRecipeDto>,
+    /// The snapshot's seven-band body colour (`absorption_bands_per_mm`, rows
+    /// `[centre_nm, width_nm, amplitude_per_mm]`); empty is "no bands" and `absorption_rgb`
+    /// colours the material. Wire version 12.
+    #[serde(default)]
+    pub absorption_bands: Vec<[f64; 3]>,
+    /// The snapshot's `crystal_system` name (`"Orthorhombic"`, ...); empty means "infer it from
+    /// the birefringence", as before the field existed. Wire version 16.
+    #[serde(default)]
+    pub crystal_system: String,
+    /// The snapshot's `optical_character` name (`"BiaxialPositive"`, ...); empty as above. Wire
+    /// version 16.
+    #[serde(default)]
+    pub optical_character: String,
+    /// The snapshot's `biaxial_delta_beta_alpha`. Wire version 16.
+    #[serde(default)]
+    pub biaxial_delta_beta_alpha: Option<f64>,
+    /// The snapshot's per-ray body color (`absorption_ray_bands_per_mm`): the rows of each
+    /// direction of a material whose color depends on it. `None` for an isotropic color. It wins
+    /// over [`Self::absorption_bands`] when it fits the material's optical character, as in
+    /// `native::gem_material_from_custom_snapshot`. Wire version 31 (appended last; one `00`
+    /// tag byte when `None`).
+    #[serde(default)]
+    pub absorption_ray_bands: Option<RayBandsSpec>,
+}
+
+impl CustomMaterialSpec {
+    /// Copies the fields a snapshot's material is built from.
+    #[must_use]
+    pub fn from_snapshot(name: impl Into<String>, snapshot: &CustomMaterialSnapshot) -> Self {
+        Self {
+            name: name.into(),
+            mean_ri: snapshot.mean_ri,
+            dispersion_delta: snapshot.dispersion_delta,
+            birefringence_delta: snapshot.birefringence_delta,
+            absorption_rgb: snapshot.absorption_rgb,
+            color_recipe: snapshot.color_recipe.clone(),
+            absorption_bands: snapshot.absorption_bands_per_mm.clone().unwrap_or_default(),
+            crystal_system: snapshot.crystal_system.clone(),
+            optical_character: snapshot.optical_character.clone(),
+            biaxial_delta_beta_alpha: snapshot.biaxial_delta_beta_alpha,
+            absorption_ray_bands: snapshot
+                .absorption_ray_bands_per_mm
+                .as_ref()
+                .map(RayBandsSpec::from_table),
+        }
+    }
+
+    fn to_snapshot(&self) -> CustomMaterialSnapshot {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "f32 is the snapshot's absorption precision; band values are in the normal float range"
+        )]
+        let rows: Vec<[f32; 3]> = self
+            .absorption_bands
+            .iter()
+            .map(|row| row.map(|v| v as f32))
+            .collect();
+        CustomMaterialSnapshot::new(
+            self.mean_ri,
+            self.dispersion_delta,
+            self.birefringence_delta,
+            None,
+            self.crystal_system.as_str(),
+            self.optical_character.as_str(),
+        )
+        .with_biaxial_delta(self.biaxial_delta_beta_alpha)
+        .with_absorption_rgb(self.absorption_rgb)
+        .with_color_recipe(self.color_recipe.clone())
+        .with_absorption_bands(&rows)
+        .with_absorption_ray_bands(
+            self.absorption_ray_bands
+                .as_ref()
+                .map(RayBandsSpec::to_table),
+        )
+    }
+
+    /// Builds the material through `native::gem_material_from_custom_snapshot`, the
+    /// same conversion the desktop uses when it restores a file's custom material.
+    #[must_use]
+    pub fn to_gem_material(&self) -> GemMaterial {
+        gem_material_from_custom_snapshot(&self.name, &self.to_snapshot())
+    }
+
+    /// Whether this material's color renders from its physics recipe (which also decides
+    /// whether it carries fluorescence). Derived from the recipe the spec carries -- present,
+    /// physics active, and the top-level color not edited by an older build
+    /// (`native::snapshot_color`) -- never from the shape of the built material's bands. The
+    /// size rule needs no such flag: a physics material is tagged per-millimetre
+    /// (`GemMaterial::absorption_unit`), and so takes the 7 mm default stone width even when
+    /// its recipe emits no bands (a pure host).
+    #[must_use]
+    pub fn is_physics_color(&self) -> bool {
+        self.color_recipe.is_some()
+            && matches!(
+                snapshot_color(&self.to_snapshot()),
+                SnapshotColor::Physics(_)
+            )
+    }
+
+    /// The fluorescence this material renders with: the emitters of its physics recipe
+    /// (`ColorMode::fluorescence`, resolved from the recipe's elements and concentrations
+    /// against the catalogue), empty for every other material -- fantasy colors, edited
+    /// ones ([`Self::is_physics_color`] false) and recipes without emitters.
+    #[must_use]
+    pub fn fluorescence(&self) -> Fluorescence {
+        match snapshot_color(&self.to_snapshot()) {
+            SnapshotColor::Physics(mode) => mode.fluorescence(ChromophoreCatalogue::global()),
+            _ => Fluorescence::new(Vec::new()),
+        }
+    }
+}
+
+mod design_material;
+pub use design_material::DesignMaterialOverrides;
+
+/// The render-time material controls, field for field `render_setup::MaterialOverrides`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+pub struct MaterialOverridesSpec {
+    /// Inclusion scattering `sigma_s`; `0.0` is off.
+    pub inclusion_sigma_s: f32,
+    /// Crystal-axis override; `None` is "as cut".
+    pub c_axis_override: Option<[f32; 3]>,
+    /// Facet edge rounding radius; `0.0` is off.
+    pub edge_rounding_radius: f32,
+    /// Girdle width in millimetres for the absorption scale; `0.0` is off.
+    pub stone_width_mm: f32,
+    /// Second crystal-axis direction of a biaxial stone (the alpha axis); `None` is the
+    /// arbitrary completion. Applied only to a biaxial material. Wire version 25.
+    pub c_axis_second: Option<[f32; 3]>,
+}
+
+impl MaterialOverridesSpec {
+    /// The `render_setup::MaterialOverrides` this describes.
+    #[must_use]
+    pub fn to_overrides(self) -> MaterialOverrides {
+        MaterialOverrides {
+            inclusion_sigma_s: self.inclusion_sigma_s,
+            c_axis_override: self.c_axis_override.map(glam::Vec3::from_array),
+            alpha_axis_override: self.c_axis_second.map(glam::Vec3::from_array),
+            edge_rounding_radius: self.edge_rounding_radius,
+            stone_width_mm: self.stone_width_mm,
+        }
+    }
+}
+
+/// Which material to trace, resolved the way the desktop resolves it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MaterialSpec {
+    /// The traced material name (the desktop's `RenderContext::material_name`): a
+    /// catalogue name like `"Sapphire"`, or a custom material's name.
+    pub name: String,
+    /// The session's custom materials (the desktop's `custom_materials`), as built
+    /// materials; they win over a built-in with the same name. A file's custom-material
+    /// snapshot becomes one through [`CustomMaterialSpec::to_gem_material`].
+    pub custom_materials: Vec<GemMaterial>,
+    /// `Some` when the render is linked to the editor's design (the desktop's
+    /// `material_override`): the material is then `traced_gem_material(name, ..)` with
+    /// these overrides applied.
+    pub linked_design: Option<DesignMaterialOverrides>,
+    /// The render-time material controls.
+    pub overrides: MaterialOverridesSpec,
+    /// The own silk families and play-of-color structure of the custom materials, parallel to
+    /// [`Self::custom_materials`] (`GemMaterial::inclusions` is `serde(skip)`, so the built
+    /// materials above arrive without them). Empty means "none"; otherwise the same length as
+    /// `custom_materials` ([`Self::validate`]). Appended last in protocol v29.
+    pub custom_material_inclusions: Vec<Option<MaterialInclusionsSpec>>,
+}
+
+impl MaterialSpec {
+    /// A plain catalogue material by name, nothing linked or overridden.
+    #[must_use]
+    pub fn catalogue(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            custom_materials: Vec::new(),
+            linked_design: None,
+            overrides: MaterialOverridesSpec::default(),
+            custom_material_inclusions: Vec::new(),
+        }
+    }
+}
+
+/// The orbit camera (the field of view is fixed at [`DEFAULT_FOV_DEG`], like the
+/// desktop's).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CameraSpec {
+    /// Orbit yaw in radians.
+    pub yaw: f32,
+    /// Orbit pitch in radians.
+    pub pitch: f32,
+    /// Distance from the origin.
+    pub distance: f32,
+}
+
+/// Studio lighting: preset, exposure, light direction and backdrop.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct LightingSpec {
+    /// `LightingPreset::index` (0-14; see `LightingPreset::ALL`).
+    pub preset_index: i32,
+    /// Exposure multiplier.
+    pub exposure: f32,
+    /// Light yaw in radians (used by the presets that have a movable light).
+    pub light_yaw: f32,
+    /// Light pitch in radians.
+    pub light_pitch: f32,
+    /// `render_setup::Backdrop::index` (0 as lit, 1 grey, 2 white, 3 black).
+    pub backdrop_index: i32,
+    /// Head-shadow radius in degrees of the lit presets (`0.0` off, default `16.0`,
+    /// `EnvironmentSource::Studio::head_shadow_deg`); appended in protocol v11.
+    pub head_shadow_deg: f32,
+    /// The cross-polarised scale of the first surface reflection (`1.0` unscaled, `0.0` only
+    /// light that entered the stone; `EnvironmentSource::Studio::surface_glare`, clamped to
+    /// `0.0..=1.0` by `with_surface_glare`). Ignored for an HDR environment; appended in
+    /// protocol v17.
+    pub surface_glare: f32,
+}
+
+impl LightingSpec {
+    /// Builds a spec from typed values, with the surface glare unscaled (`1.0`, the render
+    /// before the control existed); see [`Self::with_surface_glare`].
+    #[must_use]
+    pub const fn new(
+        preset: LightingPreset,
+        exposure: f32,
+        light_yaw: f32,
+        light_pitch: f32,
+        backdrop: Backdrop,
+        head_shadow_deg: f32,
+    ) -> Self {
+        Self {
+            preset_index: preset.index(),
+            exposure,
+            light_yaw,
+            light_pitch,
+            backdrop_index: backdrop.index(),
+            head_shadow_deg,
+            surface_glare: DEFAULT_SURFACE_GLARE,
+        }
+    }
+
+    /// This spec with `surface_glare` as its glare scale (clamped to `0.0..=1.0` when the
+    /// environment is built, so a spec never carries a value the tracer would reject).
+    #[must_use]
+    pub const fn with_surface_glare(mut self, surface_glare: f32) -> Self {
+        self.surface_glare = surface_glare;
+        self
+    }
+
+    /// The preset (out-of-range indices fall back like `LightingPreset::from_index`).
+    #[must_use]
+    pub const fn preset(&self) -> LightingPreset {
+        LightingPreset::from_index(self.preset_index)
+    }
+
+    /// The backdrop (out-of-range indices fall back like `Backdrop::from_index`).
+    #[must_use]
+    pub const fn backdrop(&self) -> Backdrop {
+        Backdrop::from_index(self.backdrop_index)
+    }
+
+    /// The analytic studio environment the desktop builds for these settings (the
+    /// render thread's order: backdrop, surface glare, head shadow).
+    #[must_use]
+    pub fn studio_environment(&self) -> EnvironmentSource<'static> {
+        self.preset()
+            .studio(self.exposure, self.light_yaw, self.light_pitch)
+            .with_backdrop(
+                self.backdrop()
+                    .resolve(self.preset(), self.light_yaw, self.light_pitch),
+            )
+            .with_surface_glare(self.surface_glare)
+            .with_head_shadow(self.head_shadow_deg)
+    }
+}
+
+/// Everything a render Worker needs to trace a frame, as plain data.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SceneSpec {
+    /// The stone's facet planes.
+    pub planes: Vec<PlaneData>,
+    /// Facet finishes.
+    pub finishes: FinishSpec,
+    /// The material.
+    pub material: MaterialSpec,
+    /// The camera.
+    pub camera: CameraSpec,
+    /// Studio lighting (ignored for the environment when `hdr_id` is set, as on the
+    /// desktop).
+    pub lighting: LightingSpec,
+    /// Maximum ray bounces.
+    pub max_bounces: u32,
+    /// Frame width in pixels.
+    pub width: u32,
+    /// Frame height in pixels.
+    pub height: u32,
+    /// The HDR map lighting this scene (sent earlier as `ToWorker::HdrMap`), or `None`
+    /// for the studio rig.
+    pub hdr_id: Option<u64>,
+}
+
+impl SceneSpec {
+    /// `width * height`.
+    #[must_use]
+    pub const fn pixel_count(&self) -> u64 {
+        self.width as u64 * self.height as u64
+    }
+}
+
+/// Why a [`SceneSpec`] could not be built.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SceneError {
+    /// This stone's pattern cannot be rendered safely.
+    InvalidColorPattern(String),
+    /// The custom materials' inclusion records are inconsistent or implausible
+    /// ([`MaterialSpec::validate`]).
+    InvalidMaterialInclusions(String),
+    /// The spec has no planes, so there is no stone.
+    NoPlanes,
+    /// A zero or oversized frame (see [`MAX_FRAME_PIXELS`]).
+    BadFrameSize {
+        /// Requested width.
+        width: u32,
+        /// Requested height.
+        height: u32,
+    },
+    /// The material name resolves to nothing in the catalogue or the custom list.
+    UnknownMaterial {
+        /// The name that did not resolve.
+        name: String,
+    },
+    /// The spec names an HDR map the Worker does not hold.
+    MissingHdr {
+        /// The missing map's id.
+        id: u64,
+    },
+    /// A per-facet finish list longer than the plane list.
+    TooManyFinishes {
+        /// Finish entries.
+        finishes: usize,
+        /// Planes.
+        planes: usize,
+    },
+}
+
+impl fmt::Display for SceneError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidColorPattern(message) => {
+                write!(f, "invalid stone color pattern: {message}")
+            }
+            Self::InvalidMaterialInclusions(message) => {
+                write!(f, "invalid custom material inclusions: {message}")
+            }
+            Self::NoPlanes => write!(f, "the scene has no facet planes to render"),
+            Self::BadFrameSize { width, height } => write!(
+                f,
+                "a {width}x{height} frame is outside the supported size (1 to \
+                 {MAX_FRAME_PIXELS} pixels)"
+            ),
+            Self::UnknownMaterial { name } => write!(
+                f,
+                "the material '{name}' is not a built-in preset or a loaded custom material"
+            ),
+            Self::MissingHdr { id } => write!(
+                f,
+                "the scene uses HDR map {id}, which this worker has not loaded"
+            ),
+            Self::TooManyFinishes { finishes, planes } => write!(
+                f,
+                "{finishes} facet finishes were given for {planes} planes"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SceneError {}
+
+/// Resolves the traced material for `spec` exactly as the desktop does -- see the module
+/// doc comment, step 1.
+///
+/// # Errors
+///
+/// [`SceneError::UnknownMaterial`] when neither the linked override nor the name
+/// resolves.
+pub fn resolve_scene_material(
+    spec: &MaterialSpec,
+    planes: &[GpuFacetPlane],
+) -> Result<GemMaterial, SceneError> {
+    spec.validate()
+        .map_err(SceneError::InvalidMaterialInclusions)?;
+    if let Some(pattern) = spec
+        .linked_design
+        .as_ref()
+        .and_then(|linked| linked.color_pattern_override.as_ref())
+    {
+        pleochroma_cut_core::material::pattern::apply_color_pattern(
+            GemMaterial::diamond(),
+            pattern,
+            f64::from(spec.overrides.stone_width_mm),
+        )
+        .map_err(|error| SceneError::InvalidColorPattern(error.to_string()))?;
+    }
+    let materials = GemMaterial::all_materials();
+    let custom = &spec.custom_materials;
+    let material_override = spec.linked_design.as_ref().and_then(|linked| {
+        traced_gem_material_at_width(
+            &spec.name,
+            &linked.to_selection(),
+            &EditorMaterialLookup::new(custom),
+            f64::from(spec.overrides.stone_width_mm),
+        )
+    });
+    let base =
+        resolve_material_with_override(&materials, custom, material_override.as_ref(), &spec.name)
+            .ok_or_else(|| SceneError::UnknownMaterial {
+                name: spec.name.clone(),
+            })?;
+    let overrides = orientation::with_baked_second_axis(spec.overrides.to_overrides(), &base);
+    // The plane arrangement is measured for every material (`needs_model_width`): the
+    // stone-size scale of its absorption depends on the design's model width, and the 7 mm
+    // default width of an unsized stone applies to it too.
+    let model_width = if needs_model_width(&base) {
+        measure_model_width(planes)
+    } else {
+        None
+    };
+    let mut material = apply_material_overrides(base, &overrides, model_width);
+    // The traced material's own silk and play-of-color, which `GemMaterial`'s `serde(skip)`
+    // field dropped on the wire (the same by-name pick `resolve_material` makes). Before the
+    // design's `EffectsSpec` (`OwnedScene::set_effects`), so a design's choice still wins.
+    if let Some(inclusions) = custom
+        .iter()
+        .position(|m| m.name.eq_ignore_ascii_case(&spec.name))
+        .and_then(|index| spec.custom_material_inclusions.get(index))
+        .and_then(Option::as_ref)
+    {
+        material = material.with_inclusions(inclusions.to_set());
+    }
+    pleochroma_cut_core::material::pattern::follow_noted_pattern(&mut material);
+    Ok(material)
+}
+
+/// The per-plane finishes for `spec` -- see the module doc comment, step 2.
+///
+/// # Errors
+///
+/// [`SceneError::TooManyFinishes`] for a [`FinishSpec::PerFacet`] list longer than the
+/// plane list.
+pub fn resolve_finishes(
+    spec: &FinishSpec,
+    planes: &[GpuFacetPlane],
+) -> Result<Vec<FacetFinish>, SceneError> {
+    match spec {
+        FinishSpec::AllPolished => Ok(Vec::new()),
+        FinishSpec::FrostedGirdle => Ok(girdle_facet_finishes(planes)),
+        FinishSpec::PerFacet(frosted) => {
+            if frosted.len() > planes.len() {
+                return Err(SceneError::TooManyFinishes {
+                    finishes: frosted.len(),
+                    planes: planes.len(),
+                });
+            }
+            Ok(frosted
+                .iter()
+                .map(|&f| {
+                    if f {
+                        FacetFinish::Frosted
+                    } else {
+                        FacetFinish::Polished
+                    }
+                })
+                .collect())
+        }
+    }
+}
+
+/// The environment an [`OwnedScene`] traces against: the analytic rig, or a shared
+/// HDR map.
+enum OwnedEnvironment {
+    Studio(EnvironmentSource<'static>),
+    Hdr(Arc<EnvironmentMap>),
+}
+
+/// A built scene that owns its planes, finishes, material, camera and environment, and
+/// lends out a `FrameScene` for the tracer.
+///
+/// Also owns the plane `SoA` arena the tracer's intersection scan needs
+/// ([`Self::plane_soa`]), built once per scene rather than once per chunk.
+pub struct OwnedScene {
+    engine: pleochroma::renderer::engine::EngineSpec,
+    ray_prep: std::sync::OnceLock<
+        Result<
+            pleochroma::renderer::whitted::WhittedPrep<'static>,
+            pleochroma::renderer::whitted::WhittedDecline,
+        >,
+    >,
+    tools: Vec<pleochroma::geometry::tool::ToolPrimitive>,
+    planes: Vec<GpuFacetPlane>,
+    finishes: Vec<FacetFinish>,
+    material: GemMaterial,
+    camera: Camera,
+    environment: OwnedEnvironment,
+    max_bounces: u32,
+    width: u32,
+    height: u32,
+    plane_soa: PlanesSoA32,
+    /// The material's emitters; empty (the default) traces exactly as before.
+    fluorescence: Fluorescence,
+    /// The design's render physics (`set_effects`); the default is "no effects".
+    effects: effects::AppliedEffects,
+}
+
+impl OwnedScene {
+    /// Builds the scene `spec` describes, exactly as the desktop builds it for the same
+    /// settings (see the module doc comment).
+    ///
+    /// `hdr` is the map for `spec.hdr_id` when that is set; it is shared, never copied
+    /// (a decoded 8K map is hundreds of MiB). A map passed for a spec without `hdr_id`
+    /// is ignored.
+    ///
+    /// # Errors
+    ///
+    /// See [`SceneError`].
+    pub fn build(spec: &SceneSpec, hdr: Option<Arc<EnvironmentMap>>) -> Result<Self, SceneError> {
+        if spec.planes.is_empty() {
+            return Err(SceneError::NoPlanes);
+        }
+        if spec.width == 0 || spec.height == 0 || spec.pixel_count() > MAX_FRAME_PIXELS {
+            return Err(SceneError::BadFrameSize {
+                width: spec.width,
+                height: spec.height,
+            });
+        }
+        let planes: Vec<GpuFacetPlane> = spec.planes.iter().copied().map(Into::into).collect();
+        let material = resolve_scene_material(&spec.material, &planes)?;
+        let finishes = resolve_finishes(&spec.finishes, &planes)?;
+        let camera = Camera::new(
+            spec.camera.yaw,
+            spec.camera.pitch,
+            spec.camera.distance,
+            DEFAULT_FOV_DEG,
+        );
+        let environment = match spec.hdr_id {
+            Some(id) => OwnedEnvironment::Hdr(hdr.ok_or(SceneError::MissingHdr { id })?),
+            None => OwnedEnvironment::Studio(spec.lighting.studio_environment()),
+        };
+        let plane_soa = build_plane_soa(&planes);
+        Ok(Self {
+            engine: pleochroma::renderer::engine::EngineSpec::default(),
+            ray_prep: std::sync::OnceLock::new(),
+            tools: Vec::new(),
+            planes,
+            finishes,
+            material,
+            camera,
+            environment,
+            max_bounces: spec.max_bounces,
+            width: spec.width,
+            height: spec.height,
+            plane_soa,
+            fluorescence: Fluorescence::new(Vec::new()),
+            effects: effects::AppliedEffects::default(),
+        })
+    }
+
+    /// [`Self::build`] for a caller that holds the session's [`CustomMaterialSpec`]s (the
+    /// materials with their physics recipes): the traced material's recipe fills the scene's
+    /// fluorescence ([`CustomMaterialSpec::fluorescence`]), the way the desktop's render
+    /// context carries `active_fluorescence` beside `physics_color()`. A traced material that
+    /// is not among `customs` (a catalogue name) builds exactly like [`Self::build`].
+    ///
+    /// # Errors
+    ///
+    /// See [`SceneError`].
+    pub fn build_with_customs(
+        spec: &SceneSpec,
+        hdr: Option<Arc<EnvironmentMap>>,
+        customs: &[CustomMaterialSpec],
+    ) -> Result<Self, SceneError> {
+        let traced = customs
+            .iter()
+            .find(|c| c.name.eq_ignore_ascii_case(&spec.material.name));
+        let mut scene = Self::build(spec, hdr)?;
+        if let Some(custom) = traced.filter(|c| c.is_physics_color()) {
+            scene.fluorescence = custom.fluorescence();
+        }
+        Ok(scene)
+    }
+
+    /// Replaces the scene's fluorescence (empty for none).
+    #[must_use]
+    pub fn with_fluorescence(mut self, fluorescence: Fluorescence) -> Self {
+        self.ray_prep.take();
+        self.fluorescence = fluorescence;
+        self
+    }
+
+    /// The material's fluorescent emitters; empty for a non-fluorescent material. A fluorescent
+    /// scene is traced on the CPU alone (`scene_routes_to_gpu`), which is all the browser has.
+    #[must_use]
+    pub const fn fluorescence(&self) -> &Fluorescence {
+        &self.fluorescence
+    }
+
+    /// The borrowed `FrameScene` the tracer takes.
+    #[must_use]
+    pub fn frame_scene(&self) -> FrameScene<'_> {
+        FrameScene {
+            camera: &self.camera,
+            width: self.width,
+            height: self.height,
+            planes: &self.planes,
+            facet_finishes: &self.finishes,
+            material: &self.material,
+            max_bounces: self.max_bounces,
+            environment: match &self.environment {
+                OwnedEnvironment::Studio(source) => *source,
+                OwnedEnvironment::Hdr(map) => EnvironmentSource::HdrMap(map),
+            },
+        }
+    }
+
+    /// The plane `SoA` arena for [`crate::render::handle_trace_chunk`].
+    #[must_use]
+    pub const fn plane_soa(&self) -> &PlanesSoA32 {
+        &self.plane_soa
+    }
+
+    /// The resolved material.
+    #[must_use]
+    pub const fn material(&self) -> &GemMaterial {
+        &self.material
+    }
+
+    /// The camera.
+    #[must_use]
+    pub const fn camera(&self) -> &Camera {
+        &self.camera
+    }
+
+    /// The planes.
+    #[must_use]
+    pub fn planes(&self) -> &[GpuFacetPlane] {
+        &self.planes
+    }
+
+    /// The resolved per-plane finishes (empty = all polished).
+    #[must_use]
+    pub fn finishes(&self) -> &[FacetFinish] {
+        &self.finishes
+    }
+
+    /// Frame width.
+    #[must_use]
+    pub const fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Frame height.
+    #[must_use]
+    pub const fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// Maximum bounces.
+    #[must_use]
+    pub const fn max_bounces(&self) -> u32 {
+        self.max_bounces
+    }
+}

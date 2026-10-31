@@ -1,0 +1,214 @@
+//! `pleochroma-cut-core` is the editor-core library for a faceting-design editor: it owns the
+//! preform, the editable cutting instructions, undo/redo, and live-solid validation --
+//! everything a UI needs to answer "what does this schedule look like right now,
+//! and is it a real stone" without itself touching a window, a database, or a
+//! renderer.
+//!
+//! # Why this is a separate crate from the GUI
+//!
+//! Undo/redo is business logic, not view logic: it has to be correct independent of
+//! whatever widget toolkit drives it, and testable without a window (see [`edit`]'s
+//! module doc comment). Two dependencies only -- [`pleochroma`] for geometry and
+//! [`pleochroma-formats`] for `.asc` read/write and the `.psdd` design file's own
+//! on-disk format -- so `apps/pleochroma-cut` can wire a UI on top of it without this
+//! crate ever needing to know Slint, wgpu, or SQLite exist.
+//!
+//! # The pieces
+//!
+//! - [`preform`]: the physical rough a design's facets are cut from -- always a
+//!   closed plane set, so a brand-new design already renders as a real solid.
+//! - [`design`]: [`design::Design`] pairs a [`preform::PreformSpec`] with
+//!   [`design::ConstraintTier`]s -- authored meet constraints, not recorded masts.
+//!   `Design::solve` derives masts on demand and builds the full plane arrangement
+//!   feeding `pleochroma::geometry::stone_metrics::build_solid_mesh`.
+//! - [`edit`]: [`edit::Edit`] (add/remove/modify a tier or its constraint, or
+//!   replace the preform) and [`edit::History`], a command/inverse-pair undo/redo
+//!   stack over a [`Design`].
+//! - [`resolve`]: [`resolve::resolve_after_edit`] re-solves only the tiers an edit
+//!   could actually change, instead of [`Design::solve`]'s whole-design re-solve.
+//! - [`orbit`]: [`orbit::orbit_units`] derives a tier's symmetry-generated facet
+//!   groups from schedule metadata (never stored, always recomputed), and the
+//!   `Design::*_orbit_member` helpers keep membership changes orbit-consistent by
+//!   construction.
+//! - [`manufacturability`]: four checks (vanishing facets, undersized facets,
+//!   gear-quantization error, out-of-order meets) over an already-solved
+//!   [`design::Design`] -- warnings only, never silently corrected.
+//! - [`material`]: [`material::MaterialSelection`] and a specific-gravity lookup
+//!   table; [`material::MaterialSelection::resolve`] and
+//!   [`design::Design::effective_refractive_index`] give a design one real
+//!   refractive index every consumer can derive from.
+//! - [`optics_hints`]: pure critical-angle math shared by the material-retarget
+//!   path and the solid preview's risk overlay.
+//! - [`yield_metrics`]: the real-unit binding ([`yield_metrics::mm_per_unit`]) and
+//!   the figures built on it -- exact volumetric yield, an estimated carat weight,
+//!   and the design-bigger-than-its-rough check.
+//! - [`native`]: converts a [`Design`] to and from the self-contained `.psdd`
+//!   design file (design state `.asc` has no field for at all), and builds the catalogue `.asc` text
+//!   a save stores next to it ([`native::catalogue_asc`]). The on-disk document itself --
+//!   schema, TOML encode/decode, path rules -- lives in
+//!   `pleochroma_formats::native`; this module owns only the conversions to and from
+//!   [`Design`].
+//! - [`optimize`]: the objective ([`optimize::evaluate_objective`]) and
+//!   [`optimize::optimize_design`], a deterministic coordinate search over a
+//!   design's free facet angles that never moves a pinned tier, never proposes
+//!   geometry that fails to close, and never regresses a manufacturability warning.
+//! - [`cutting_sheet`]: [`design::Design::cutting_sheet`] builds a
+//!   [`cutting_sheet::CuttingSheet`] (every tier in cutting order, with angle,
+//!   indices, solved mast and a printable meet instruction) from a design and
+//!   its already-solved masts; [`design::Design::facet_meets`] and
+//!   [`cutting_sheet::diff_tiers`] are the companion per-facet and
+//!   before/after reads built alongside it.
+//!
+//! # Determinism
+//!
+//! Every public operation here is a plain, total-order computation over the
+//! caller-supplied schedule/preform -- no `HashMap`/`HashSet` in any decision path, no
+//! wall-clock or thread-count dependence: two runs over identical input produce
+//! byte-identical output. [`optimize::optimize_design`] is the one place this crate
+//! takes a seed at all -- identical seed, identical result, always caller-supplied,
+//! never derived from wall-clock time.
+
+/// The Crystal Axis and Second Axis of a stone.
+///
+/// [`crystal_axis::CrystalAxis`] (a canonical line from tilt and azimuth) and
+/// [`crystal_axis::CrystalOrientation`], with the per-design resolution
+/// [`crystal_axis::stone_orientation`].
+pub mod crystal_axis;
+/// [`design::Design::cutting_sheet`]'s own output type.
+///
+/// [`cutting_sheet::CuttingSheet`]: every tier in cutting order, with angle,
+/// indices, solved mast and a printable meet instruction) plus the
+/// before/after diff over it ([`cutting_sheet::diff_tiers`]).
+pub mod cutting_sheet;
+/// A design's preform plus editable cutting instructions.
+///
+/// The derivation from authored constraints down to a renderable solid --
+/// see this module's own doc comment ("Constraints, not masts"/ "Scale
+/// anchoring").
+pub mod design;
+/// Reversible edits over a [`design::Design`].
+///
+/// [`edit::Edit`]/[`edit::History`]: the command/inverse-pair undo/redo
+/// stack built on them.
+pub mod edit;
+/// Warnings-only checks over an already-solved [`design::Design`].
+///
+/// Vanishing/undersized facets, gear-quantization error, out-of-order meets.
+pub mod manufacturability;
+/// A design's material choice and the specific-gravity lookup table.
+///
+/// [`material::MaterialSelection`] and the built-in refractive-index/specific-
+/// gravity lookup tables a design resolves its optics against.
+pub mod material;
+/// Shared hard preservation gate for planar optimization and material Retarget.
+///
+/// See the module's own documentation for the preservation contract.
+pub mod meet_preservation;
+/// The `.psdd` design file's conversions, plus the catalogue `.asc` text a save stores
+/// next to it.
+///
+/// See this module's own doc comment for the split with
+/// `pleochroma_formats::native`.
+pub mod native;
+/// Pure critical-angle math shared by several consumers.
+///
+/// The material-retarget path and the solid preview's risk overlay.
+pub mod optics_hints;
+/// A deterministic coordinate search over a design's free facet angles.
+///
+/// The objective ([`optimize::evaluate_objective`]) and
+/// [`optimize::optimize_design`] itself.
+pub mod optimize;
+/// Derives a tier's symmetry-generated facet groups from schedule metadata.
+///
+/// The `Design::*_orbit_member` helpers keep membership changes
+/// orbit-consistent by construction.
+pub mod orbit;
+/// The physical rough a design's facets are cut from.
+///
+/// Always a closed plane set, so a brand-new design already renders as a
+/// real solid.
+pub mod preform;
+/// Shape/material classification for the proportion-verdict windows.
+///
+/// The windows a solved design's measurements are judged against.
+pub mod proportions_windows;
+/// Re-solves only the tiers an edit could actually change.
+///
+/// [`resolve::resolve_after_edit`], instead of
+/// [`design::Design::solve`]'s whole-design re-solve.
+pub mod resolve;
+/// Plans how many stones of which designs fit one rough block.
+///
+/// [`rough_plan::plan_rough`]: staged guillotine cuts (six cut orders), a
+/// mixed-design DP over a shared piece table, single-design layouts and a
+/// continuous refinement of the cut positions, ranked by finished volume.
+pub mod rough_plan;
+/// The built-in "New Design" template gallery.
+///
+/// See this module's own doc comment for the `ScaleReference`-only
+/// restriction every entry follows.
+pub mod templates;
+/// The real-unit binding and the figures built on it.
+///
+/// [`yield_metrics::mm_per_unit`]: exact volumetric yield, an estimated
+/// carat weight, and the design-bigger-than-its-rough check.
+pub mod yield_metrics;
+
+pub use crystal_axis::{
+    AxisPreset, ColorPreset, ColorPresetId, CrystalAxis, CrystalAxisPlan, CrystalOrientation,
+    OrientationRule, OrientationRuleKind, PlanRuleOrigin, PrincipalDirection, RuleStrength,
+    color_preset, color_presets, default_rule, orientation_through_table, stone_orientation,
+    width_azimuth_deg,
+};
+pub use cutting_sheet::{
+    ConcaveRowInfo, ConcaveTierDelta, CutSheetRow, CuttingSheet, SHEET_NAME_WIDTH,
+    SheetOrientation, SheetRuleCheck, TierDelta, diff_concave_tiers, diff_tiers,
+    format_sheet_index, format_sheet_indices,
+};
+pub use design::{
+    ConstraintTier, Design, DesignSolveError, DesignTierCodes, EdgeAbrasionEffects,
+    FreshDesignSpec, InclusionEffects, MissingAnchor, ScheduleMeta, SolveMismatch,
+    StoneRenderEffects, StructureEffects, SurfaceFinish, SurfaceGrade, TargetResolveError,
+    TierFrosting, TierId, TierLabelInfo, TierSurface, TierTarget, compute_tier_labels,
+    convert_legacy_facet_name, is_legacy_123_abc, name_indicates_pavilion,
+};
+pub use edit::{
+    Edit, EditError, History, HistoryEntry, JumpError, RemapRounding, ScheduleState, remap_ratio,
+};
+pub use manufacturability::{
+    DEFAULT_MIN_FACET_AREA_FRACTION_OF_W2, ManufacturabilityWarning, check_manufacturability,
+    degenerate_suspects,
+};
+pub use material::{
+    BuiltinMaterials, MaterialCatalogue, MaterialEntry, MaterialKind, MaterialLookup,
+    MaterialSelection, ResolvedMaterial, SpecificGravity, built_in_refractive_index,
+    built_in_specific_gravity,
+};
+pub use native::{CatalogueAsc, SaveError, catalogue_asc};
+pub use optics_hints::{
+    Risk, critical_angle_deg, crown_window_margin_deg, crown_windowing_risk, retarget_angle_deg,
+    tier_margin_deg, windowing_risk,
+};
+pub use optimize::{
+    AngleChange, CANONICAL_LIGHTING_PRESET, FaceUpTone, MastChange, ObjectiveComponents,
+    ObjectiveFidelity, ObjectivePreset, ObjectiveWeights, OptimizeCandidate, OptimizeConfig,
+    OptimizeOptions, OptimizeOutcome, OptimizeResult, SearchHooks, ShapeTarget, ToneGoal,
+    apply_optimize_candidate, apply_optimize_outcome, apply_optimize_result, display_score,
+    evaluate_objective, evaluate_objective_finished_under,
+    evaluate_objective_finished_under_threaded, evaluate_objective_geom_under,
+    evaluate_objective_geom_under_threaded, evaluate_objective_threaded, evaluate_objective_under,
+    evaluate_objective_under_threaded, evaluate_objective_with_tone,
+    evaluate_objective_with_tone_finished_under_threaded,
+    evaluate_objective_with_tone_geom_under_threaded, evaluate_objective_with_tone_under,
+    evaluate_objective_with_tone_under_threaded, free_tier_indices, free_tier_indices_with,
+    optimize_design, optimize_design_with,
+};
+pub use orbit::{OrbitUnit, expected_orbit, mirror_indices, orbit_units, rotate_indices};
+pub use preform::{PlaneSet, PreformShape, PreformSpec};
+pub use proportions_windows::{MaterialClass, Metric as ProportionMetric, ShapeClass, Verdict};
+pub use resolve::resolve_after_edit;
+pub use yield_metrics::{
+    PreformFit, StoneProportions, YieldReport, carat_weight, exceeds_preform, mm_per_unit,
+    volume_mm3, volumetric_yield,
+};

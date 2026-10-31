@@ -171,8 +171,8 @@ Synthesised α_e (cm⁻¹), 0.25 wt% Cr₂O₃:
 ## Resolution
 
 Integration of both reports (2026-10). Evidence is computed by the fixture tests in
-`crates/indicatrix/src/optics/chromophore/reference_validation.rs` against the fixtures in
-`crates/indicatrix/data/reference_spectra/` (report 2: `ruby2_synthesised_0p25wt.csv`,
+`crates/pleochroma/src/optics/chromophore/reference_validation.rs` against the fixtures in
+`crates/pleochroma/data/reference_spectra/` (report 2: `ruby2_synthesised_0p25wt.csv`,
 `sapphire2_moderate_4mm.csv`). Rule order: (a) internal consistency of tabulated spectrum and
 stated CIELAB under OUR colorimetry (D65 / A = Planckian 2856 K, 380-780 nm at 1 nm, CIE 1931
 2 degrees, T = exp(-alpha L)); (b) the primary values both reports cite (Dodd 1964

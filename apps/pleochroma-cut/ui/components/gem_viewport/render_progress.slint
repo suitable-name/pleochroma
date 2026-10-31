@@ -1,0 +1,55 @@
+import { Theme } from "../../theme.slint";
+import { ViewportModel } from "../../models/viewport.slint";
+
+export component LiveRenderProgress inherits Rectangle {
+    height: 42px;
+    background: Theme.surface-dialog;
+    border-radius: Theme.radius-sm;
+    property <float> fraction: min(1.0, ViewportModel.render_samples_done / max(1, ViewportModel.render_samples_target));
+    property <bool> pulse_on: true;
+    Timer {
+        interval: 500ms;
+        running: ViewportModel.render_progress_indeterminate && !ViewportModel.render_paused;
+        triggered => { root.pulse_on = !root.pulse_on; }
+    }
+    VerticalLayout {
+        padding: 6px;
+        spacing: 4px;
+        HorizontalLayout {
+            Text {
+                text: ViewportModel.render_paused ? "Paused" : ViewportModel.render_progress_stage;
+                color: Theme.text-secondary;
+                font-size: 10px;
+                overflow: elide;
+            }
+            Text {
+                text: ViewportModel.render_progress_indeterminate
+                    ? "" : ViewportModel.render_samples_done + " / " + ViewportModel.render_samples_target + " samples";
+                color: Theme.text-primary;
+                font-size: 10px;
+                horizontal-alignment: right;
+            }
+            if root.width >= 420px && !ViewportModel.render_paused: Text {
+                text: ViewportModel.render_eta_text;
+                color: Theme.text-secondary;
+                font-size: 10px;
+                horizontal-alignment: right;
+            }
+        }
+        Rectangle {
+            height: 5px;
+            background: Theme.surface-sunken;
+            clip: true;
+            accessible-role: AccessibleRole.progress-indicator;
+            accessible-label: "Live rendering sample progress";
+            accessible-value: ViewportModel.render_progress_indeterminate
+                ? ViewportModel.render_progress_stage : Math.round(root.fraction * 100) + " percent";
+            Rectangle {
+                width: parent.width * (ViewportModel.render_progress_indeterminate ? 1.0 : root.fraction);
+                height: 100%;
+                background: ViewportModel.render_progress_indeterminate ? Theme.text-muted : Theme.accent-cyan;
+                opacity: ViewportModel.render_progress_indeterminate ? (root.pulse_on ? 0.5 : 0.2) : 1.0;
+            }
+        }
+    }
+}

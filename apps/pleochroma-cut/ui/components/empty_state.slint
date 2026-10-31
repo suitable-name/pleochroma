@@ -1,0 +1,287 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { EditorModel } from "../models/editor.slint";
+import { GuideModel } from "../models/guide.slint";
+import { LibraryModel } from "../models/library.slint";
+import { TutorialsModel } from "../models/tutorials.slint";
+import { HelpTopics } from "../models/help.slint";
+import { HelpButton } from "help_button.slint";
+import { TouchButton } from "touch_button.slint";
+
+// One 170 x 100 start card: a title, one sentence, and a TouchButton layer on top (the card is a
+// button for the keyboard and a screen reader; a card the guide has locked is dimmed).
+component StartCard inherits Rectangle {
+    in property <string> title;
+    in property <string> body;
+    in property <string> label;
+    in property <string> hint;
+    in property <bool> enabled: true;
+    in property <float> dim_opacity: 1.0;
+    in property <color> title_color: Theme.text-primary;
+    in property <length> edge_width: 1px;
+    in property <color> edge_color: Theme.border-medium;
+    callback clicked();
+
+    width: 170px;
+    height: 100px;
+    background: card_touch.has_hover ? Theme.bg-elevated : Theme.bg-input;
+    border-radius: Theme.radius-md;
+    border-width: root.edge_width;
+    border-color: root.edge_color;
+    opacity: root.dim_opacity;
+    VerticalLayout {
+        alignment: center;
+        padding: 10px;
+        spacing: 4px;
+        Text { text: root.title; font-size: 11px; font-weight: 700; color: root.title_color; horizontal-alignment: center; wrap: word-wrap; }
+        Text { text: root.body; font-size: 10px; color: Theme.text-secondary; horizontal-alignment: center; wrap: word-wrap; }
+    }
+    card_touch := TouchButton {
+        enabled: root.enabled;
+        label: root.label;
+        hint: root.hint;
+        ring_radius: Theme.radius-md;
+        clicked => { root.clicked(); }
+    }
+}
+
+// A real card grid for the empty state (`EditorViewportOverlay`,
+// `components/app/viewport_overlay.slint`, shown until a real design is installed):
+// New Design..., Start from a library design, Open the Worked Example, Open Recent,
+// Import a Folder, and a link to the tutorial browser -- every path out of the empty state
+// a new user with no manual needs to reach a solved, previewed design, none of them a
+// dead end.
+//
+// Every card is a button for the keyboard and a screen reader (`TouchButton`): Tab walks the
+// cards in reading order, Space or Enter picks one, a ring shows the focus, and the tooltip
+// says in one sentence what the card does. A card the guide has locked is dimmed and says so.
+// The "?" in the bottom right corner opens the manual page on this screen.
+//
+// The cards sit on one hand-positioned grid, each declared once. Wide (the three-card row
+// fits): New, Library, Worked Example over Open Recent and Import. Narrow (the Catalog or the
+// guide is open and the viewport is short of three cards): two cards per row and Open Recent
+// last, so no card is cut mid-letter at the viewport edge.
+//
+// `recent_native_files`/`open_recent` mirror `MainWindow`'s own
+// `recent_native_files`/`open_recent_native_file` (declared on `root` there,
+// not `EditorModel` -- see that property's own doc comment) -- `app.slint`
+// binds/forwards both when it instantiates this component, the same "in
+// property plus forwarded callback" pattern `DetailHeaderView` already uses
+// for `window_height`/`window_width`.
+export component EmptyState inherits Rectangle {
+    in property <[string]> recent_native_files: [];
+    callback open_recent(string);
+    // True while the viewport has room for three 170 px cards in one row (3 x 170 + 2 x 10 gap
+    // + 2 x 24 padding); below that the cards wrap to two per row.
+    property <bool> wide: scroll.visible-width >= 578px;
+
+    background: Theme.bg-card;
+
+    // The manual page on this screen, in the bottom right corner. Positioned by hand, so it
+    // adds nothing to the grid's layout. Not the top right: the Solid view toolbar's own "?"
+    // sits just above this card there, and two stacked "?" read as one doubled button.
+    HelpButton {
+        x: parent.width - self.width - 12px;
+        y: parent.height - self.height - 8px;
+        z: 10;
+        topic: HelpTopics.empty-state;
+        hint: "Open the manual page on starting a design";
+    }
+
+    // The cards scroll when the viewport is too small for them (a short window); with room to
+    // spare the content is centred.
+    scroll := ScrollView {
+        VerticalLayout {
+        width: max(scroll.visible-width, self.min-width);
+        min-height: scroll.visible-height;
+        alignment: center;
+        padding: 24px;
+        spacing: 14px;
+
+        Text {
+            text: "Nothing to Show Yet";
+            font-size: 16px;
+            font-weight: 700;
+            color: Theme.text-primary;
+            horizontal-alignment: center;
+        }
+        Text {
+            text: "Start a design one of these ways:";
+            font-size: 11px;
+            color: Theme.text-muted;
+            horizontal-alignment: center;
+        }
+
+        HorizontalLayout {
+            alignment: center;
+
+            Rectangle {
+                width: root.wide ? 530px : 350px;
+                height: root.wide ? 210px : 320px;
+
+                // New Design... -- opens the gallery-backed New Design dialog. Label
+                // matches the command bar/menu's own "New Design..." exactly, so this
+                // card is not a third variant of that label. Outlined while the guide's
+                // first step points at the New Design dialog.
+                StartCard {
+                    x: 0px;
+                    y: 0px;
+                    title: "New Design...";
+                    body: "Pick a shape, a material and an index gear to start from.";
+                    label: "New Design";
+                    hint: GuideModel.allows_new_design()
+                        ? "Open the New Design window: pick a shape, a material and an index gear, then create the design."
+                        : GuideModel.locked_hint;
+                    enabled: GuideModel.allows_new_design();
+                    dim_opacity: GuideModel.allows_new_design() ? 1.0 : 0.4;
+                    edge_width: GuideModel.highlight_target == "new_design_dialog" ? 2px : 1px;
+                    edge_color: GuideModel.highlight_target == "new_design_dialog" ? Theme.accent-cyan : Theme.border-medium;
+                    clicked => { EditorModel.new_dialog_open = true; }
+                }
+
+                // Start from a library design -- shows the library, puts the cursor in its
+                // search box and explains, in the hint line under the cards, how to open the
+                // chosen design into the editor with the existing Load Selected button.
+                // Locked with the other file actions while a guide has them locked.
+                StartCard {
+                    x: 180px;
+                    y: 0px;
+                    title: "Start from a Library Design";
+                    body: "Pick a design from the library and open it in the editor.";
+                    label: "Start from a Library Design";
+                    hint: GuideModel.allows_file_ops()
+                        ? "Go to the library list so you can pick a design and open it here with Load Selected."
+                        : GuideModel.locked_hint;
+                    enabled: GuideModel.allows_file_ops();
+                    dim_opacity: GuideModel.allows_file_ops() ? 1.0 : 0.55;
+                    clicked => { TutorialsModel.show_library(); }
+                }
+
+                // Open the Worked Example -- ONLY opens the guide panel at its first
+                // step. It deliberately does not build the stone: the guide's steps have
+                // the user create an Empty design through the New Design dialog and add
+                // every tier by hand, so a pre-built stone would contradict step 1. The
+                // finished stone is one click away as the dialog's own "Standard Round
+                // Brilliant" template card.
+                StartCard {
+                    x: root.wide ? 360px : 0px;
+                    y: root.wide ? 0px : 110px;
+                    title: "Open the Worked Example";
+                    body: "A step-by-step guide that builds the manual's Chapter 7 stone with you.";
+                    label: "Open the Worked Example";
+                    hint: "Start the step-by-step guide that builds a round brilliant with you, one tier at a time.";
+                    title_color: Theme.accent-cyan;
+                    edge_color: Theme.accent-cyan;
+                    clicked => { GuideModel.start(); }
+                }
+
+                // Open Recent -- lists up to the four most-recently-used design
+                // files (`root.recent_native_files`, the same list `app.slint`'s
+                // File > Open Recent submenu already reads).
+                // Two card widths plus the gap.
+                Rectangle {
+                    x: 0px;
+                    y: root.wide ? 110px : 220px;
+                    width: 350px;
+                    height: 100px;
+                    background: Theme.bg-input;
+                    border-radius: Theme.radius-md;
+                    border-width: 1px;
+                    border-color: Theme.border-medium;
+                    clip: true;
+                    accessible-role: AccessibleRole.groupbox;
+                    accessible-label: "Open Recent";
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 2px;
+                        alignment: start;
+                        Text { text: "Open Recent"; font-size: 11px; font-weight: 700; color: Theme.text-primary; }
+                        if root.recent_native_files.length == 0: Text {
+                            text: "No recent files yet.";
+                            font-size: 10px;
+                            color: Theme.text-secondary;
+                        }
+                        for path[idx] in root.recent_native_files: Rectangle {
+                            if idx < 4: Rectangle {
+                                height: 16px;
+                                Text {
+                                    text: path;
+                                    font-size: 10px;
+                                    color: recent_touch.has_hover ? Theme.accent-cyan : Theme.text-secondary;
+                                    overflow: elide;
+                                }
+                                recent_touch := TouchButton {
+                                    enabled: GuideModel.allows_file_ops();
+                                    label: "Open " + path;
+                                    hint: GuideModel.allows_file_ops() ? "Open this design file in the editor." : GuideModel.locked_hint;
+                                    clicked => { root.open_recent(path); }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Import a Folder -- a real action: it runs the same folder picker
+                // the toolbar's Import popup runs (`LibraryModel.pick_asc_folder`,
+                // handled in `gui::library::local::import::wiring`). The picker opens
+                // and, once a folder is chosen, the import of every .asc, .gem and
+                // .gcs file directly inside it starts in the same step, with its
+                // progress and result shown where an import started from the toolbar
+                // shows them. Subfolders are not walked from here (`false`); the
+                // popup's "include subfolders" switch is the way to ask for that.
+                // Greyed out while a guide step has file actions locked.
+                StartCard {
+                    x: root.wide ? 360px : 180px;
+                    y: 110px;
+                    title: "Import a Folder";
+                    body: "Choose a folder of .asc, .gem or .gcs files to add to your library.";
+                    label: "Import a Folder";
+                    hint: GuideModel.allows_file_ops()
+                        ? "Pick a folder; every .asc, .gem and .gcs file directly inside it is added to your library."
+                        : GuideModel.locked_hint;
+                    enabled: GuideModel.allows_file_ops();
+                    dim_opacity: GuideModel.allows_file_ops() ? 1.0 : 0.55;
+                    clicked => { LibraryModel.pick_asc_folder(false); }
+                }
+            }
+        }
+
+        // The hint line for "Start from a Library Design", shown once that card was clicked.
+        if TutorialsModel.library_hint_visible: HorizontalLayout {
+            alignment: center;
+            Text {
+                max-width: 480px;
+                text: "Type a name in the search box at the top of the window, click a design in the list on the left, then click Load Selected on the command bar.";
+                font-size: 10px;
+                color: Theme.accent-cyan;
+                horizontal-alignment: center;
+                wrap: word-wrap;
+            }
+        }
+
+        // The tutorial browser: one short lesson for each tool.
+        HorizontalLayout {
+            alignment: center;
+            Rectangle {
+                width: browse_txt.preferred-width + 16px;
+                height: 22px;
+                border-radius: Theme.radius-sm;
+                background: browse_touch.has_hover ? Theme.bg-elevated : transparent;
+                browse_txt := Text {
+                    text: "Browse All Tutorials...";
+                    font-size: 10px;
+                    font-weight: 700;
+                    color: Theme.accent-cyan;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                browse_touch := TouchButton {
+                    label: "Browse All Tutorials";
+                    hint: "Open the list of short guided lessons, one for each tool.";
+                    clicked => { TutorialsModel.open_browser(); }
+                }
+            }
+        }
+        }
+    }
+}

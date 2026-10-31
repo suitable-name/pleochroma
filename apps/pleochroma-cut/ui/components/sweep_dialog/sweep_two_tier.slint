@@ -1,0 +1,544 @@
+// The Angle Sweep dialog's Two Tiers mode: two tiers' angles over a grid, every angle pair
+// solved and scored, the figures shown as a heat map. The mode pills sit in the dialog's
+// header; this file holds the form (an across tier and a down tier, each with a range and a
+// step, and the tilt option), the heat map with its figure choice and color scale, the readout
+// of the pair under the pointer, and the footer.
+//
+// Rust owns what is shown (`gui::editor::sweep`: `control2d.rs` answers the callbacks,
+// `present2d.rs` fills `SweepModel`), so the view only draws what it is given. The one-tier
+// dialog's pieces (`SweepNumberField`, `SweepCheck`, `SweepButton`) are reused as they are.
+import { ComboBox } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { SweepModel } from "../../models/sweep.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { TipBox, FieldCaption } from "../tip_box.slint";
+import { SweepButton } from "sweep_button.slint";
+import { SweepNumberField, SweepCheck } from "sweep_form.slint";
+import { SweepHeatmap } from "sweep_heatmap.slint";
+
+// One half of the mode switch in the dialog's header.
+component ModePill inherits Rectangle {
+    in property <string> text;
+    in property <string> hint;
+    in property <bool> active;
+    in property <bool> enabled: true;
+    // The guide's Two Tiers lesson outlines the pill.
+    in property <bool> highlighted: false;
+    callback picked();
+
+    height: 24px;
+    min-width: pill_label.preferred-width + 24px;
+    border-radius: Theme.radius-sm;
+    border-width: pill_focus.has-focus ? 2px : 1px;
+    border-color: pill_focus.has-focus ? Theme.accent-cyan-hover : (root.active ? Theme.accent-cyan : Theme.border-dialog);
+    background: root.active ? Theme.accent-cyan : (pill_touch.has-hover && root.enabled ? Theme.surface-raised : Theme.surface-sunken);
+    opacity: root.enabled ? 1.0 : 0.45;
+
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.text;
+    accessible-description: root.hint;
+    accessible-checkable: true;
+    accessible-checked: root.active;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled && !root.active {
+            root.picked();
+        }
+    }
+
+    if root.hint != "": Tooltip { text: @markdown("\{root.hint}"); }
+
+    pill_focus := FocusScope {
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Space || event.text == Key.Return) && !root.active {
+                root.picked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    pill_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled && !root.active ? MouseCursor.pointer : MouseCursor.default;
+        clicked => {
+            if !root.active {
+                root.picked();
+            }
+        }
+    }
+
+    pill_label := Text {
+        x: 12px;
+        y: (parent.height - self.height) / 2;
+        text: root.text;
+        font-size: 11px;
+        font-weight: 700;
+        color: root.active ? Theme.text-on-accent : Theme.text-primary;
+    }
+
+    if root.highlighted: Rectangle {
+        border-width: 2px;
+        border-color: Theme.accent-cyan-hover;
+        border-radius: Theme.radius-sm;
+    }
+}
+
+// One Tier | Two Tiers.
+export component SweepModePills inherits HorizontalLayout {
+    spacing: 4px;
+    ModePill {
+        text: "One Tier";
+        hint: "Sweep one tier's angle over a range, with a table and a chart.";
+        active: SweepModel.mode == 0;
+        enabled: !SweepModel.running;
+        picked => {
+            SweepModel.mode = 0;
+            SweepModel.mode_changed();
+        }
+    }
+    ModePill {
+        text: "Two Tiers";
+        hint: "Sweep two tiers' angles together over a grid, and read the figures off a heat map.";
+        active: SweepModel.mode == 1;
+        enabled: !SweepModel.running;
+        highlighted: GuideModel.highlight_target == "sweep_two_tiers";
+        picked => {
+            SweepModel.mode = 1;
+            SweepModel.mode_changed();
+        }
+    }
+}
+
+// A tier choice: the combo with its caption above it.
+component TierCombo inherits VerticalLayout {
+    in property <string> caption;
+    in property <string> hint;
+    in property <string> label;
+    in-out property <int> index;
+    callback chosen();
+
+    horizontal-stretch: 1;
+    spacing: 3px;
+    FieldCaption { text: root.caption; hint: root.hint; }
+    Rectangle {
+        height: 32px;
+        background: Theme.surface-raised;
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: Theme.border-dialog;
+        TipBox {
+            width: 100%;
+            height: 100%;
+            hint: root.hint;
+            ComboBox {
+                min-width: 0px;
+                model: SweepModel.tier_names;
+                current-index <=> root.index;
+                enabled: !SweepModel.running;
+                accessible-label: root.label;
+                selected(value) => { root.chosen(); }
+            }
+        }
+    }
+}
+
+export component SweepTwoTier inherits VerticalLayout {
+    spacing: 8px;
+
+    // Why Run is greyed out, or what it does.
+    property <string> run_hint: SweepModel.running
+        ? "Stop the sweep. The angle pairs already finished stay on the map."
+        : (SweepModel.form_ok_2d
+            ? "Solve and score every angle pair in the grid, each on a copy of the design. Your design is not changed."
+            : "Cannot run yet: " + SweepModel.cells_summary);
+
+    // 1. The form: the across tier, the down tier and the tilt option.
+    HorizontalLayout {
+        spacing: 10px;
+        TierCombo {
+            caption: "Across Tier";
+            hint: "The tier whose angles run along the map from left to right. Every other tier keeps its angle.";
+            label: "Across Tier to Sweep";
+            index <=> SweepModel.tier_index;
+            chosen => { SweepModel.tier_a_changed(); }
+        }
+        SweepNumberField {
+            caption: "From (degrees)";
+            hint: "One end of the across tier's range, in degrees from flat. Use a positive number: the crown or pavilion side comes from the tier. You can type a sum such as 41.5 - 3.";
+            placeholder: "from";
+            value <=> SweepModel.from_text;
+            enabled: !SweepModel.running;
+            edited => { SweepModel.form_changed_2d(); }
+        }
+        SweepNumberField {
+            caption: "To (degrees)";
+            hint: "The other end of the across tier's range, in degrees from flat.";
+            placeholder: "to";
+            value <=> SweepModel.to_text;
+            enabled: !SweepModel.running;
+            edited => { SweepModel.form_changed_2d(); }
+        }
+        SweepNumberField {
+            caption: "Step (degrees)";
+            hint: "The gap between two angles of the across tier, in degrees. A smaller step gives more columns and takes longer.";
+            placeholder: "step";
+            value <=> SweepModel.step_text;
+            enabled: !SweepModel.running;
+            edited => { SweepModel.form_changed_2d(); }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: 10px;
+        TierCombo {
+            caption: "Down Tier";
+            hint: "The tier whose angles run down the map from top to bottom. It must be a different tier from the across tier.";
+            label: "Down Tier to Sweep";
+            index <=> SweepModel.tier_b_index;
+            chosen => { SweepModel.tier_b_changed(); }
+        }
+        SweepNumberField {
+            caption: "From (degrees)";
+            hint: "One end of the down tier's range, in degrees from flat. Use a positive number: the crown or pavilion side comes from the tier. You can type a sum such as 41.5 - 3.";
+            placeholder: "from";
+            value <=> SweepModel.from_b_text;
+            enabled: !SweepModel.running;
+            edited => { SweepModel.form_changed_2d(); }
+        }
+        SweepNumberField {
+            caption: "To (degrees)";
+            hint: "The other end of the down tier's range, in degrees from flat.";
+            placeholder: "to";
+            value <=> SweepModel.to_b_text;
+            enabled: !SweepModel.running;
+            edited => { SweepModel.form_changed_2d(); }
+        }
+        SweepNumberField {
+            caption: "Step (degrees)";
+            hint: "The gap between two angles of the down tier, in degrees. A smaller step gives more rows and takes longer.";
+            placeholder: "step";
+            value <=> SweepModel.step_b_text;
+            enabled: !SweepModel.running;
+            edited => { SweepModel.form_changed_2d(); }
+        }
+        VerticalLayout {
+            alignment: end;
+            SweepButton {
+                width: 120px;
+                // 32 px, like the fields beside it (the button is 30 px by default).
+                height: 32px;
+                text: SweepModel.running ? "Cancel" : "Run";
+                hint: root.run_hint;
+                icon: SweepModel.running ? @image-url("../../icons/close.svg") : @image-url("../../icons/play.svg");
+                primary: !SweepModel.running;
+                enabled: SweepModel.running || (SweepModel.form_ok_2d && SweepModel.confirm_tilt_text == "");
+                clicked => {
+                    if SweepModel.running {
+                        SweepModel.cancel();
+                    } else {
+                        SweepModel.run_2d();
+                    }
+                }
+            }
+        }
+    }
+
+    HorizontalLayout {
+        spacing: 16px;
+        SweepCheck {
+            label: "Also Average the Tilt Performance (Slower)";
+            hint: "Also work out the tilt performance of every angle pair and average it, so the map can show it. It gives a fuller picture but makes the sweep much slower.";
+            checked <=> SweepModel.tilt_average;
+            enabled: !SweepModel.running;
+            toggled => { SweepModel.form_changed_2d(); }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: SweepModel.cells_summary;
+            font-size: 11px;
+            color: SweepModel.form_ok_2d ? Theme.text-secondary : Theme.danger;
+            wrap: word-wrap;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            accessible-role: AccessibleRole.text;
+        }
+    }
+
+    // The one question before a long sweep with tilt averages.
+    if SweepModel.confirm_tilt_text != "": Rectangle {
+        height: 40px;
+        background: Theme.notice-surface;
+        border-radius: Theme.radius-sm;
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            padding-top: 5px;
+            padding-bottom: 5px;
+            spacing: 8px;
+            Text {
+                horizontal-stretch: 1;
+                text: SweepModel.confirm_tilt_text;
+                font-size: 11px;
+                color: Theme.notice-text;
+                wrap: word-wrap;
+                vertical-alignment: center;
+                accessible-role: AccessibleRole.text;
+            }
+            SweepButton {
+                text: "Run Anyway";
+                hint: "Run the sweep with tilt averages, although it takes this long.";
+                primary: true;
+                clicked => { SweepModel.confirm_tilt(true); }
+            }
+            SweepButton {
+                text: "Cancel";
+                hint: "Do not run the sweep. Change the ranges or leave the tilt option off.";
+                clicked => { SweepModel.confirm_tilt(false); }
+            }
+        }
+    }
+
+    if SweepModel.running: Rectangle {
+        height: 6px;
+        border-radius: 3px;
+        background: Theme.surface-chip;
+        accessible-role: AccessibleRole.progress-indicator;
+        accessible-label: "Sweep Progress";
+        accessible-value: Math.round(Math.clamp(SweepModel.progress, 0.0, 1.0) * 100) + " percent";
+        Rectangle {
+            x: 0px;
+            width: parent.width * SweepModel.progress;
+            height: 100%;
+            border-radius: 3px;
+            background: Theme.accent-cyan;
+        }
+    }
+
+    Rectangle { height: 1px; background: Theme.surface-raised; }
+
+    // 2. The results: the heat map with its axes, and the figure choice and color scale.
+    if SweepModel.has_results_2d: VerticalLayout {
+        vertical-stretch: 1;
+        spacing: 6px;
+        Text {
+            text: SweepModel.result_title_2d;
+            font-size: 12px;
+            font-weight: 700;
+            color: Theme.text-primary;
+            overflow: elide;
+            accessible-role: AccessibleRole.text;
+        }
+        HorizontalLayout {
+            vertical-stretch: 1;
+            spacing: 12px;
+            // The map: the down tier's name at its side, the across tier's under it.
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 4px;
+                HorizontalLayout {
+                    vertical-stretch: 1;
+                    spacing: 8px;
+                    Text {
+                        width: 76px;
+                        text: SweepModel.down_label;
+                        font-size: 10px;
+                        color: Theme.text-muted;
+                        wrap: word-wrap;
+                        vertical-alignment: center;
+                        horizontal-alignment: right;
+                        accessible-role: AccessibleRole.text;
+                    }
+                    SweepHeatmap {
+                        horizontal-stretch: 1;
+                        vertical-stretch: 1;
+                        min-height: 120px;
+                    }
+                }
+                Text {
+                    text: SweepModel.across_label;
+                    font-size: 10px;
+                    color: Theme.text-muted;
+                    horizontal-alignment: center;
+                    overflow: elide;
+                    accessible-role: AccessibleRole.text;
+                }
+            }
+            // The figure and its scale.
+            VerticalLayout {
+                width: 190px;
+                spacing: 8px;
+                alignment: start;
+                FieldCaption {
+                    text: "Figure";
+                    hint: "The figure the map shows. Bright cells are the best values of the figure.";
+                }
+                Rectangle {
+                    height: 32px;
+                    background: Theme.surface-raised;
+                    border-radius: Theme.radius-sm;
+                    border-width: 1px;
+                    border-color: Theme.border-dialog;
+                    TipBox {
+                        width: 100%;
+                        height: 100%;
+                        hint: "The figure the map shows. Bright cells are the best values of the figure.";
+                        ComboBox {
+                            min-width: 0px;
+                            model: SweepModel.heat_figure_options;
+                            current-index <=> SweepModel.heat_figure_index;
+                            accessible-label: "Figure on the Heat Map";
+                            selected(value) => { SweepModel.heat_figure_changed(); }
+                        }
+                    }
+                }
+                SweepCheck {
+                    label: "Outline the Best Cells";
+                    hint: "Outline the angle pairs that are as good as the best one, within the noise of the figure: the plateau you can choose from.";
+                    checked <=> SweepModel.contour;
+                    toggled => { SweepModel.contour_changed(); }
+                }
+                Image {
+                    source: SweepModel.legend_image;
+                    height: 12px;
+                    image-fit: fill;
+                    image-rendering: pixelated;
+                    accessible-role: AccessibleRole.image;
+                    accessible-label: "Color Scale of the Heat Map";
+                    accessible-description: SweepModel.legend_low + " to " + SweepModel.legend_high;
+                }
+                HorizontalLayout {
+                    Text {
+                        horizontal-stretch: 1;
+                        text: SweepModel.legend_low;
+                        font-size: 10px;
+                        color: Theme.text-secondary;
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: SweepModel.legend_high;
+                        font-size: 10px;
+                        color: Theme.text-secondary;
+                        horizontal-alignment: right;
+                    }
+                }
+                Text {
+                    text: SweepModel.legend_note;
+                    font-size: 10px;
+                    font-italic: true;
+                    color: Theme.text-muted;
+                    wrap: word-wrap;
+                    accessible-role: AccessibleRole.text;
+                }
+            }
+        }
+
+        // 3. The readout of the pair under the pointer, else the selected pair.
+        VerticalLayout {
+            height: 62px;
+            spacing: 2px;
+            Text {
+                text: SweepModel.selected_cell_text;
+                font-size: 11px;
+                font-weight: 700;
+                color: Theme.text-primary;
+                overflow: elide;
+                accessible-role: AccessibleRole.text;
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                for item[index] in SweepModel.readout_items: Text {
+                    text: item;
+                    font-size: 11px;
+                    color: SweepModel.readout_tones[index] == 1 ? Theme.accent-emerald
+                        : (SweepModel.readout_tones[index] == 2 ? Theme.danger : Theme.text-secondary);
+                    accessible-role: AccessibleRole.text;
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            Text {
+                text: SweepModel.readout_notes;
+                font-size: 10px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+                accessible-role: AccessibleRole.text;
+            }
+        }
+    }
+    if !SweepModel.has_results_2d: Rectangle {
+        vertical-stretch: 1;
+        Text {
+            width: 100%;
+            height: 100%;
+            text: SweepModel.running
+                ? "Working..."
+                : "Pick two tiers and a range for each, then press Run. Every angle pair is solved and scored on a copy of the design, so your design is not changed. When the sweep is done, pick the pair you like on the map and press Use These Angles.";
+            font-size: 12px;
+            color: Theme.text-muted;
+            wrap: word-wrap;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    Rectangle { height: 1px; background: Theme.surface-raised; }
+
+    // 4. The footer.
+    HorizontalLayout {
+        spacing: 8px;
+        Text {
+            horizontal-stretch: 1;
+            text: SweepModel.status_text;
+            font-size: 11px;
+            color: Theme.text-secondary;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+        SweepButton {
+            text: "Use These Angles";
+            hint: SweepModel.cells_usable && !SweepModel.running
+                ? "Make the selected pair the angles of the two tiers. It is one change, and Undo takes it back."
+                : (SweepModel.running
+                    ? "Wait for the sweep to finish, or cancel it."
+                    : (SweepModel.cell_selected
+                        ? "This pair cannot be used: it gives no stone,\nor it is the design's own pair. Pick another pair on the map."
+                        : "Select an angle pair first, on the map. A pair that\ngives no stone, or the design's own pair, cannot be used."));
+            icon: @image-url("../../icons/check.svg");
+            primary: true;
+            enabled: SweepModel.cells_usable && !SweepModel.running;
+            clicked => { SweepModel.use_cells(); }
+        }
+        SweepButton {
+            text: "Refine Around This";
+            hint: SweepModel.cell_selected && !SweepModel.running
+                ? "Sweep a finer grid around the selected pair, with about the same number of angle pairs."
+                : "Select an angle pair on the map first.";
+            enabled: SweepModel.cell_selected && !SweepModel.running;
+            clicked => { SweepModel.refine(); }
+        }
+        SweepButton {
+            text: "Copy CSV";
+            hint: SweepModel.has_results_2d
+                ? "Copy every angle pair and its figures to the clipboard as comma-separated text, to paste into a spreadsheet."
+                : "Run a sweep first: there is nothing to copy yet.";
+            icon: @image-url("../../icons/copy.svg");
+            enabled: SweepModel.has_results_2d;
+            clicked => { SweepModel.copy_csv_2d(); }
+        }
+        SweepButton {
+            text: "Save CSV...";
+            hint: SweepModel.has_results_2d
+                ? "Save every angle pair and its figures as a .csv file that a spreadsheet opens."
+                : "Run a sweep first: there is nothing to save yet.";
+            icon: @image-url("../../icons/save.svg");
+            enabled: SweepModel.has_results_2d;
+            clicked => { SweepModel.save_csv_2d(); }
+        }
+        SweepButton {
+            text: "Close";
+            hint: "Close the angle sweep. A sweep that is running is stopped. Escape does the same.";
+            clicked => { SweepModel.close_dialog(); }
+        }
+    }
+}

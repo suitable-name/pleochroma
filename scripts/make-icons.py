@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Generates the Windows application icons for indicatrix's two public binaries.
+"""Generates the Windows application icons for pleochroma's two public binaries.
 
 Run from the workspace root:
 
     python scripts/make-icons.py
 
 Writes:
-    apps/indicatrix-cut/assets/icon.ico     + icon.png   (viewer, cyan)
-    apps/indicatrix-worker/assets/icon.ico   + icon.png   (server, emerald)
+    apps/pleochroma-cut/assets/icon.ico     + icon.png   (viewer, cyan)
+    apps/pleochroma-worker/assets/icon.ico   + icon.png   (server, emerald)
 
 The generated files are committed. This script exists so the icons are reproducible
 and adjustable rather than opaque binaries nobody can regenerate -- rerun it after
@@ -189,5 +189,5 @@ if __name__ == "__main__":
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     # Two accents so the viewer and the server are told apart at a glance in a taskbar
     # or an output directory full of PGO build variants.
-    build(os.path.join(root, "apps", "indicatrix-cut", "assets"), "#38bdf8")
-    build(os.path.join(root, "apps", "indicatrix-worker", "assets"), "#10b981")
+    build(os.path.join(root, "apps", "pleochroma-cut", "assets"), "#38bdf8")
+    build(os.path.join(root, "apps", "pleochroma-worker", "assets"), "#10b981")

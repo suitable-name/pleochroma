@@ -1,0 +1,511 @@
+import { Theme } from "../theme.slint";
+import { EditorModel } from "../models/editor.slint";
+import { GuideModel } from "../models/guide.slint";
+import { ActivityModel, ActivityItem } from "../models/activity.slint";
+import { StaleBadge } from "stale_badge.slint";
+import { EditorLogPopup } from "editor_log_popup.slint";
+// The overall Good / Check / Problem verdict -- see `models/verdict.slint`.
+import { VerdictModel } from "../models/verdict.slint";
+import { VerdictBadge } from "verdict_badge.slint";
+// The strip's hand-drawn chips are buttons for the keyboard and a screen reader (`TouchButton`),
+// and a "?" at its right end opens the manual page on the strip.
+import { TouchButton } from "touch_button.slint";
+import { HelpButton } from "help_button.slint";
+import { HelpTopics } from "../models/help.slint";
+
+// One compact chip per `ActivityModel` entry -- an indeterminate pulsing dot
+// or a thin progress bar, the activity's own label, elapsed seconds (derived
+// from `ActivityModel.now_ms`/`ActivityItem.started_ms`, see that property's
+// own doc comment), and a Cancel button when `item.cancellable`.
+component ActivityChip inherits Rectangle {
+    in property <ActivityItem> item;
+
+    width: layout.preferred-width;
+    height: layout.preferred-height;
+    border-radius: Theme.radius-sm;
+    background: Theme.accent-cyan;
+
+    // Pulses an indeterminate activity's own dot roughly twice a second -- a
+    // plain component-local `Timer`, the same proven idiom
+    // `solid_viewport.slint`'s own resize-pulse timer already uses, rather than a
+    // CSS-style looping `animate` block.
+    property <bool> pulse_on: true;
+    Timer {
+        interval: 500ms;
+        running: item.progress < 0;
+        triggered => { root.pulse_on = !root.pulse_on; }
+    }
+
+    layout := HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        padding-top: 3px;
+        padding-bottom: 3px;
+        spacing: 6px;
+
+        Rectangle {
+            width: 6px;
+            height: 6px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 3px;
+            background: Theme.bg-darkest;
+            opacity: item.progress < 0 ? (root.pulse_on ? 1.0 : 0.3) : 1.0;
+        }
+
+        Text {
+            text: item.label + " -- " + Math.max(0, (ActivityModel.now_ms - item.started_ms) / 1000) + "s";
+            font-size: 10px;
+            font-weight: 700;
+            color: Theme.bg-darkest;
+            vertical-alignment: center;
+        }
+
+        // A real completion fraction (Optimize's evaluation count, say) draws as
+        // a thin bar instead of the pulsing dot alone. Track and fill are
+        // siblings (not nested) so the track's own reduced `opacity` never
+        // cascades onto the fill.
+        if item.progress >= 0: Rectangle {
+            width: 40px;
+            height: 4px;
+            y: (parent.height - self.height) / 2;
+            track := Rectangle {
+                width: 100%;
+                height: 100%;
+                border-radius: 2px;
+                background: Theme.bg-darkest;
+                opacity: 0.25;
+            }
+            Rectangle {
+                x: 0;
+                width: parent.width * Math.max(0.0, Math.min(1.0, item.progress));
+                height: 100%;
+                border-radius: 2px;
+                background: Theme.bg-darkest;
+            }
+        }
+
+        if item.cancellable: Rectangle {
+            // 20 px wide: the smallest easy target.
+            width: 20px;
+            // The cross is an icon: the UI font has no cross-mark symbol.
+            Image {
+                source: @image-url("../icons/close.svg");
+                colorize: cancel_touch.has_hover ? Theme.danger : Theme.bg-darkest;
+                width: 9px;
+                height: 9px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                image-fit: contain;
+            }
+            cancel_touch := TouchButton {
+                label: "Cancel " + item.label;
+                hint: "Cancel " + item.label + ".";
+                ring_color: Theme.bg-darkest;
+                clicked => { ActivityModel.cancel(item.id); }
+            }
+        }
+    }
+}
+
+export component EditorStatusStrip inherits Rectangle {
+    height: 26px;
+    background: Theme.bg-input;
+    border-radius: Theme.radius-sm;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+
+    // Bumped by the "Details" click handler below on every open, bound
+    // declaratively into `log_popup.open_pulse` at that instantiation
+    // (bottom of this file) -- a `PopupWindow`'s own properties cannot be
+    // WRITTEN from an enclosing component's imperative code
+    // (`log_popup.open_pulse += 1` inside a `clicked` handler fails to
+    // compile with "Cannot access property or callback ... inside of a
+    // Window from enclosing component"), only bound to declaratively, the way
+    // `log_popup`'s `x`/`y` already are. See `EditorLogPopup.open_pulse`'s own
+    // doc comment for why this needs to be a counter, not a plain flag.
+    property <int> log_open_pulse: 0;
+
+    // Bound from `app.slint`'s `root.height` at this component's own call site,
+    // directly under the window -- forwarded to `log_popup.window_height` below
+    // so `EditorLogPopup`'s body can cap itself against the REAL window height
+    // instead of the 900px placeholder default (see that property's own doc
+    // comment).
+    in property <length> window_height: 900px;
+
+    property <bool> has_manuf: EditorModel.manufacturability_warnings.length > 0;
+    property <bool> has_preform_warn: EditorModel.preform_fit_warning != "";
+    // Deep Solve counts as a strip message only while it is actually doing
+    // something -- NOT merely because `deep_solve_hint` (always non-empty, see
+    // `view::deep_solve_hint`) or `!deep_solve_available` is set, since that
+    // would make this permanently true and starve every other segment below
+    // it. The always-present hint text lives in a `Tooltip` on the Deep Solve
+    // button itself (`EditorCommandBar`'s `AnalysisGroup`) instead.
+    property <bool> has_deep_solve: EditorModel.deep_solve_running || EditorModel.deep_solve_status != "";
+    property <bool> has_validation_problem: EditorModel.status_text != "" && EditorModel.status_is_problem;
+    property <bool> has_solved_message: EditorModel.status_text != "" && !EditorModel.status_is_problem;
+    property <bool> has_material_suggestion: EditorModel.material_suggestion_text != "";
+
+    // Priority order: the solver's own state leads -- a running solve, then any real
+    // validation problem (this also covers the "Not solved -- click Solve" stale
+    // marker every edit sets via `view::push_stale_content`, so a cutter can never
+    // read a stale/unsolvable preview as current just because nothing else is
+    // flagged). Advisory findings that never block anything (manufacturability,
+    // rough fit) come next, then the plain "solved" confirmation, then Deep Solve's
+    // own in-progress/verdict message, and finally the catalogue material
+    // suggestion.
+    //
+    // While a solve runs, its activity chip (`ActivityChip`, with the label and the elapsed
+    // time and a cancel button) already says "Solving... (N tiers) -- Ns", so the message slot
+    // stays empty then instead of saying it a second time.
+    property <string> strip_text: EditorModel.solve_running ? (ActivityModel.busy ? "" : EditorModel.status_text)
+        : root.has_validation_problem ? EditorModel.status_text
+        : root.has_manuf ? (EditorModel.manufacturability_warnings.length + " manufacturability warning(s)")
+        : root.has_preform_warn ? EditorModel.preform_fit_warning
+        : root.has_solved_message ? EditorModel.status_text
+        : root.has_deep_solve ? EditorModel.deep_solve_status
+        : root.has_material_suggestion ? EditorModel.material_suggestion_text
+        : "Nothing to report.";
+
+    // Labels/colors the persistent solver-state segment above, keyed off
+    // `EditorModel.solve_state` (set from `gui::editor::view`/
+    // `gui::editor::auto_solve`, per that global's own doc comment).
+    property <string> solver_state_label: EditorModel.solve_state == "solving" ? "Solving"
+        : EditorModel.solve_state == "stale" ? "Stale"
+        : EditorModel.solve_state == "failed" ? "Failed"
+        : "Solved";
+    // What the state word means, for the tooltip and a screen reader.
+    property <string> solver_state_hint: EditorModel.solve_state == "solving" ? "A solve is running. The tier table and the 3D view update when it finishes."
+        : EditorModel.solve_state == "stale" ? "The design changed since the last solve, so the tier table and the 3D view may be out of date. Press Solve (F5)."
+        : EditorModel.solve_state == "failed" ? "The last solve did not give a valid stone. Details says why."
+        : "The tier table and the 3D view match the design as it is now.";
+    property <color> solver_state_color: EditorModel.solve_state == "solving" ? Theme.accent-amber
+        : EditorModel.solve_state == "stale" ? Theme.accent-amber
+        : EditorModel.solve_state == "failed" ? Theme.accent-ruby
+        : Theme.accent-emerald;
+
+    property <color> strip_color: EditorModel.solve_running ? Theme.accent-amber
+        : root.has_validation_problem ? Theme.accent-ruby
+        : root.has_manuf ? Theme.accent-amber
+        : root.has_preform_warn ? Theme.accent-amber
+        : root.has_solved_message ? Theme.accent-emerald
+        : root.has_deep_solve ? (EditorModel.deep_solve_running ? Theme.accent-amber : (EditorModel.deep_solve_status_is_problem ? Theme.accent-ruby : Theme.accent-emerald))
+        : root.has_material_suggestion ? Theme.accent-cyan
+        : Theme.text-muted;
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 8px;
+
+        // Names the design these readouts describe -- the paired `.asc`'s
+        // file name, or "Untitled design" for a brand-new one
+        // (`gui::editor::state::design_label_text`). Always shown first, so a
+        // cutter never has to guess which design the tier table/status
+        // messages to its right belong to.
+        Text {
+            text: EditorModel.design_label;
+            font-size: 11px;
+            font-weight: 600;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+            overflow: elide;
+            max-width: min(160px, max(60px, root.width * 0.16));
+        }
+
+        // A persistent solver-state segment -- state dot +
+        // Solved/Stale/Solving/Failed, the tier count, and the last solve's
+        // duration -- always visible regardless of the strip's own single-message
+        // priority chain below, so a cutter never has to read a sentence to learn
+        // whether the table/3D view are current. `EditorModel.tiers.length` is
+        // free (an existing array property, no Rust push needed for the count).
+        // `EditorModel.solve_state`/`last_solve_duration_ms` are live (pushed
+        // from `gui::editor::view`/`gui::editor::auto_solve`); this segment and
+        // the Solve button's `primary:` binding (`editor_command_bar.slint`)
+        // both compile and render off them already. A per-design FACET count (as
+        // opposed to the tier count below) is not included: no existing
+        // field carries it (an
+        // `EditorTierItem` describes one schedule row, not the facet count that
+        // row's orbit expands to), so surfacing it would need its own new Rust
+        // computation and property.
+        //
+        // Every fixed-height segment of this row sits in a `VerticalLayout { alignment:
+        // center; }`: a child with an explicit height is placed at the top of a
+        // `HorizontalLayout`, which put the segments on different baselines.
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: solver_state_layout.preferred-width;
+                height: solver_state_layout.preferred-height;
+                accessible-role: AccessibleRole.text;
+                accessible-label: "Solver State: " + root.solver_state_label + ", " + EditorModel.tiers.length + (EditorModel.tiers.length == 1 ? " tier" : " tiers");
+                accessible-description: root.solver_state_hint;
+                Tooltip { text: @markdown("\{root.solver_state_hint}"); }
+                solver_state_layout := HorizontalLayout {
+                    spacing: 5px;
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle { width: 8px; height: 8px; border-radius: 4px; background: root.solver_state_color; }
+                    }
+                    Text { text: root.solver_state_label; font-size: 10px; font-weight: 700; color: root.solver_state_color; vertical-alignment: center; }
+                    Text {
+                        text: EditorModel.tiers.length + (EditorModel.tiers.length == 1 ? " tier" : " tiers");
+                        font-size: 10px;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                    }
+                    // Shown only once something has solved -- a facet count of 0
+                    // would read as a claim about the design rather than as "not
+                    // solved yet", which the state dot to the left already says.
+                    // Left out on a narrow strip (the smallest window): lowest-priority detail, and
+                    // the fixed segments must leave "Details" and "?" room inside the window.
+                    if EditorModel.facet_count > 0 && root.width >= 760px: Text {
+                        text: "- " + EditorModel.facet_count + " facets";
+                        font-size: 10px;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                    }
+                    // How long the last solve took: advanced detail, left out of the Simple interface.
+                    if EditorModel.last_solve_duration_ms > 0 && GuideModel.shows_advanced() && root.width >= 760px: Text {
+                        text: "· " + EditorModel.last_solve_duration_ms + " ms";
+                        font-size: 10px;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // The overall verdict on the design: one word, its reasons and their fixes one
+        // click away (`VerdictBadge`). Always shown beside the solver state, outside the
+        // single-message priority chain below, for the same reason as the "UNSAVED" marker:
+        // whether the stone is sound is a fact, not a message competing for one slot.
+        // Hidden while there is nothing to judge (`level` is -1).
+        if VerdictModel.level >= 0: VerticalLayout {
+            alignment: center;
+            verdict-badge-l628 := VerdictBadge {
+                window_height: root.window_height;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            Rectangle { width: 1px; height: 14px; background: Theme.border-subtle; }
+        }
+
+        // Always shown while the design has unsaved edits, regardless of which
+        // message above currently has priority -- data loss is worth a permanent
+        // marker, not just the window title's leading "* " (`app.slint`), which is
+        // easy to miss. See `EditorModel.is_dirty`'s own doc comment.
+        if EditorModel.is_dirty: VerticalLayout {
+            alignment: center;
+            Rectangle {
+                // Explicit width/height bound to the named inner layout's own
+                // preferred size -- same idiom the "Log" segment below uses
+                // (`log_row.preferred-width`/`-height`), needed because a plain
+                // `Rectangle` does not size itself to an unnamed child on its own.
+                width: unsaved_layout.preferred-width;
+                height: unsaved_layout.preferred-height;
+                border-radius: Theme.radius-sm;
+                background: Theme.accent-amber;
+                accessible-role: AccessibleRole.text;
+                accessible-label: "Unsaved Changes";
+                accessible-description: "This design has changes that are not saved to its file yet. Save with Ctrl+S.";
+                Tooltip { text: @markdown("This design has changes that are not saved to its file yet. Save with Ctrl+S."); }
+                // The same vertical padding as `ActivityChip`, so the chips are one height.
+                unsaved_layout := HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    padding-top: 3px;
+                    padding-bottom: 3px;
+                    Text {
+                        text: "UNSAVED";
+                        font-size: 10px;
+                        font-weight: 700;
+                        color: Theme.bg-darkest;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // Solve, Deep Solve and Optimize could all be launched at once --
+        // this is the single place a cutter can see which one (if any) is
+        // currently running, alongside the cross-disabling on the launchers
+        // themselves (`EditorCommandBar`). Same "always shown regardless of
+        // the priority chain below" placement as the "UNSAVED" marker above,
+        // for the same reason: which action is running should never be
+        // pushed out by whatever the strip's own single-message priority
+        // chain currently shows.
+        //
+        // One `ActivityChip` per `ActivityModel` entry -- every long-running
+        // action routed through `gui::editor::activity::ActivityRegistry`
+        // (background auto-solve, Deep Solve, Optimize) shows up here with
+        // its own elapsed time and, where a real handle exists, a Cancel
+        // button that reaches the SAME cancellation path as that action's
+        // own dedicated Cancel/Abandon button.
+        if ActivityModel.busy: VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                spacing: 6px;
+                for a in ActivityModel.activities: ActivityChip { item: a; }
+            }
+        }
+
+        // A persistent marker, visible regardless of which single message the
+        // strip's own priority chain currently shows, so a stale Deep
+        // Solve/Optimize verdict is never silently hidden behind an unrelated
+        // "Solved" line -- clicking it opens the same Details popup that
+        // shows each one individually.
+        if (EditorModel.deep_solve_stale && !EditorModel.deep_solve_running)
+            || (EditorModel.optimize_stale && !EditorModel.optimize_running): VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: stale_marker_layout.preferred-width;
+                height: stale_marker_layout.preferred-height;
+                stale_marker_layout := StaleBadge { show_recompute: false; }
+                stale_marker_touch := TouchButton {
+                    label: "Out-of-Date Deep Solve or Optimize Result";
+                    hint: "The last Deep Solve or Optimize result no longer matches the design. Click to open the details.";
+                    clicked => { log_popup.show(); root.log_open_pulse += 1; }
+                }
+            }
+        }
+
+        // A persistent record of where the last Save/Export wrote,
+        // click-to-reveal in the OS file manager. Same "always shown, never
+        // subject to the priority chain" placement as the two markers above
+        // -- where a file went is a fact, not a message. The bare file name
+        // only; the full path is one click away in the Details popup (and is
+        // what the reveal itself uses).
+        if EditorModel.last_saved_label != "": VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: saved_layout.preferred-width;
+                height: saved_layout.preferred-height;
+                border-radius: Theme.radius-sm;
+                background: saved_touch.has_hover ? Theme.bg-card-hover : transparent;
+                border-width: 1px;
+                border-color: Theme.border-subtle;
+                saved_layout := HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    padding-top: 3px;
+                    padding-bottom: 3px;
+                    Text {
+                        text: "Saved: " + EditorModel.last_saved_label;
+                        font-size: 10px;
+                        font-weight: 600;
+                        color: Theme.accent-cyan;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        max-width: min(180px, max(60px, root.width * 0.18));
+                    }
+                }
+                saved_touch := TouchButton {
+                    label: "Saved: " + EditorModel.last_saved_label;
+                    hint: "Show the file you saved last in your file manager.";
+                    clicked => { EditorModel.reveal_last_saved_path(); }
+                }
+            }
+        }
+
+        // The message's colour dot; with no message (while a solve's chip speaks for
+        // itself) a dot alone would mean nothing.
+        if root.strip_text != "": VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: root.strip_color;
+            }
+        }
+
+        // A `Tooltip` (not a child of the enclosing `HorizontalLayout` -- see
+        // this file's own Slint-trap notes elsewhere in this app -- hence the
+        // wrapping plain `Rectangle`) carries the strip's message in full,
+        // and clicking it opens the same "Details" popup the link at the end
+        // of the strip does, so the full text is always one click (or one
+        // hover) away regardless of how badly it elides.
+        //
+        // At the smallest windows the fixed segments to its left take the whole row and this
+        // slot gets no width. It takes no `min-width`: the detail column clips instead of
+        // growing (`app.slint`), so a minimum here would push "Details" -- the same popup --
+        // off the right edge. The button is left out instead while the slot is too narrow to
+        // show any of the message, so no zero-width control sits in the Tab order.
+        strip_msg := Rectangle {
+            horizontal-stretch: 1;
+            Text {
+                x: 0px;
+                width: parent.width;
+                height: parent.height;
+                text: root.strip_text;
+                font-size: 11px;
+                color: root.strip_color;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            // On top of the text; its tooltip is the message in full plus what a click does.
+            if strip_msg.width >= 24px && root.strip_text != "": strip_msg_touch := TouchButton {
+                label: root.strip_text;
+                hint: root.strip_text + "\n\nClick to open the details.";
+                clicked => { log_popup.show(); root.log_open_pulse += 1; }
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: log_row.preferred-width;
+                height: log_row.preferred-height;
+                // "Details" is named for what it actually shows: a snapshot of
+                // the CURRENT state (`EditorLogPopup.log_text`'s own doc
+                // comment), not a running history a cutter could scroll back
+                // through to recover a message the strip's own single-slot
+                // priority chain has already replaced.
+                // The chevron points up because the popup opens above the strip. It is
+                // an icon, not a text glyph: the UI font has no small-triangle symbol.
+                log_row := HorizontalLayout {
+                    spacing: 4px;
+                    Text { text: "Details"; font-size: 11px; font-weight: 600; color: Theme.accent-cyan; vertical-alignment: center; }
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("../icons/chevron-up.svg");
+                            colorize: Theme.accent-cyan;
+                            width: 9px;
+                            height: 9px;
+                            image-fit: contain;
+                        }
+                    }
+                }
+                // Bumping `log_open_pulse` (bound into `log_popup.open_pulse`
+                // below) hands keyboard focus into the popup on every open, not
+                // just the first -- see `EditorLogPopup.open_pulse`'s own doc
+                // comment for why.
+                log_touch := TouchButton {
+                    label: "Details";
+                    hint: "Open every message about this design in full: the solve result, warnings, Deep Solve and Optimize results, and where it was last saved.";
+                    expandable: true;
+                    clicked => { log_popup.show(); root.log_open_pulse += 1; }
+                }
+            }
+        }
+
+        // The manual page on the status strip.
+        VerticalLayout {
+            alignment: center;
+            HelpButton {
+                topic: HelpTopics.status-strip;
+                hint: "Open the manual page on the status strip";
+            }
+        }
+    }
+
+    log_popup := EditorLogPopup {
+        x: parent.width - self.width - 12px;
+        y: -self.height - 6px;
+        open_pulse: root.log_open_pulse;
+        window_height: root.window_height;
+    }
+}

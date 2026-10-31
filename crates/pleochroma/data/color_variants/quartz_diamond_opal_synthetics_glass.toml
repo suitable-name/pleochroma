@@ -1,0 +1,887 @@
+# Built-in color variants: quartz, opal, synthetics, glass, rutile (diamond is the lead's).
+# Schema: see ../color_variants.toml. Research: docs/color_variants/R4_quartz_diamond_opal_synthetics_glass.md.
+# Fit records: docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md (lane F4).
+#
+# Conventions of this file (every entry): unit per_mm, reference_path_mm 7.0 (a 7 mm stone, whose face-up
+# path in the renderer is 9.905 mm = 3.5 mm per model unit x MODEL_UNIT_FACE_UP_PATH 2.83); peaks are the
+# Napierian absorption coefficient per millimetre; width_nm is sigma (cm^-1 for energy rows, nm for the one
+# wavelength row); keys are <material slug>.<label slug>. An isotropic host (opal, cubic zirconia, YAG,
+# glass) stores equal o_ray / e_ray sets with pleochroic = false; a uniaxial host stores o_ray (E perpendicular
+# to c) and e_ray (E parallel to c) with pleochroic = true, equal sets where the research shows no visible
+# pleochroism (citrine, prasiolite). estimated = true where any part rests on an estimate; entries from
+# measured Caltech spectra of both rays (smoky, pink crystalline, opal, rutile brownish red-orange and
+# orange) are false.
+# DIAMOND: the lead's entries go below (none here).
+#
+# Estimated flag (one rule for every data file): `estimated = true` when the spectrum shape is NOT a measured
+# spectrum of that variety, OR the strength is NOT anchored (no concentration, no published color value, a factor
+# chosen for how the variety looks). `estimated = false` only for a measured spectrum at a strength that a published
+# number fixes. The FIRST line of `sources` is one short plain sentence saying which part is estimated: the UI shows it
+# as the "Estimated" tooltip. The full citations follow on the later lines.
+
+data_version = 1
+
+# Amethyst, Deep Siberian: Fe4+ ([FeO4]0) color center; Anahi o-ray fitted, e-ray from the Report weights, 4.1 x the Anahi density.
+[[variant]]
+material = "Amethyst"
+key = "amethyst.deep_siberian"
+label = "Deep Siberian"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "o-ray measured (Anahi, Bolivia); e-ray and strength estimated.",
+  "o-ray: G. R. Rossman, Caltech Mineral Spectroscopy Server (CC BY-NC 4.0, DOI 10.7907/jywr-qq57), Anahi Mine, Bolivia, 6.17 mm slab, E perpendicular c, http://minerals.gps.caltech.edu/FILES/Visible/quartz/ameth.bo (reference_spectra/variant_amethyst_deep_siberian_eperpc.csv); 4 energy Gaussians fitted, constant baseline 0.217 A removed, rms 0.0041 A",
+  "e-ray: no measured spectrum; the o-ray bands times the Report weights 1.0 / 1.0 / 0.7 / 0.5 (UV, violet, 545 nm, 950 nm bands) from docs/chromophores/research-2026-10-polarized-spectra.md (secondary); estimated",
+  "Band positions (357, 545, 950 nm): Cox, J. Phys. C 10, 4631 (1977), as quoted in https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7483767/; strength scaled to the face-up target (4.1 x the Anahi density); estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#amethyst-deep-siberian"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 364.3, width_nm = 1914.75, peak = 0.612171, shape = "energy" },
+    { center_nm = 416.12, width_nm = 1236.3, peak = 0.162676, shape = "energy" },
+    { center_nm = 537.14, width_nm = 2197.48, peak = 0.358664, shape = "energy" },
+    { center_nm = 953.79, width_nm = 1304.91, peak = 0.0794293, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 364.3, width_nm = 1914.75, peak = 0.612171, shape = "energy" },
+    { center_nm = 416.12, width_nm = 1236.3, peak = 0.162676, shape = "energy" },
+    { center_nm = 537.14, width_nm = 2197.48, peak = 0.251065, shape = "energy" },
+    { center_nm = 953.79, width_nm = 1304.91, peak = 0.0397147, shape = "energy" },
+  ]
+
+# Amethyst, Rose de France: Same Fe4+ center as Deep Siberian at 0.5 x the Anahi density (very pale lilac).
+[[variant]]
+material = "Amethyst"
+key = "amethyst.rose_de_france"
+label = "Rose de France"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "o-ray measured (Anahi, Bolivia); e-ray and strength estimated.",
+  "o-ray: G. R. Rossman, Caltech Mineral Spectroscopy Server (CC BY-NC 4.0, DOI 10.7907/jywr-qq57), Anahi Mine, Bolivia, 6.17 mm slab, E perpendicular c, http://minerals.gps.caltech.edu/FILES/Visible/quartz/ameth.bo (reference_spectra/variant_amethyst_deep_siberian_eperpc.csv); 4 energy Gaussians fitted, constant baseline 0.217 A removed, rms 0.0041 A",
+  "e-ray: no measured spectrum; the o-ray bands times the Report weights 1.0 / 1.0 / 0.7 / 0.5 from docs/chromophores/research-2026-10-polarized-spectra.md (secondary); estimated",
+  "Same color center as Deep Siberian at 0.5 x the Anahi density (a pale grade has no spectrum of its own); estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#amethyst-rose-de-france"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 364.3, width_nm = 1914.75, peak = 0.074655, shape = "energy" },
+    { center_nm = 416.12, width_nm = 1236.3, peak = 0.0198385, shape = "energy" },
+    { center_nm = 537.14, width_nm = 2197.48, peak = 0.0437395, shape = "energy" },
+    { center_nm = 953.79, width_nm = 1304.91, peak = 0.0096865, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 364.3, width_nm = 1914.75, peak = 0.074655, shape = "energy" },
+    { center_nm = 416.12, width_nm = 1236.3, peak = 0.0198385, shape = "energy" },
+    { center_nm = 537.14, width_nm = 2197.48, peak = 0.0306176, shape = "energy" },
+    { center_nm = 953.79, width_nm = 1304.91, peak = 0.00484325, shape = "energy" },
+  ]
+
+# Citrine, Madeira: Fe3+ aggregate edge (4 bands refitted from the table), equal o and e sets, 7 x the golden table density.
+[[variant]]
+material = "Citrine"
+key = "citrine.madeira"
+label = "Madeira"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Shape refitted from a secondary table; strength estimated.",
+  "Shape: the 19-point alpha(lambda) table of reference_spectra/citrine_annealed_amethyst.csv (docs/chromophores/research-2026-10-polarized-spectra.md section 4; user-delivered, secondary, unverified), refitted here with 4 energy Gaussians (log rms 0.06, within 10 % from 350 to 635 nm)",
+  "Cause: Fe3+ in iron oxide-hydroxide aggregates, Caltech https://minerals.gps.caltech.edu/Ametrine/Index.html; no polarized spectrum exists and the pleochroism of citrine is negligible: o and e sets are equal (stored pleochroic because the host is uniaxial)",
+  "Strength: 7 x the table density, set by the face-up target (Madeira = deep orange-brown); estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#citrine-madeira"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 334.06, width_nm = 3489.62, peak = 10.6029, shape = "energy" },
+    { center_nm = 421.3, width_nm = 2580.16, peak = 1.27085, shape = "energy" },
+    { center_nm = 568.22, width_nm = 1438.45, peak = 0.0647234, shape = "energy" },
+    { center_nm = 700.0, width_nm = 3000.0, peak = 0.0148988, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 334.06, width_nm = 3489.62, peak = 10.6029, shape = "energy" },
+    { center_nm = 421.3, width_nm = 2580.16, peak = 1.27085, shape = "energy" },
+    { center_nm = 568.22, width_nm = 1438.45, peak = 0.0647234, shape = "energy" },
+    { center_nm = 700.0, width_nm = 3000.0, peak = 0.0148988, shape = "energy" },
+  ]
+
+# Quartz, Smoky: Al hole center; both rays fitted from Caltech GRR 2918, 0.43 x the Caltech density.
+[[variant]]
+material = "Quartz"
+key = "quartz.smoky"
+label = "Smoky"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 2918).",
+  "G. R. Rossman, Caltech Mineral Spectroscopy Server (CC BY-NC 4.0, DOI 10.7907/jywr-qq57), GRR 2918, smoky quartz, Jack Rabbit Claim, Teller County, Colorado, 5.788 mm, E perpendicular c and E parallel c: http://minerals.gps.caltech.edu/FILES/Visible/quartz/Quartz2918%20perp%20c.asc and .../Quartz2918%20parallel%20c.asc (reference_spectra/variant_quartz_smoky_eperpc.csv, ..._eparc.csv)",
+  "Fit: 4 (o) and 5 (e) energy Gaussians on 381-1050 nm with the Fresnel reflection loss (0.040 / 0.041 A) removed, rms 0.0016 / 0.0046 A; the e-ray absorbs 1.5-1.75 x more than the o-ray (measured)",
+  "Cause: Al hole center [AlO4/h+]0, https://rruff.info/doclib/MinMag/Volume_41/41-319-301.htm (bands near 365, 428, 475, 650 nm); strength scaled to 0.43 x the very dark Caltech crystal for a typical smoky gem",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#quartz-smoky"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 358.551, width_nm = 3831.1, peak = 0.1598, shape = "energy" },
+    { center_nm = 500.0, width_nm = 3544.98, peak = 0.137806, shape = "energy" },
+    { center_nm = 676.49, width_nm = 2107.47, peak = 0.0448458, shape = "energy" },
+    { center_nm = 846.26, width_nm = 1274.22, peak = 0.00603122, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 345.0, width_nm = 2000.0, peak = 0.248211, shape = "energy" },
+    { center_nm = 410.683, width_nm = 2500.0, peak = 0.196408, shape = "energy" },
+    { center_nm = 493.897, width_nm = 2252.2, peak = 0.162545, shape = "energy" },
+    { center_nm = 659.15, width_nm = 2524.26, peak = 0.136204, shape = "energy" },
+    { center_nm = 856.595, width_nm = 1261.01, peak = 0.00397052, shape = "energy" },
+  ]
+
+# Quartz, Pink (Crystalline): P / O- hole center in a transparent crystal; both rays fitted from Caltech GRR 2352, 0.7 x the measured density.
+[[variant]]
+material = "Quartz"
+key = "quartz.pink_crystalline"
+label = "Pink (Crystalline)"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 2352).",
+  "G. R. Rossman, Caltech Mineral Spectroscopy Server (CC BY-NC 4.0, DOI 10.7907/jywr-qq57), GRR 2352, crystalline pink quartz, Mount Mica, Maine, 3.681 mm, E perpendicular c and E parallel c: http://minerals.gps.caltech.edu/FILES/Visible/quartz/Pink_quartz_2352_a.txt and .../Pink_quartz_2352_c.txt (reference_spectra/variant_quartz_pink_crystalline_eperpc.csv, ..._eparc.csv)",
+  "Fit: 3 energy Gaussians per ray on 390-1050 nm with the Fresnel reflection loss (0.040 / 0.041 A) removed, rms 0.0017 / 0.0012 A; the o-ray absorbs 2 x more at 525 nm than the e-ray (measured)",
+  "Cause: P substitution plus an O- hole center (Caltech https://minerals.gps.caltech.edu/FILES/Visible/quartz/Index.html); replaces massive Rose Quartz (dropped); 0.7 x the measured density for a light pink stone",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#quartz-pink-crystalline"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 372.037, width_nm = 6000.0, peak = 0.0614946, shape = "energy" },
+    { center_nm = 523.897, width_nm = 1722.84, peak = 0.0416634, shape = "energy" },
+    { center_nm = 776.726, width_nm = 3375.87, peak = 0.0205667, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 388.161, width_nm = 6000.0, peak = 0.0534973, shape = "energy" },
+    { center_nm = 528.875, width_nm = 1721.7, peak = 0.0203308, shape = "energy" },
+    { center_nm = 846.164, width_nm = 5000.0, peak = 0.0284632, shape = "energy" },
+  ]
+
+# Quartz, Prasiolite: Estimated: Fe2+ 720 nm band plus a weak Fe3+ edge, equal o and e sets (cause disputed).
+[[variant]]
+material = "Quartz"
+key = "quartz.prasiolite"
+label = "Prasiolite"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Bands: 720 nm Fe2+ (Fe2+-Fe3+ charge transfer; Platonov 1992 and Czaja, https://rebus.us.edu.pl/bitstream/20.500.12128/3822/1/Czaja_The_Mossbauer_spectra_of_prasiolite_and_amethyst_crystals.pdf), weak 442 nm Fe band (Paradise 1982, Gems & Gemology), plus the Fe3+ edge of the Citrine fit at 0.1 x (docs/color_variants/R4_quartz_diamond_opal_synthetics_glass.md section 3.5)",
+  "No polarized spectrum and the cause is disputed in the literature: equal o and e sets; the 0.90 cm^-1 peak is the Report value 0.03 cm^-1/ppm Fe2+ at 30 ppm (secondary); estimated",
+  "Strength: 1.5 x R4's base amounts, set by the face-up target (pale leek green)",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#quartz-prasiolite"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 720.0, width_nm = 1486.0, peak = 0.135, shape = "energy" },
+    { center_nm = 442.0, width_nm = 1500.0, peak = 0.03, shape = "energy" },
+    { center_nm = 334.06, width_nm = 3489.62, peak = 0.227205, shape = "energy" },
+    { center_nm = 421.3, width_nm = 2580.16, peak = 0.0272325, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 720.0, width_nm = 1486.0, peak = 0.135, shape = "energy" },
+    { center_nm = 442.0, width_nm = 1500.0, peak = 0.03, shape = "energy" },
+    { center_nm = 334.06, width_nm = 3489.62, peak = 0.227205, shape = "energy" },
+    { center_nm = 421.3, width_nm = 2580.16, peak = 0.0272325, shape = "energy" },
+  ]
+
+# Opal, Fire Orange: Fe3+ (hematite-like domains); one stone, both plates fitted jointly; 0.055 x the cherry density.
+[[variant]]
+material = "Opal"
+key = "opal.fire_orange"
+label = "Fire Orange"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 1824 cherry opal).",
+  "G. R. Rossman, Caltech Mineral Spectroscopy Server (CC BY-NC 4.0, DOI 10.7907/jywr-qq57), GRR 1824, cherry opal, Opal Mountain, San Bernardino County, California, 0.537 mm and 1.282 mm plates: http://minerals.gps.caltech.edu/FILES/Visible/opal/opal1824_537um.txt and .../opal1824_1282um.txt (reference_spectra/variant_opal_fire_red_0p537mm_iso.csv, ..._1p282mm_iso.csv)",
+  "Fit: 5 energy Gaussians fitted jointly to both plates (per-millimetre consistent) on 440-1000 nm, plate baselines 0.085 / 0.10 A (reflection plus scatter) removed, rms 0.0067 A",
+  "Cause: Fe3+ in sub-microscopic hematite-like domains (Rossman, https://minerals.gps.caltech.edu/FILES/Visible/opal/Index.html); isotropic; strength 0.055 x the (very dense) cherry plate, set by the face-up target",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#opal-fire-orange"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 435.96, width_nm = 2202.46, peak = 0.512853, shape = "energy" },
+    { center_nm = 496.21, width_nm = 809.62, peak = 0.078001, shape = "energy" },
+    { center_nm = 533.28, width_nm = 772.72, peak = 0.115076, shape = "energy" },
+    { center_nm = 609.24, width_nm = 977.09, peak = 0.00776765, shape = "energy" },
+    { center_nm = 680.0, width_nm = 2500.0, peak = 0.00823295, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 435.96, width_nm = 2202.46, peak = 0.512853, shape = "energy" },
+    { center_nm = 496.21, width_nm = 809.62, peak = 0.078001, shape = "energy" },
+    { center_nm = 533.28, width_nm = 772.72, peak = 0.115076, shape = "energy" },
+    { center_nm = 609.24, width_nm = 977.09, peak = 0.00776765, shape = "energy" },
+    { center_nm = 680.0, width_nm = 2500.0, peak = 0.00823295, shape = "energy" },
+  ]
+
+# Opal, Fire Red: Same fit as Fire Orange at 0.25 x the cherry density (deep orange-red).
+[[variant]]
+material = "Opal"
+key = "opal.fire_red"
+label = "Fire Red"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 1824 cherry opal).",
+  "G. R. Rossman, Caltech Mineral Spectroscopy Server (CC BY-NC 4.0, DOI 10.7907/jywr-qq57), GRR 1824, cherry opal, Opal Mountain, San Bernardino County, California, 0.537 mm and 1.282 mm plates: http://minerals.gps.caltech.edu/FILES/Visible/opal/opal1824_537um.txt and .../opal1824_1282um.txt (reference_spectra/variant_opal_fire_red_0p537mm_iso.csv, ..._1p282mm_iso.csv)",
+  "Fit: 5 energy Gaussians fitted jointly to both plates on 440-1000 nm, plate baselines 0.085 / 0.10 A removed, rms 0.0067 A",
+  "Cause: Fe3+ in sub-microscopic hematite-like domains; isotropic; strength 0.25 x the cherry plate, set by the face-up target",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#opal-fire-red"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 435.96, width_nm = 2202.46, peak = 2.33115, shape = "energy" },
+    { center_nm = 496.21, width_nm = 809.62, peak = 0.35455, shape = "energy" },
+    { center_nm = 533.28, width_nm = 772.72, peak = 0.523075, shape = "energy" },
+    { center_nm = 609.24, width_nm = 977.09, peak = 0.0353075, shape = "energy" },
+    { center_nm = 680.0, width_nm = 2500.0, peak = 0.0374225, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 435.96, width_nm = 2202.46, peak = 2.33115, shape = "energy" },
+    { center_nm = 496.21, width_nm = 809.62, peak = 0.35455, shape = "energy" },
+    { center_nm = 533.28, width_nm = 772.72, peak = 0.523075, shape = "energy" },
+    { center_nm = 609.24, width_nm = 977.09, peak = 0.0353075, shape = "energy" },
+    { center_nm = 680.0, width_nm = 2500.0, peak = 0.0374225, shape = "energy" },
+  ]
+
+# Rutile, Brownish Red-Orange: Fe / Cr (V, Nb) charge-transfer edge; both rays fitted; strength by the face-up target, not the disputed thickness.
+[[variant]]
+material = "Rutile"
+key = "rutile.brownish_red_orange"
+label = "Brownish Red-Orange"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (rutile 250-2h d).",
+  "G. R. Rossman, Caltech Mineral Spectroscopy Server (CC BY-NC 4.0, DOI 10.7907/jywr-qq57), rutile 250-2h d, North Carolina, brownish red-orange, E perpendicular c and E parallel c: http://minerals.gps.caltech.edu/FILES/Visible/Rutile/Rutile%20250-2h%20d.a.txt and .../Rutile%20250-2h%20d.c.txt (reference_spectra/variant_rutile_brownish_red_orange_eperpc.csv, ..._eparc.csv)",
+  "Fit: 3 energy Gaussians per ray on 450-1100 nm (edge, broad visible shoulder, NIR plateau), Fresnel loss (0.175 / 0.210 A) removed, rms 0.0054 / 0.0042 A; the e-ray edge sits redward of the o-ray edge (measured)",
+  "The sample thickness is unresolved (0.269 mm in the file header, 2.69 mm on the Caltech index page): the strength is NOT taken from the thickness; it is set by the face-up target (0.05 x the header-thickness density); Cr / Fe / V / Nb on Ti sites",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#rutile-brownish-red-orange"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 403.343, width_nm = 3196.5, peak = 1.30261, shape = "energy" },
+    { center_nm = 900.0, width_nm = 5146.39, peak = 0.0435827, shape = "energy" },
+    { center_nm = 560.0, width_nm = 6000.0, peak = 0.0687229, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 440.0, width_nm = 2146.57, peak = 0.930443, shape = "energy" },
+    { center_nm = 900.0, width_nm = 4810.91, peak = 0.114529, shape = "energy" },
+    { center_nm = 456.908, width_nm = 4461.67, peak = 0.214569, shape = "energy" },
+  ]
+
+# Rutile, Orange: Same ions at a lower density; both rays fitted from the Graves Mountain plate; 0.004 x its density.
+[[variant]]
+material = "Rutile"
+key = "rutile.orange"
+label = "Orange"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (rutile DV-1).",
+  "G. R. Rossman, Caltech Mineral Spectroscopy Server (CC BY-NC 4.0, DOI 10.7907/jywr-qq57), rutile DV-1, Graves Mountain, Georgia, orange, 0.040 mm, E perpendicular c and E parallel c: http://minerals.gps.caltech.edu/FILES/Visible/Rutile/Rutile%20DV1%20G%20raves%20Mtn%20perp%20c.asc and .../Rutile%20DV1%20Graves%20Mtn%20parallel%20c.asc (reference_spectra/variant_rutile_orange_dv1_eperpc.csv, ..._eparc.csv)",
+  "Fit: 3 energy Gaussians per ray on 480-1100 nm, Fresnel loss (0.175 / 0.210 A) removed, rms 0.0026 / 0.0023 A; about 1.3 % other ions (Cr~Fe>V>Nb), opaque when thicker than 0.5 mm",
+  "Strength: 0.004 x the 0.040 mm plate density (a pale, gem-transparent crystal of the same chemistry), set by the face-up target",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#rutile-orange"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 421.951, width_nm = 2862.36, peak = 0.804685, shape = "energy" },
+    { center_nm = 900.0, width_nm = 5988.49, peak = 0.0254721, shape = "energy" },
+    { center_nm = 560.0, width_nm = 5320.26, peak = 0.0314648, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 432.708, width_nm = 2512.96, peak = 0.878115, shape = "energy" },
+    { center_nm = 1500.0, width_nm = 12000.0, peak = 0.0319198, shape = "energy" },
+    { center_nm = 552.377, width_nm = 4930.94, peak = 0.0379992, shape = "energy" },
+  ]
+
+# Rutile, Blue (Reduced): Estimated: Ti3+ 625 nm band plus NIR polaron band on the built-in rutile edge; e-ray 0.7 x the o-ray.
+[[variant]]
+material = "Rutile"
+key = "rutile.blue_reduced"
+label = "Blue (Reduced)"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Cause: Ti3+ (reduction) d-d and Ti3+-Ti4+ polaron absorption, Caltech https://minerals.gps.caltech.edu/FILES/Visible/Rutile/Index.html; Khomenko et al. 1998 and Cronemeyer, Phys. Rev. 113, 1222 (1958): polaron / NIR band near 1.18 eV (1050 nm) (via search summaries, docs/color_variants/R4_quartz_diamond_opal_synthetics_glass.md section 7.4)",
+  "No numeric spectrum exists: the 1050 nm band (sigma 2200 cm^-1), the visible 625 nm Ti3+ band (the part that makes the stone blue) and the e/o ratio 0.7 (Report) are estimates; the UV edge is the built-in Rutile edge (350 nm, 8.0 per model unit = 0.808 per mm at the 9.905 mm face-up path); estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#rutile-blue-reduced"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 350.0, width_nm = 40.0, peak = 0.8077, shape = "wavelength" },
+    { center_nm = 1050.0, width_nm = 2200.0, peak = 0.84, shape = "energy" },
+    { center_nm = 625.0, width_nm = 2500.0, peak = 0.42, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 350.0, width_nm = 40.0, peak = 0.8077, shape = "wavelength" },
+    { center_nm = 1050.0, width_nm = 2200.0, peak = 0.588, shape = "energy" },
+    { center_nm = 625.0, width_nm = 2500.0, peak = 0.294, shape = "energy" },
+  ]
+
+# Cubic Zirconia, Ce Yellow: Ce edge, 380 nm band only, 0.3 wt% CeO2 (estimated).
+[[variant]]
+material = "Cubic Zirconia"
+key = "cubic_zirconia.ce_yellow"
+label = "Ce Yellow"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Report p.11 (Ce4+/Ce3+ charge-transfer edge, 8.0 cm^-1 per wt% CeO2; secondary): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified); edge as the 380 nm Gaussian (sigma 4500 cm^-1) of R4 section 5.1",
+  "Yellow = 0.3 wt% CeO2 of the 380 nm edge band alone (the 500 nm shoulder of R4 appears only at the higher Ce level); estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#cubic-zirconia-ce-yellow"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 380.0, width_nm = 4500.0, peak = 0.2175, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 380.0, width_nm = 4500.0, peak = 0.2175, shape = "energy" },
+  ]
+
+# Cubic Zirconia, Ce Orange: Ce edge, 380 nm band at 0.55 wt% plus a weak 500 nm shoulder (estimated).
+[[variant]]
+material = "Cubic Zirconia"
+key = "cubic_zirconia.ce_orange"
+label = "Ce Orange"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Report p.11 (Ce4+/Ce3+ charge-transfer edge; secondary): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified); R4 section 5.1 two-Gaussian edge (380 and 500 nm)",
+  "Orange = 0.55 wt% CeO2 of the 380 nm band plus 0.07 wt% of the 500 nm band (the 500 nm weight is fitted to the orange target; with the full Report weights it would be red); estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#cubic-zirconia-ce-orange"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 380.0, width_nm = 4500.0, peak = 0.39875, shape = "energy" },
+    { center_nm = 500.0, width_nm = 2500.0, peak = 0.03843, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 380.0, width_nm = 4500.0, peak = 0.39875, shape = "energy" },
+    { center_nm = 500.0, width_nm = 2500.0, peak = 0.03843, shape = "energy" },
+  ]
+
+# Cubic Zirconia, Er Pink: Er3+ lines (Report) plus the 488 and 545 nm lines, 2.0 wt% Er2O3 (estimated).
+[[variant]]
+material = "Cubic Zirconia"
+key = "cubic_zirconia.er_pink"
+label = "Er Pink"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Report p.11: Er3+ 520 nm (FWHM 250 cm^-1, 2.0 cm^-1 per wt%), 380 nm (FWHM 300, 2.0), 653 nm (FWHM 200, 0.5) (secondary): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)",
+  "Added from the standard Er3+ term scheme (R4 section 5.1 gap; not in the Report): 488 nm (0.8) and 545 nm (0.6) lines, estimated relative strengths; 2.0 wt% Er2O3 (Report range 0.2-3); estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#cubic-zirconia-er-pink"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 380.0, width_nm = 127.398, peak = 0.4, shape = "energy" },
+    { center_nm = 488.0, width_nm = 106.165, peak = 0.16, shape = "energy" },
+    { center_nm = 520.0, width_nm = 106.165, peak = 0.4, shape = "energy" },
+    { center_nm = 545.0, width_nm = 106.165, peak = 0.12, shape = "energy" },
+    { center_nm = 653.0, width_nm = 84.9322, peak = 0.1, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 380.0, width_nm = 127.398, peak = 0.4, shape = "energy" },
+    { center_nm = 488.0, width_nm = 106.165, peak = 0.16, shape = "energy" },
+    { center_nm = 520.0, width_nm = 106.165, peak = 0.4, shape = "energy" },
+    { center_nm = 545.0, width_nm = 106.165, peak = 0.12, shape = "energy" },
+    { center_nm = 653.0, width_nm = 84.9322, peak = 0.1, shape = "energy" },
+  ]
+
+# Cubic Zirconia, Nd Lilac: Nd3+ lines (Report), 2.5 wt% Nd2O3 (estimated).
+[[variant]]
+material = "Cubic Zirconia"
+key = "cubic_zirconia.nd_lilac"
+label = "Nd Lilac"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Report p.11: Nd3+ 582 nm (FWHM 250 cm^-1, 4.0 cm^-1 per wt% Nd2O3), 745 nm (FWHM 200, 1.5), 520 nm (FWHM 250, 0.8) (secondary): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)",
+  "2.5 wt% Nd2O3 (estimated; the Report gives no range); lilac in daylight, pinker under incandescent light (Report); estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#cubic-zirconia-nd-lilac"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 582.0, width_nm = 106.165, peak = 1.0, shape = "energy" },
+    { center_nm = 745.0, width_nm = 84.9322, peak = 0.375, shape = "energy" },
+    { center_nm = 520.0, width_nm = 106.165, peak = 0.2, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 582.0, width_nm = 106.165, peak = 1.0, shape = "energy" },
+    { center_nm = 745.0, width_nm = 84.9322, peak = 0.375, shape = "energy" },
+    { center_nm = 520.0, width_nm = 106.165, peak = 0.2, shape = "energy" },
+  ]
+
+# Cubic Zirconia, Cr Green: Cr3+ bands at 600 and 440 nm, 0.1 wt% Cr2O3 (estimated, low confidence).
+[[variant]]
+material = "Cubic Zirconia"
+key = "cubic_zirconia.cr_green"
+label = "Cr Green"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Report p.11-12: Cr3+ 600 nm (FWHM 3000 cm^-1, 10 cm^-1 per wt% Cr2O3) and 440 nm (FWHM 3500, 8.0) (secondary, low confidence; Cr3+ in the 8-fold Zr site is unusual): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)",
+  "0.1 wt% Cr2O3 (R4 estimate); estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#cubic-zirconia-cr-green"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 600.0, width_nm = 1273.98, peak = 0.1, shape = "energy" },
+    { center_nm = 440.0, width_nm = 1486.31, peak = 0.08, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 600.0, width_nm = 1273.98, peak = 0.1, shape = "energy" },
+    { center_nm = 440.0, width_nm = 1486.31, peak = 0.08, shape = "energy" },
+  ]
+
+# YAG, Nd Lilac: Nd3+ multiplet bands (estimated widths and strengths), 1.5 at. % Nd.
+[[variant]]
+material = "YAG"
+key = "yag.nd_lilac"
+label = "Nd Lilac"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Report p.12: Nd3+ 586 nm (6.0e-4 cm^-1 per ppm), 746 nm (3.0e-4), 530 nm (2.5e-4), 808 nm (9.0e-4) (secondary): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)",
+  "The Report's single 40 cm^-1 lines are replaced by effective multiplet bands (sigma 150 / 80 / 60 / 40 cm^-1, peaks 3.0 / 1.5 / 1.25 / 4.5 cm^-1 per 1 at. %), because the 565-600 nm manifold has several lines (R4 section 5.2); x 1.5 at. %; estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#yag-nd-lilac"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 586.0, width_nm = 150.0, peak = 0.45, shape = "energy" },
+    { center_nm = 746.0, width_nm = 80.0, peak = 0.225, shape = "energy" },
+    { center_nm = 530.0, width_nm = 60.0, peak = 0.1875, shape = "energy" },
+    { center_nm = 808.0, width_nm = 40.0, peak = 0.675, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 586.0, width_nm = 150.0, peak = 0.45, shape = "energy" },
+    { center_nm = 746.0, width_nm = 80.0, peak = 0.225, shape = "energy" },
+    { center_nm = 530.0, width_nm = 60.0, peak = 0.1875, shape = "energy" },
+    { center_nm = 808.0, width_nm = 40.0, peak = 0.675, shape = "energy" },
+  ]
+
+# YAG, Cr Green: Cr3+ bands at 605 and 430 nm, 3000 ppm (estimated).
+[[variant]]
+material = "YAG"
+key = "yag.cr_green"
+label = "Cr Green"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Cr3+ 4A2-4T2 near 605 nm and 4A2-4T1 near 430 nm: Dong et al., Optical Materials 14 (2000) 109-113 (440 / 605 nm) and https://apps.dtic.mil/sti/pdfs/ADP011875.pdf (R4 section 5.2); widths 2800 / 3300 cm^-1 FWHM and 8.0e-4 cm^-1 per ppm from the Report (secondary): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)",
+  "3000 ppm Cr (R4 estimate); estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#yag-cr-green"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 605.0, width_nm = 1189.05, peak = 0.24, shape = "energy" },
+    { center_nm = 430.0, width_nm = 1401.38, peak = 0.24, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 605.0, width_nm = 1189.05, peak = 0.24, shape = "energy" },
+    { center_nm = 430.0, width_nm = 1401.38, peak = 0.24, shape = "energy" },
+  ]
+
+# YAG, Ce Yellow: Ce3+ 460 nm band plus the 340 nm band, 200 ppm (estimated).
+[[variant]]
+material = "YAG"
+key = "yag.ce_yellow"
+label = "Ce Yellow"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Ce3+ 4f-5d near 460 nm (US 9,651,483, https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/9651483) and a UV band near 340 nm; strengths 0.028 and 0.015 cm^-1 per ppm from the Report (secondary): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)",
+  "200 ppm Ce (R4: 100-300 ppm for a gem tint); estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#yag-ce-yellow"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 460.0, width_nm = 1189.05, peak = 0.56, shape = "energy" },
+    { center_nm = 340.0, width_nm = 1061.65, peak = 0.3, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 460.0, width_nm = 1189.05, peak = 0.56, shape = "energy" },
+    { center_nm = 340.0, width_nm = 1061.65, peak = 0.3, shape = "energy" },
+  ]
+
+# Synthetic Moissanite, Near Colorless: The 425 nm edge of 6H SiC, one band, equal o and e sets (estimated amplitude): K-L, very slightly yellowish.
+[[variant]]
+material = "Synthetic Moissanite"
+key = "synthetic_moissanite.near_colorless"
+label = "Near Colorless"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "425 nm absorption edge of 6H SiC (Nassau, McClure, Elen, Shigley, Gems & Gemology 33(4), 1997, https://www.moissaniteco.com/media/view/2018/09/synthetic-moissanite-a-new-diamond-substitute_67.pdf): all samples show a distinct increase near 425 nm; no absorption coefficient is published",
+  "One band per ray at 380 nm (sigma 3500 cm^-1), peak 0.36 cm^-1 so that A(425 nm) = 0.1 over 8.8 mm (R4 section 5.4); no polarized edge data, so equal o and e sets (stored pleochroic: uniaxial host); estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#synthetic-moissanite-near-colorless"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 380.0, width_nm = 3500.0, peak = 0.036, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 380.0, width_nm = 3500.0, peak = 0.036, shape = "energy" },
+  ]
+
+# Synthetic Moissanite, Green Tint: N donor 625 nm band (o stronger than e) plus the 425 nm edge, estimated.
+[[variant]]
+material = "Synthetic Moissanite"
+key = "synthetic_moissanite.green_tint"
+label = "Green Tint"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "N donor free-carrier band at 625 nm (6H SiC, Weingartner et al., Applied Physics Letters 80, 70 (2002), doi:10.1063/1.1430262, https://cris.fau.de/publications/117613584 (623 nm band, linear in the carrier concentration)), o:e weights 1.0 : 0.4 and 0.5 cm^-1 per ppma N from the Report (secondary); 425 nm edge (Nassau et al., Gems & Gemology 33(4), 1997, https://www.moissaniteco.com/media/view/2018/09/synthetic-moissanite-a-new-diamond-substitute_67.pdf): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)",
+  "0.7 x R4's 3 ppma N band, and the 380 nm edge band at 4 x the near-colorless amplitude (the edge brings the yellow-green hue; fitted to the target); estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#synthetic-moissanite-green-tint"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 625.0, width_nm = 1061.65, peak = 0.105, shape = "energy" },
+    { center_nm = 380.0, width_nm = 3500.0, peak = 0.144, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 625.0, width_nm = 1061.65, peak = 0.042, shape = "energy" },
+    { center_nm = 380.0, width_nm = 3500.0, peak = 0.144, shape = "energy" },
+  ]
+
+# Glass (N-BK7), Co Blue: Co2+ triplet 537 / 595 / 640 nm, 0.06 wt% CoO (estimated).
+[[variant]]
+material = "Glass (N-BK7)"
+key = "glass__n_bk7_.co_blue"
+label = "Co Blue"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Tetrahedral Co2+ triplet 537 / 595 / 640 nm (British Glass digital library, https://www.britglass.org.uk/knowledge-base/digital-library-and-information-services/effect-alkali-ions-optical-absorption); FWHM 1100 cm^-1 and 80 / 115 / 100 cm^-1 per wt% CoO from the Report p.29 (secondary): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)",
+  "0.06 wt% CoO (R4: 0.05 wt% is a saturated royal blue); the colorant bands do not depend on the host glass, so N-BK7 and F2 carry the same entry; estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#glass-n-bk7-co-blue"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 537.0, width_nm = 467.127, peak = 0.48, shape = "energy" },
+    { center_nm = 595.0, width_nm = 467.127, peak = 0.69, shape = "energy" },
+    { center_nm = 640.0, width_nm = 467.127, peak = 0.6, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 537.0, width_nm = 467.127, peak = 0.48, shape = "energy" },
+    { center_nm = 595.0, width_nm = 467.127, peak = 0.69, shape = "energy" },
+    { center_nm = 640.0, width_nm = 467.127, peak = 0.6, shape = "energy" },
+  ]
+
+# Glass (N-BK7), Cr Green: Cr3+ bands at 650 and 450 nm, 0.4 wt% Cr2O3 (estimated).
+[[variant]]
+material = "Glass (N-BK7)"
+key = "glass__n_bk7_.cr_green"
+label = "Cr Green"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Octahedral Cr3+ at 650 and 450 nm (glass chemistry, https://www.thaiscience.info/journals/Article/TKJN/10974416.pdf); FWHM 2500 / 3000 cm^-1 and 11.0 cm^-1 per wt% Cr2O3 from the Report p.29 (secondary): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)",
+  "0.4 wt% Cr2O3 (reducing melt, Cr3+ only); same entry on both glasses; estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#glass-n-bk7-cr-green"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 650.0, width_nm = 1061.65, peak = 0.44, shape = "energy" },
+    { center_nm = 450.0, width_nm = 1273.98, peak = 0.44, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 650.0, width_nm = 1061.65, peak = 0.44, shape = "energy" },
+    { center_nm = 450.0, width_nm = 1273.98, peak = 0.44, shape = "energy" },
+  ]
+
+# Glass (N-BK7), Mn Purple: Mn3+ band at 510 nm (estimated strength), amethyst purple.
+[[variant]]
+material = "Glass (N-BK7)"
+key = "glass__n_bk7_.mn_purple"
+label = "Mn Purple"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Octahedral Mn3+ 5Eg-5T2g near 500 nm (https://kirim.kmutt.ac.th/converis/portal/detail/Publication/600362377?lang=en_GB); FWHM 3500 cm^-1 from the Report p.29 (secondary): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)",
+  "Centre set to 510 nm (Report 500 nm; literature spread 490-520 nm) so the transmitted color is purple, not pink-red; peak 2.7 x R4's effective 2.0 cm^-1 (the Mn3+ fraction of the melt), set by the face-up target; same entry on both glasses; estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#glass-n-bk7-mn-purple"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 510.0, width_nm = 1486.31, peak = 0.54, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 510.0, width_nm = 1486.31, peak = 0.54, shape = "energy" },
+  ]
+
+# Glass (N-BK7), Se Ruby: CdSe-CdS edge as 3 Gaussians (estimated; no Schott curve), 50 % edge near 605 nm.
+[[variant]]
+material = "Glass (N-BK7)"
+key = "glass__n_bk7_.se_ruby"
+label = "Se Ruby"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "CdS(1-x)Se(x) nanocrystal absorption edge (Report p.30, secondary: docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)); three Gaussians approximating a 10 cm^-1 plateau below 575 nm with a 12 nm e-fold edge (R4 section 6; 50 % transmission edge near 605 nm over 8.8 mm)",
+  "Not calibrated against a Schott OG / RG filter curve (none obtained); same entry on both glasses; estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#glass-n-bk7-se-ruby"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 430.0, width_nm = 2800.0, peak = 0.75, shape = "energy" },
+    { center_nm = 500.0, width_nm = 1300.0, peak = 0.51, shape = "energy" },
+    { center_nm = 545.0, width_nm = 700.0, peak = 0.82, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 430.0, width_nm = 2800.0, peak = 0.75, shape = "energy" },
+    { center_nm = 500.0, width_nm = 1300.0, peak = 0.51, shape = "energy" },
+    { center_nm = 545.0, width_nm = 700.0, peak = 0.82, shape = "energy" },
+  ]
+
+# Glass (N-BK7), Se Pink: Se0 band at 490 nm (estimated amplitude), pale pink-salmon.
+[[variant]]
+material = "Glass (N-BK7)"
+key = "glass__n_bk7_.se_pink"
+label = "Se Pink"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Elemental selenium in silicate glass: extinction about 20 L/mol/cm near 485 nm (soda-lime-silica) and about 80 near 500 nm (soda-strontia-silica), https://oa.tib.eu/renate/items/4645b348-ddcf-4719-9a64-920775412cfc (via search summary); Report p.29-30 entry 500 nm, FWHM 3000 cm^-1 (estimate): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)",
+  "One band at 490 nm (sigma 1274 cm^-1, FWHM 3000), peak 0.6 cm^-1 (about 30 ppm effective Se0, R4 section 6); same entry on both glasses; estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#glass-n-bk7-se-pink"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 490.0, width_nm = 1273.98, peak = 0.06, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 490.0, width_nm = 1273.98, peak = 0.06, shape = "energy" },
+  ]
+
+# Glass (F2), Co Blue: Co2+ triplet 537 / 595 / 640 nm, 0.06 wt% CoO (estimated).
+[[variant]]
+material = "Glass (F2)"
+key = "glass__f2_.co_blue"
+label = "Co Blue"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Tetrahedral Co2+ triplet 537 / 595 / 640 nm (British Glass digital library, https://www.britglass.org.uk/knowledge-base/digital-library-and-information-services/effect-alkali-ions-optical-absorption); FWHM 1100 cm^-1 and 80 / 115 / 100 cm^-1 per wt% CoO from the Report p.29 (secondary): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)",
+  "0.06 wt% CoO (R4: 0.05 wt% is a saturated royal blue); the colorant bands do not depend on the host glass, so N-BK7 and F2 carry the same entry; estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#glass-f2-co-blue"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 537.0, width_nm = 467.127, peak = 0.48, shape = "energy" },
+    { center_nm = 595.0, width_nm = 467.127, peak = 0.69, shape = "energy" },
+    { center_nm = 640.0, width_nm = 467.127, peak = 0.6, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 537.0, width_nm = 467.127, peak = 0.48, shape = "energy" },
+    { center_nm = 595.0, width_nm = 467.127, peak = 0.69, shape = "energy" },
+    { center_nm = 640.0, width_nm = 467.127, peak = 0.6, shape = "energy" },
+  ]
+
+# Glass (F2), Cr Green: Cr3+ bands at 650 and 450 nm, 0.4 wt% Cr2O3 (estimated).
+[[variant]]
+material = "Glass (F2)"
+key = "glass__f2_.cr_green"
+label = "Cr Green"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Octahedral Cr3+ at 650 and 450 nm (glass chemistry, https://www.thaiscience.info/journals/Article/TKJN/10974416.pdf); FWHM 2500 / 3000 cm^-1 and 11.0 cm^-1 per wt% Cr2O3 from the Report p.29 (secondary): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)",
+  "0.4 wt% Cr2O3 (reducing melt, Cr3+ only); same entry on both glasses; estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#glass-f2-cr-green"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 650.0, width_nm = 1061.65, peak = 0.44, shape = "energy" },
+    { center_nm = 450.0, width_nm = 1273.98, peak = 0.44, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 650.0, width_nm = 1061.65, peak = 0.44, shape = "energy" },
+    { center_nm = 450.0, width_nm = 1273.98, peak = 0.44, shape = "energy" },
+  ]
+
+# Glass (F2), Mn Purple: Mn3+ band at 510 nm (estimated strength), amethyst purple.
+[[variant]]
+material = "Glass (F2)"
+key = "glass__f2_.mn_purple"
+label = "Mn Purple"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Octahedral Mn3+ 5Eg-5T2g near 500 nm (https://kirim.kmutt.ac.th/converis/portal/detail/Publication/600362377?lang=en_GB); FWHM 3500 cm^-1 from the Report p.29 (secondary): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)",
+  "Centre set to 510 nm (Report 500 nm; literature spread 490-520 nm) so the transmitted color is purple, not pink-red; peak 2.7 x R4's effective 2.0 cm^-1 (the Mn3+ fraction of the melt), set by the face-up target; same entry on both glasses; estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#glass-f2-mn-purple"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 510.0, width_nm = 1486.31, peak = 0.54, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 510.0, width_nm = 1486.31, peak = 0.54, shape = "energy" },
+  ]
+
+# Glass (F2), Se Ruby: CdSe-CdS edge as 3 Gaussians (estimated; no Schott curve), 50 % edge near 605 nm.
+[[variant]]
+material = "Glass (F2)"
+key = "glass__f2_.se_ruby"
+label = "Se Ruby"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "CdS(1-x)Se(x) nanocrystal absorption edge (Report p.30, secondary: docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)); three Gaussians approximating a 10 cm^-1 plateau below 575 nm with a 12 nm e-fold edge (R4 section 6; 50 % transmission edge near 605 nm over 8.8 mm)",
+  "Not calibrated against a Schott OG / RG filter curve (none obtained); same entry on both glasses; estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#glass-f2-se-ruby"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 430.0, width_nm = 2800.0, peak = 0.75, shape = "energy" },
+    { center_nm = 500.0, width_nm = 1300.0, peak = 0.51, shape = "energy" },
+    { center_nm = 545.0, width_nm = 700.0, peak = 0.82, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 430.0, width_nm = 2800.0, peak = 0.75, shape = "energy" },
+    { center_nm = 500.0, width_nm = 1300.0, peak = 0.51, shape = "energy" },
+    { center_nm = 545.0, width_nm = 700.0, peak = 0.82, shape = "energy" },
+  ]
+
+# Glass (F2), Se Pink: Se0 band at 490 nm (estimated amplitude), pale pink-salmon.
+[[variant]]
+material = "Glass (F2)"
+key = "glass__f2_.se_pink"
+label = "Se Pink"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Elemental selenium in silicate glass: extinction about 20 L/mol/cm near 485 nm (soda-lime-silica) and about 80 near 500 nm (soda-strontia-silica), https://oa.tib.eu/renate/items/4645b348-ddcf-4719-9a64-920775412cfc (via search summary); Report p.29-30 entry 500 nm, FWHM 3000 cm^-1 (estimate): docs/chromophores/quartz_diamond_zoisite_synthetics_glass.md (Report; secondary, unverified)",
+  "One band at 490 nm (sigma 1274 cm^-1, FWHM 3000), peak 0.6 cm^-1 (about 30 ppm effective Se0, R4 section 6); same entry on both glasses; estimated",
+]
+fit_record = "docs/color_variants/fit_records/quartz_diamond_opal_synthetics_glass.md#glass-f2-se-pink"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 490.0, width_nm = 1273.98, peak = 0.06, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 490.0, width_nm = 1273.98, peak = 0.06, shape = "energy" },
+  ]

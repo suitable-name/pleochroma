@@ -2,9 +2,9 @@
 
 Status: integrated (`data_version` 3); **sections 3, 6 and 7 are superseded in part by section 8 (`data_version` 4, primary data batch 1): the stated CIELAB below is no fitting target any more and several fitted bands were removed.** Scope: `research-2026-10-polarized-spectra.md` (report 1) and
 `research-2026-10-polarized-spectra-2.md` (report 2). Every tabulated spectrum is a fixture in
-`crates/indicatrix/data/reference_spectra/*.csv` (metadata header: sample, composition, units, path,
+`crates/pleochroma/data/reference_spectra/*.csv` (metadata header: sample, composition, units, path,
 source; `# lab:` lines hold the measured CIELAB). The tests are
-`crates/indicatrix/src/optics/chromophore/reference_validation.rs` (validation) and
+`crates/pleochroma/src/optics/chromophore/reference_validation.rs` (validation) and
 `measured_color_tests.rs` (recipes and built-ins against the measured colors).
 
 ## 1. Method

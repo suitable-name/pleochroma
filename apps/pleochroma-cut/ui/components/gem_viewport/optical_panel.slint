@@ -1,0 +1,86 @@
+import { CheckBox, Slider, Button, ScrollView } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { OpticalModel } from "../../models/optical.slint";
+import { WrappedNote } from "../export_dialog/wrapped_note.slint";
+
+// The Optical Diagnostics popover under the Live Render toolbar and metrics strip
+// (`gem_viewport.slint` mounts it in the toolbar's own column, so it never covers them).
+//
+// Layout: the controls and notes scroll; the hover readout is pinned under them, outside the
+// scroll area, because it is what the lesson tells the cutter to read and it used to sit below
+// the fold (cut mid-line at the panel's bottom edge). The wrapped notes state their own height
+// (`WrappedNote`: Slint measures a wrapped Text as one line), so the scroll range is the real
+// one and the last note is reachable. The right edge of the scrolled content keeps a gutter for
+// the scroll bar.
+export component OpticalPanel inherits Rectangle {
+    // The pinned readout: room for four wrapped lines of the longest entry/exit text.
+    property <length> readout_height: 76px;
+    background: Theme.surface-dialog;
+    border-color: Theme.border-subtle;
+    border-width: 1px;
+    border-radius: Theme.radius-md;
+    clip: true;
+
+    VerticalLayout {
+        ScrollView {
+            vertical-stretch: 1;
+            min-height: 0px;
+            VerticalLayout {
+                padding: 10px;
+                padding-right: 18px;
+                spacing: 4px;
+                CheckBox { text: "Enable Optical Diagnostics"; checked <=> OpticalModel.enabled; }
+                WrappedNote { text: "Analytical light paths at this viewing angle."; color: Theme.text-primary; font-size: 13px; }
+                // One grid, so the second column of boxes lines up.
+                GridLayout {
+                    spacing: 4px;
+                    Row {
+                        CheckBox { text: "Windowing (/)"; checked <=> OpticalModel.windowing; }
+                        CheckBox { text: "Extinction (X)"; checked <=> OpticalModel.extinction; }
+                    }
+                    Row {
+                        CheckBox { text: "Brilliance (Dots)"; checked <=> OpticalModel.brilliance; }
+                        CheckBox { text: "Fire (Dispersion Potential)"; checked <=> OpticalModel.fire; }
+                    }
+                    Row {
+                        CheckBox { text: "Scintillation"; accessible-label: "Scintillation layer"; checked <=> OpticalModel.scintillation; }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text { text: "Opacity"; color: Theme.text-primary; vertical-alignment: center; }
+                    Slider { minimum: 0; maximum: 1; value <=> OpticalModel.opacity; accessible-label: "Optical diagnostic opacity"; }
+                    Button { text: "Reset to 45%"; clicked => { OpticalModel.opacity = 0.45; } }
+                }
+                Button { text: "Refresh Diagnostic Map"; clicked => { OpticalModel.refresh(); } }
+                CheckBox { text: "Diagnostic Map on Neutral Stone"; checked <=> OpticalModel.map_mode; }
+                WrappedNote { text: OpticalModel.status; color: Theme.text-primary; font-size: 13px; }
+                WrappedNote { text: "Legend: cyan / windowing (light that leaves through the pavilion; the render shows the backdrop there); magenta X extinction; green dots returned; gold stipple dispersion potential (0-0.1 weighted degrees)."; color: Theme.text-primary; font-size: 13px; }
+                if OpticalModel.scintillation : WrappedNote { text: "Scintillation: flicker across ±3° yaw and local contrast; map domain."; color: Theme.text-primary; font-size: 13px; }
+                WrappedNote { text: OpticalModel.summary; color: Theme.text-primary; font-size: 13px; }
+                WrappedNote { text: "Visible-area shares differ from the HUD disc/aperture ray fan. Fire is separate from the three count fractions."; color: Theme.text-secondary; font-size: 13px; }
+                WrappedNote { text: OpticalModel.limitations; color: Theme.text-secondary; font-size: 13px; }
+            }
+        }
+        if OpticalModel.hover_text != "": Rectangle {
+            height: root.readout_height;
+            background: Theme.bg-elevated;
+            Rectangle {
+                y: 0px;
+                height: 1px;
+                background: Theme.border-subtle;
+            }
+            Text {
+                x: 10px;
+                y: 6px;
+                width: parent.width - 20px;
+                height: parent.height - 12px;
+                text: OpticalModel.hover_text;
+                color: Theme.text-primary;
+                font-size: 12px;
+                wrap: word-wrap;
+                overflow: elide;
+            }
+        }
+    }
+}

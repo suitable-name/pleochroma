@@ -1,0 +1,95 @@
+// State of the Stone tab's render effects beyond the seven app-level values of `SettingsModel`:
+// the Inclusions group, the Play-of-Color / Schiller group, the Abraded Edges group, the
+// "Show Silk Directions" overlay and the "Figures ignore ..." note. Rust reaches this via
+// `ui.global::<RenderEffectsModel>()` (`gui::render::{inclusion_effects, structure_effects,
+// edge_effects, physics_effects_ui}`).
+//
+// Like the other Stone-tab controls these are the design's render effects: a change shows at once
+// in the render context and a debounced commit writes ONE undoable `Edit::SetRenderEffects`
+// (`gui::editor::callbacks::tier_actions::viewport_material`).
+
+// One silk direction drawn over the stone: a line through the stone's centre, in the viewport's
+// logical coordinates (UNZOOMED in the Diagram view, like `CrystalAxisModel`).
+export struct SilkLine {
+    x0: length,
+    y0: length,
+    x1: length,
+    y1: length,
+}
+
+export global RenderEffectsModel {
+    // --- Inclusions ------------------------------------------------------------------------
+    // The presets of the traced material, in the catalogue's spelling. Empty for a material
+    // without any.
+    in property <[string]> inclusion_preset_names: [];
+    // Parallel to `inclusion_preset_names`: the preset cannot be chosen yet (Cat's-Eye Silk
+    // needs a Second Axis).
+    in property <[bool]> inclusion_preset_blocked: [];
+    // The design's preset; "" is none (the plain render).
+    in-out property <string> inclusion_preset: "";
+    // 0 to 1; 0.35 is the catalogue strength.
+    in-out property <float> inclusion_density: 0.35;
+    // The Silk Turn: off follows the stored Second Axis, on takes `inclusion_turn_deg` (0 to 180).
+    in-out property <bool> inclusion_turn_set: false;
+    in-out property <float> inclusion_turn_deg: 0.0;
+    // 0 the preset's own, 1 Soft, 2 Sharp.
+    in-out property <int> inclusion_sheen: 0;
+    // 0 the preset's own, 1 Grey, 2 Slightly Blue, 3 Blue.
+    in-out property <int> inclusion_color: 0;
+    // One plain sentence under the group (why a preset waits, or that the material has none).
+    in property <string> inclusion_note: "";
+    // A custom material's own inclusion families (authored in the Material Editor): how many,
+    // and the read-only line that says so ("" for none). Not editable here.
+    in property <int> inclusion_own_count: 0;
+    in property <string> inclusion_own_text: "";
+    // A preset button (or "None", the empty text) was chosen; Rust writes `inclusion_preset`.
+    callback inclusion_preset_chosen(string);
+    // Density, turn, sheen or color changed (the properties already hold the new values).
+    callback inclusions_edited();
+
+    // --- Play-of-Color / Schiller -----------------------------------------------------------
+    // Whether the traced material has a domain structure (precious opal, labradorite).
+    in property <bool> structure_available: false;
+    // "Play-of-Color" for an opal, "Schiller" for labradorite.
+    in property <string> structure_title: "Play-of-Color";
+    in-out property <bool> structure_on: false;
+    // 0 Pinfire, 1 Harlequin, 2 Broad Flash.
+    in-out property <int> structure_pattern: 1;
+    // On follows the pattern's own cell size.
+    in-out property <bool> structure_size_auto: true;
+    in-out property <float> structure_size: 0.2;
+    in-out property <float> structure_low_nm: 440.0;
+    in-out property <float> structure_high_nm: 680.0;
+    in-out property <float> structure_purity: 0.05;
+    in-out property <float> structure_coverage: 0.8;
+    // The design's seed, as decimal digits ("12345").
+    in-out property <string> structure_seed: "12345";
+    // A custom material's own play-of-color structure (authored in the Material Editor) and its
+    // read-only line. Not editable here.
+    in property <bool> structure_own: false;
+    in property <string> structure_own_text: "";
+    // Any structure control changed.
+    callback structure_edited();
+    // The Reseed button: Rust draws a new seed and commits it at once.
+    callback structure_reseed();
+
+    // --- Abraded Edges ----------------------------------------------------------------------
+    // Band width in model units (0 is off) and the roughness of the band.
+    in-out property <float> edge_width: 0.0;
+    in-out property <float> edge_wear: 0.0;
+    callback edges_edited();
+
+    // --- Overlay and notes ------------------------------------------------------------------
+    // The toolbar-free toggle on the Stone tab; remembered per session only.
+    in-out property <bool> show_silk_directions: false;
+    callback silk_toggled(bool);
+    // The silk directions of the preset, ready to draw.
+    in property <[SilkLine]> silk_lines: [];
+    // "Figures ignore Inclusions and Play-of-Color." and the same with a leading space for a
+    // tooltip; both empty while none of them is on.
+    in property <string> figures_note: "";
+    in property <string> figures_note_suffix: "";
+    // Rust refreshes the derived state above from the material and the design; Slint calls it
+    // when the Stone tab's sections are shown.
+    callback refresh();
+}

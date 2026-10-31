@@ -1,0 +1,524 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { SectionHeader } from "section_header.slint";
+import { EditorModel } from "../models/editor.slint";
+import { SolidPreviewModel } from "../models/solid_preview.slint";
+import { GuideModel } from "../models/guide.slint";
+import { TierTableToolbar } from "editor_tier_table/tier_table_toolbar.slint";
+import { TierTableHeader } from "editor_tier_table/tier_table_header.slint";
+import { TierTableRow } from "editor_tier_table/tier_table_row.slint";
+// The Edit sub-tab's tier table -- a working faceting-design editor over
+// `pleochroma_cut_core::Design`/`History`, wired from Rust in `gui::editor`.
+//
+// This component is deliberately "dumb" about the design itself: every genuine
+// piece of design state (the tier list, undo/redo availability, validation status)
+// is an `in` property `EditorModel` owns and `gui::editor` pushes into after every
+// edit, the same convention `GemViewportView`/`CuttingTableView` use for
+// `current_angles`/`render_image`. This component never constructs an `Edit`
+// itself -- it only collects row actions and hands them to Rust via `EditorModel`'s
+// callbacks, keeping `History` the sole mutator of `Design`. The solved mast shown
+// per row and the `SolveStrategy` badge next to it are pure display -- there is no
+// callback that lets this component write a mast anywhere.
+//
+// Selecting a row (click or Enter) does not seed a form directly; this
+// component only reports WHICH tier was selected via `tier_selected`, and `EditorView` wires
+// that straight to `EditorModel.selected_tier_index` (see `app.slint`'s Edit-mode
+// layout doc comment for the overall split, and `EditorView`'s own doc comment for
+// why THAT global property, rather than a direct call into `EditorInspector`, is
+// the hand-off point: the Solid/Diagram viewport's click and "Duplicate" also need
+// to reach the inspector's form, but they can only ever set a global property, not
+// call a sibling component's function).
+//
+// Column widths are every one a named `col_*_width` property on `root` rather
+// than a literal repeated in both the header row and the per-row
+// `HorizontalLayout`, so the header and body columns can never drift out of
+// sync, and NAME/INDICES carry a real `min-width` so they never get squeezed
+// to unreadable slivers before MAST/SOLVE/MARGIN/ORBIT/etc. give up any
+// space. This means the row's natural width can genuinely exceed a narrow
+// dock -- `tier_scroll` (a `ScrollView`, scrollable on both axes already)
+// picks that up as a horizontal-scroll fallback. The column HEADER follows
+// that sideways scroll: it lives outside `tier_scroll` (so it stays visible
+// while the body scrolls vertically) in a clipping wrapper, offset by
+// `tier_scroll.content-x` and as wide as the scrolled content. The row's action
+// buttons (`TierRowActions`) do NOT scroll sideways: each row draws them at the
+// right edge of the visible area (`pane_width`/`pane_x`), over its own background,
+// so Move, Duplicate, Remove, Pin and the rest are always within reach; a Shift+wheel
+// over a row (or a sideways wheel or swipe) turns the data columns beneath them.
+export component EditorTierTable inherits Rectangle {
+    // Collapsed: only the 40px header row; expanded: preserve the natural minimum
+    // of the toolbar, column header and visible row area below. `clip` hides the body.
+    property <bool> collapsed: EditorModel.tier_table_collapsed;
+    vertical-stretch: root.collapsed ? 0 : 1;
+    min-height: root.collapsed ? 40px : table_layout.min-height;
+    max-height: root.collapsed ? 40px : 100000px;
+    clip: root.collapsed;
+    background: Theme.bg-darkest;
+    border-radius: Theme.radius-sm;
+    // A visible border when the tier list's own `FocusScope` (`table_focus`) has
+    // keyboard focus, and when the worked-example guide highlights this table.
+    // The guide's own outline takes priority over the plain focus ring.
+    property <bool> guide_highlighted: GuideModel.highlight_target == "tier_table";
+    border-width: (root.table_focused || root.guide_highlighted) ? 2px : 1px;
+    border-color: root.guide_highlighted ? Theme.accent-cyan : (root.table_focused ? Theme.accent-cyan : Theme.border-subtle);
+
+    // Fired on row click (plain, non-Ctrl) and on the keyboard list's Enter --
+    // reports which tier was selected; `EditorView` wires it to
+    // `EditorModel.selected_tier_index` (see this file's own top doc comment).
+    callback tier_selected(int);
+
+    property <bool> table_focused: false;
+
+    // A visible "Select" mode toggle for the Ctrl/Shift-click multi-select
+    // gesture, which otherwise has no on-screen affordance. Shows a checkbox
+    // column header below and allows toggling selection without holding Ctrl.
+    property <bool> select_mode: false;
+
+    // Shared column-width constants -- see this component's own top doc comment. Sized for a dock
+    // about 600 px wide (the table's inner width is then ~592 px): the pinned action group
+    // (`col_actions_width`) starts about 425 px in, and the columns up to and including SOLVE end
+    // at 424 px (4 + 20 + 14 + 36 + 58 + 78 + 70 + 48 + 42 + 54), so NAME, INDICES, MEETS, MAST and
+    // SOLVE are all on view without scrolling. MARGIN and ORBIT lie under the action group until the
+    // table is scrolled sideways; a heading or value that would run under the group is hidden whole
+    // rather than cut in half. NAME and INDICES stretch with a wider dock. ANGLE is as wide as its
+    // value (and the Optimize ghost, which elides if it does not fit): the room goes to NAME, which
+    // lessons read ("Pavilion Main").
+    property <length> col_hash_width: 20px;
+    // A narrow badge column for this tier's `ManufacturabilityWarning`(s), so
+    // warnings appear on the offending row instead of only in the Log popup.
+    property <length> col_warn_width: 14px;
+    // Wide enough for the longest code (`Culet`, `PF12`) and the 11 px heading CODE.
+    property <length> col_block_width: 36px;
+    // The value ("40.10") with its 4 px indent, plus the pencil/link icon or the start of a proposal.
+    property <length> col_angle_width: 58px;
+    property <length> col_name_min_width: 78px;
+    property <length> col_indices_min_width: 70px;
+    property <length> col_meets_width: 48px;
+    property <length> col_mast_width: 42px;
+    property <length> col_solve_width: 54px;
+    property <length> col_margin_width: 46px;
+    property <length> col_orbit_width: 56px;
+    // The pinned group of row actions (`TierRowActions`), packed: a 44 px slot for Adopt, Pin or
+    // Add Anchor, then Detach/Reattach (20), move up/down (40), Duplicate (20) and Remove (20), with
+    // 3 px padding and 1 px gaps -- or, in the Simple interface, the slot and the last three (no
+    // Detach). A row that offers two slot buttons widens its own group to the left. Keep in step
+    // with `TierRowActions.needed_width`.
+    property <bool> advanced: GuideModel.shows_advanced();
+    property <length> col_slot_width: 44px;
+    property <length> col_actions_width: root.advanced ? 151px : 130px;
+    // The cross size of the `ScrollView`'s overlaid scroll bars, kept clear of rows and header.
+    property <length> scroll_gutter: 14px;
+    // Where the pinned group starts, in the coordinates of the header and the rows, less a 4 px gap
+    // (the group itself sits 2 px inside the row's right end).
+    property <length> data_limit: tier_scroll.visible-width - root.scroll_gutter - root.col_actions_width - 6px - tier_scroll.content-x;
+
+    property <int> keyboard_focus_index: -1;
+    property <int> inline_edit_target: -1;
+    property <int> inline_edit_pulse: 0;
+
+    // Mirrors `EditorModel.tiers.length` purely so the `changed` below can clamp
+    // `keyboard_focus_index` whenever a Remove/Undo/Redo shrinks the tier list out
+    // from under it -- watching the count rather than `EditorModel.tiers` itself
+    // (which Slint has no `changed` support for at all: only a plain property, never
+    // a model, can be the target of a `changed` handler) also skips the clamp check
+    // on a same-length rebuild (an ordinary edit's `ModifyTier`), where the current
+    // cursor position is never invalid.
+    property <int> tier_count: EditorModel.tiers.length;
+    changed tier_count => {
+        if root.keyboard_focus_index >= root.tier_count {
+            root.keyboard_focus_index = root.tier_count - 1;
+        }
+    }
+
+    // The sideways scroll bar is drawn by this table in its own `scroll_gutter` strip BELOW the
+    // `ScrollView` (the view's own bar is off), so the view's visible height is a whole number of
+    // 30 px rows and no part of the next row shows under the last one. A row counts as shown when
+    // it lies wholly inside the view.
+    function scrolled_to_show(idx: int, viewport_y: length, visible_height: length, viewport_height: length) -> length {
+        if idx < 0 {
+            return viewport_y;
+        }
+        if -viewport_y > idx * 30px {
+            return -max(0px, idx * 30px);
+        } else if (-viewport_y + visible_height) < (idx * 30px + 28px) {
+            return -max(0px, min(viewport_height - visible_height, idx * 30px + 28px - visible_height));
+        }
+        return viewport_y;
+    }
+
+    /// Moves the keyboard cursor to `idx` -- called from `EditorView`'s own
+    /// selection-mirror handler (see that file's own doc comment) so a selection made
+    /// from OUTSIDE this table (the Solid/Diagram viewport's click, or "Duplicate")
+    /// still moves the keyboard cursor, the same as an in-list click already does via
+    /// `row_touch`'s own `clicked` handler below. Scrolling the row into view is a
+    /// side effect of `keyboard_focus_index` changing (see the `FocusScope` below's
+    /// own `scroll_target` watcher), not done here directly: `tier_scroll` lives
+    /// inside that `FocusScope`, whose `scroll_target` handler is the one place
+    /// that drives the scroll.
+    public function focus_row(idx: int) {
+        root.keyboard_focus_index = idx;
+    }
+
+    // Lets Ctrl+F focus this table's filter box instead of the catalogue search.
+    // `filter_edit` itself lives on `TierTableToolbar` (`tier_toolbar` below),
+    // not directly on this component, so this just forwards to that
+    // component's own `focus_filter()`. Wired via `EditorModel.
+    // filter_focus_pulse` since a global's `FocusScope` cannot directly reach
+    // a conditionally-mounted child.
+    public function focus_filter() {
+        tier_toolbar.focus_filter();
+    }
+
+    // Mirrored into a local property so `changed` handlers work reliably across
+    // this component's conditional mounting. Same idiom as `form_reset_pulse`.
+    property <int> tracked_filter_focus_pulse: EditorModel.filter_focus_pulse;
+    changed tracked_filter_focus_pulse => { self.focus_filter(); }
+
+    // A global's `changed` handler can only be written in the file that declares
+    // it. So `SolidPreviewModel.diagram_clicked_tooth` is mirrored here as a plain
+    // property, letting this file's `changed` handler react to it. Same technique
+    // as `tracked_selected_tier_index` in `editor_view.slint`.
+    property <int> tracked_clicked_tooth: SolidPreviewModel.diagram_clicked_tooth;
+    changed tracked_clicked_tooth => {
+        EditorModel.highlight_tooth(root.tracked_clicked_tooth);
+    }
+
+    table_layout := VerticalLayout {
+        padding: 8px;
+        spacing: 4px;
+
+        SectionHeader {
+            title: "TIERS (\{EditorModel.tiers.length})";
+            hint: "Show or hide the tier table; the inspector then takes the space.";
+            collapsed: root.collapsed;
+            toggled => { EditorModel.tier_table_collapsed = !EditorModel.tier_table_collapsed; }
+        }
+
+        // The table body stays mounted (the public `focus_filter`/`focus_row`
+        // and the header's `tier_scroll` reference elements in it, which an `if`
+        // would forbid) and is hidden while collapsed.
+        VerticalLayout {
+        visible: !root.collapsed;
+        vertical-stretch: 1;
+        spacing: 4px;
+
+        // Toolbar: filter box, +Add Tier/Adopt all/Select, quick-add anchors,
+        // the Steps/Mirror panel, and the multi-select batch-action bar -- see
+        // `TierTableToolbar`'s own doc comment.
+        tier_toolbar := TierTableToolbar {
+            select_mode <=> root.select_mode;
+            keyboard_focus_index: root.keyboard_focus_index;
+        }
+
+        // The header follows the body's sideways scroll: it is clipped by this
+        // wrapper and offset by `tier_scroll.content-x`, at least as wide as the
+        // scrolled content. (A plain `Rectangle` wrapper contributes no minimum
+        // width of its own, so the header cannot widen the dock.)
+        Rectangle {
+            height: 26px;
+            clip: true;
+            TierTableHeader {
+                x: tier_scroll.content-x;
+                // Rows are as wide as the content less the gutter their layout keeps clear.
+                width: max(tier_scroll.content-width, tier_scroll.visible-width) - root.scroll_gutter;
+                select_mode: root.select_mode;
+                col_hash_width: root.col_hash_width;
+                col_warn_width: root.col_warn_width;
+                col_block_width: root.col_block_width;
+                col_angle_width: root.col_angle_width;
+                col_name_min_width: root.col_name_min_width;
+                col_indices_min_width: root.col_indices_min_width;
+                col_meets_width: root.col_meets_width;
+                col_mast_width: root.col_mast_width;
+                col_solve_width: root.col_solve_width;
+                col_margin_width: root.col_margin_width;
+                col_orbit_width: root.col_orbit_width;
+                col_actions_width: root.col_actions_width;
+                data_limit: root.data_limit;
+            }
+            // The pinned action group's heading: opaque, so the data headings scroll beneath it
+            // the way the data cells scroll beneath the row buttons. The label is centred over the
+            // icons (the slot of Adopt / Pin / Add Anchor to their left is mostly empty).
+            Rectangle {
+                x: tier_scroll.visible-width - root.scroll_gutter - root.col_actions_width - 2px;
+                width: root.col_actions_width;
+                height: parent.height;
+                background: Theme.bg-darkest;
+                Tooltip { text: @markdown("Each tier's buttons. They stay put when the table scrolls sideways."); }
+                Text {
+                    x: root.col_slot_width + 4px;
+                    width: parent.width - self.x;
+                    height: parent.height;
+                    text: "ACTIONS";
+                    font-size: 11px;
+                    font-weight: 700;
+                    color: Theme.text-muted;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    accessible-role: AccessibleRole.text;
+                }
+            }
+        }
+
+        // The list area is always mounted (so `tier_scroll` can be referenced by
+        // the header above). With no rows it stays a stretchy box, which keeps
+        // this table's MAXIMUM height unbounded -- otherwise every other child of
+        // this layout (toolbar, header) is fixed-height and would cap, through
+        // `EditorView`'s column and `app.slint`'s `edit_row` (a `HorizontalLayout`
+        // takes its smallest child's maximum), the whole Edit row for a fresh
+        // zero-tier design. The "No tiers yet" text is a sibling shown when empty.
+        Rectangle {
+            vertical-stretch: 1;
+            // Room for up to four rows (30 px each) and the scroll gutter, however full the
+            // toolbar above is: the dock scrolls rather than squashing the list to a sliver.
+            min-height: Math.max(60px, Math.min(EditorModel.tiers.length, 4) * 30px + root.scroll_gutter);
+
+        // Wrapped in a `FocusScope` for keyboard navigation (Up/Down/Home/End/
+        // PageUp/PageDown/Enter/Delete/Ctrl+D/F2/Alt+Up/Alt+Down -- see the
+        // manual's "Editing Tiers" chapter). Every branch below either
+        // `return accept`s or falls through to the trailing `reject`, so the
+        // global shortcuts in `app.slint` (Ctrl+Z/Y/S, F5, 1/2/3) still work while
+        // this list has focus -- none of those keys are handled here, so they
+        // always fall to `reject` and bubble up.
+        table_focus := FocusScope {
+            // A whole number of 30 px rows (28 px and the 2 px between them) plus the scroll
+            // gutter, so no half row shows at the foot of the list; the leftover is empty space
+            // below. Never fewer than one row.
+            y: 0px;
+            height: Math.max(1, Math.floor((parent.height - root.scroll_gutter) / 30px)) * 30px + root.scroll_gutter;
+            // Empty design: do not take focus, so Tab/arrows cannot select a
+            // non-existent row 0.
+            enabled: EditorModel.tiers.length > 0;
+            accessible-role: AccessibleRole.list;
+            accessible-label: "Tiers";
+            accessible-description: "Up and Down move through the tiers, Home and End jump to the first and last, Space adds the tier to the selection, F2 edits its angle and Delete removes it. Tab then walks the buttons of the tier you are on.";
+            // Mirrors `root.keyboard_focus_index` so scrolling the cursor into view
+            // is driven from ONE place regardless of what moved it (arrow keys/F2
+            // below, an in-list click, or `focus_row` called from outside this
+            // table): `tier_scroll` is a child of this SAME `FocusScope`, so this
+            // handler (unlike `root`'s own `focus_row`, see that function's own doc
+            // comment) can reference it directly.
+            property <int> scroll_target: root.keyboard_focus_index;
+            changed scroll_target => {
+                // `self`, not `root`: the property is declared on this `FocusScope`
+                // (see above), so `root` -- the component's own root element -- does
+                // not carry it.
+                // Slint deprecated `ScrollView.viewport-y`/`viewport-height` in
+                // favor of `content-y`/`content-height` (same semantics: the
+                // scrolled content's own y-offset/total height).
+                tier_scroll.content-y = root.scrolled_to_show(self.scroll_target, tier_scroll.content-y, tier_scroll.visible-height, tier_scroll.content-height);
+            }
+
+            // Drives `root`'s focus-ring border and seeds the keyboard cursor from
+            // the CURRENT selection every time this list gains focus (a Tab into it,
+            // or focus returning here from an inline editor's `closed()`) -- without
+            // this, tabbing in for the first time (or after clicking a button
+            // elsewhere) left `keyboard_focus_index` at whatever it last was, which
+            // could disagree with `EditorModel.selected_tier_index` and make the
+            // very first arrow press jump from the wrong row.
+            changed has-focus => {
+                root.table_focused = self.has-focus;
+                if self.has-focus {
+                    root.keyboard_focus_index = EditorModel.selected_tier_index;
+                }
+            }
+
+            key-pressed(event) => {
+                // Alt+Up/Alt+Down, Delete, Ctrl+D and F2 change the design, so
+                // they honour the worked-example guide's tier-table lock (the key
+                // is still consumed); plain navigation always works.
+                if event.modifiers.alt && event.text == Key.UpArrow {
+                    if root.keyboard_focus_index >= 0 && GuideModel.allows_tier_table() {
+                        EditorModel.move_tier(root.keyboard_focus_index, -1);
+                    }
+                    return accept;
+                } else if event.modifiers.alt && event.text == Key.DownArrow {
+                    if root.keyboard_focus_index >= 0 && GuideModel.allows_tier_table() {
+                        EditorModel.move_tier(root.keyboard_focus_index, 1);
+                    }
+                    return accept;
+                } else if event.text == Key.DownArrow {
+                    root.keyboard_focus_index = root.keyboard_focus_index < 0
+                        ? 0
+                        : Math.min(root.keyboard_focus_index + 1, EditorModel.tiers.length - 1);
+                    root.tier_selected(root.keyboard_focus_index);
+                    return accept;
+                } else if event.text == Key.UpArrow {
+                    root.keyboard_focus_index = root.keyboard_focus_index <= 0
+                        ? 0
+                        : root.keyboard_focus_index - 1;
+                    root.tier_selected(root.keyboard_focus_index);
+                    return accept;
+                } else if event.text == Key.Home {
+                    root.keyboard_focus_index = 0;
+                    root.tier_selected(root.keyboard_focus_index);
+                    return accept;
+                } else if event.text == Key.End {
+                    root.keyboard_focus_index = EditorModel.tiers.length - 1;
+                    root.tier_selected(root.keyboard_focus_index);
+                    return accept;
+                } else if event.text == Key.PageUp {
+                    root.keyboard_focus_index = root.keyboard_focus_index < 0
+                        ? 0
+                        : Math.max(0, root.keyboard_focus_index - 10);
+                    root.tier_selected(root.keyboard_focus_index);
+                    return accept;
+                } else if event.text == Key.PageDown {
+                    root.keyboard_focus_index = root.keyboard_focus_index < 0
+                        ? 0
+                        : Math.min(root.keyboard_focus_index + 10, EditorModel.tiers.length - 1);
+                    root.tier_selected(root.keyboard_focus_index);
+                    return accept;
+                } else if event.text == Key.Return {
+                    root.tier_selected(root.keyboard_focus_index);
+                    return accept;
+                } else if event.text == Key.Delete {
+                    if root.keyboard_focus_index >= 0 && root.keyboard_focus_index < EditorModel.tiers.length && GuideModel.allows_tier_table() {
+                        // `remove_tier` itself shifts/clears
+                        // `EditorModel.selected_tier_index` correctly on the Rust
+                        // side (`tier_actions::adjust_selection_after_remove`) --
+                        // do not also clear it here: doing so a second time,
+                        // AFTER that shift already ran, would compare the wrong
+                        // (pre-removal) index and could wrongly clear a selection
+                        // that had just been shifted down onto this same row.
+                        //
+                        // Backspace does not share this binding: it is the
+                        // universal "delete the previous character" key in every
+                        // text field ELSEWHERE in this app, so binding it here
+                        // risks a stray Backspace (e.g. one that failed to land
+                        // in a `LineEdit` that had just lost focus) deleting a
+                        // whole tier with no confirmation.
+                        EditorModel.remove_tier(root.keyboard_focus_index);
+                    }
+                    return accept;
+                } else if (event.modifiers.control || event.modifiers.meta) && event.text == "d" {
+                    if root.keyboard_focus_index >= 0 && root.keyboard_focus_index < EditorModel.tiers.length && GuideModel.allows_tier_table() {
+                        EditorModel.duplicate_tier(root.keyboard_focus_index);
+                    }
+                    return accept;
+                } else if event.text == Key.F2 {
+                    if root.keyboard_focus_index >= 0 && root.keyboard_focus_index < EditorModel.tiers.length && GuideModel.allows_tier_table() {
+                        root.inline_edit_target = root.keyboard_focus_index;
+                        root.inline_edit_pulse += 1;
+                        tier_scroll.content-y = root.scrolled_to_show(root.keyboard_focus_index, tier_scroll.content-y, tier_scroll.visible-height, tier_scroll.content-height);
+                    }
+                    return accept;
+                } else if event.text == Key.Space {
+                    // Space ticks the cursor row into the multi-select group: the keyboard
+                    // twin of Ctrl+click and of the Select-mode tick box. A concave row
+                    // never joins the group.
+                    if root.keyboard_focus_index >= 0 && root.keyboard_focus_index < EditorModel.tiers.length && EditorModel.tiers[root.keyboard_focus_index].kind == 0 {
+                        EditorModel.toggle_multi_select(root.keyboard_focus_index);
+                    }
+                    return accept;
+                } else if event.text == Key.Escape {
+                    // Clear the selection from the keyboard, matching the
+                    // viewport's click-on-empty-space behavior.
+                    EditorModel.selected_tier_index = -1;
+                    return accept;
+                }
+                reject
+            }
+
+        // The view is a whole number of rows tall; the strip below it (`side_bar`) is where the
+        // sideways scroll bar lives, so the start of the next row never shows in a gutter.
+        tier_scroll := ScrollView {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height - root.scroll_gutter;
+            horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+            VerticalLayout {
+                spacing: 2px;
+                // Room for the overlaid vertical scroll bar (14px in Fluent): scrolled to the
+                // end, the last column stays clear of it and can be clicked.
+                padding-right: root.scroll_gutter;
+                for row in EditorModel.tiers: tier-table-row-l383 := TierTableRow {
+                    item: row;
+                    keyboard_focus_index <=> root.keyboard_focus_index;
+                    table_focused: root.table_focused;
+                    select_mode: root.select_mode;
+                    inline_edit_target: root.inline_edit_target;
+                    inline_edit_pulse: root.inline_edit_pulse;
+                    col_hash_width: root.col_hash_width;
+                    col_warn_width: root.col_warn_width;
+                    col_block_width: root.col_block_width;
+                    col_angle_width: root.col_angle_width;
+                    col_name_min_width: root.col_name_min_width;
+                    col_indices_min_width: root.col_indices_min_width;
+                    col_meets_width: root.col_meets_width;
+                    col_mast_width: root.col_mast_width;
+                    col_solve_width: root.col_solve_width;
+                    col_margin_width: root.col_margin_width;
+                    col_orbit_width: root.col_orbit_width;
+                    col_actions_width: root.col_actions_width;
+                    col_slot_width: root.col_slot_width;
+                    pane_width: tier_scroll.visible-width;
+                    pane_x: tier_scroll.content-x;
+                    scroll_gutter: root.scroll_gutter;
+                    scroll_sideways(delta) => {
+                        tier_scroll.content-x = Math.max(-Math.max(0px, tier_scroll.content-width - tier_scroll.visible-width), Math.min(0px, tier_scroll.content-x + delta));
+                    }
+                    tier_selected(idx) => {
+                        // A click on a row cut off at the edge (half under the sideways bar, say)
+                        // brings it whole into view, as the keyboard cursor does. Nothing moves
+                        // when the row is already whole.
+                        tier_scroll.content-y = root.scrolled_to_show(idx, tier_scroll.content-y, tier_scroll.visible-height, tier_scroll.content-height);
+                        root.tier_selected(idx);
+                    }
+                    request_focus_return => { table_focus.focus(); }
+                }
+            }
+        }
+
+        // The sideways scroll bar: a thin track and thumb in the strip below the rows, shown only
+        // when the columns are wider than the view. Drag the thumb, or use Shift+wheel over a row.
+        side_bar := Rectangle {
+            property <length> track_w: self.width - 4px;
+            property <length> overflow: tier_scroll.content-width - tier_scroll.visible-width;
+            property <length> thumb_w: min(self.track_w, max(24px, self.track_w * (tier_scroll.visible-width / max(1px, tier_scroll.content-width))));
+            x: 0px;
+            y: parent.height - root.scroll_gutter;
+            width: parent.width - root.scroll_gutter;
+            height: root.scroll_gutter;
+            background: Theme.bg-darkest;
+            if side_bar.overflow > 1px: Rectangle {
+                x: 2px + (side_bar.track_w - side_bar.thumb_w) * (-tier_scroll.content-x / side_bar.overflow);
+                y: 4px;
+                width: side_bar.thumb_w;
+                height: 6px;
+                border-radius: 3px;
+                background: side_touch.pressed || side_touch.has-hover ? Theme.text-secondary : Theme.text-muted;
+            }
+            side_touch := TouchArea {
+                enabled: side_bar.overflow > 1px;
+                property <length> start_x;
+                pointer-event(event) => {
+                    if event.kind == PointerEventKind.down {
+                        self.start_x = tier_scroll.content-x;
+                    }
+                }
+                moved => {
+                    if self.pressed {
+                        let travel = max(1px, side_bar.track_w - side_bar.thumb_w);
+                        tier_scroll.content-x = max(-side_bar.overflow, min(0px, self.start_x - (self.mouse-x - self.pressed-x) * (side_bar.overflow / travel)));
+                    }
+                }
+            }
+        }
+        } // FocusScope (tier list keyboard navigation)
+
+        if EditorModel.tiers.length == 0: Text {
+            x: 0px;
+            y: 4px;
+            width: parent.width;
+            text: "No tiers yet -- open the Tier tab below to add one.";
+            font-size: 11px;
+            color: Theme.text-muted;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+        } // Rectangle (tier list area)
+        } // VerticalLayout (table body)
+    }
+}

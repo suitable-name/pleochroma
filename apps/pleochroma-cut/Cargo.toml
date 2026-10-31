@@ -1,0 +1,248 @@
+[package]
+name = "pleochroma-cut"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+authors = { workspace = true }
+description = "Desktop faceting-design editor: library browsing, spectral 3D rendering, material retargeting, and a solid inspection view."
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+documentation = "https://docs.rs/pleochroma-cut"
+keywords = ["gemstone", "faceting", "gui", "slint", "rendering"]
+categories = ["gui", "graphics", "rendering"]
+publish = { workspace = true }
+
+[lib]
+name = "pleochroma_cut"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pleochroma-cut"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+bytemuck = { workspace = true }
+pleochroma-vault = { workspace = true }
+# The new-version check (GitHub releases): consent record, due rule, blocking `check`.
+pleochroma-update = { workspace = true }
+# `hdr` (Radiance `.hdr` decoding, for `EnvironmentMap::from_hdr_file`) is enabled
+# unconditionally rather than behind a feature of this crate's own. It was briefly a
+# feature, but `bridge::render_thread::load_env_map` calls `from_hdr_file` with no
+# `#[cfg]`, so `--no-default-features` did not compile -- a feature that cannot be
+# switched off is a lie in the manifest. It is also genuinely cheap: `image` is already
+# a direct dependency below with `features = ["png"]`, and cargo unifies the two feature
+# lists into one build, so this adds a format decoder rather than a dependency tree.
+# Contrast `gpu` below, which stays opt-in because `wgpu`/`pollster` really is one.
+pleochroma = { workspace = true, features = ["hdr"] }
+# Remote rendering -- the client protocol driver
+# (`pleochroma_net::client`), settings model types (`TransferMode`/`StreamConfig`/
+# `PreviewConfig`), and mutual-TLS config building (`pleochroma_net::tls`).
+# `render` is not optional for this crate: the viewer IS a render client -- it builds a
+# `SceneState`, sends a `RenderRequest`, and reads the stream back. That feature exists
+# so a LIBRARY-ONLY `pleochroma-worker` can avoid compiling `pleochroma` at all; a viewer that
+# renders has no such option and would fail to compile without it.
+pleochroma-net = { workspace = true, features = ["render"] }
+# `SampleCursor` (re-exported from `bridge::sample_cursor`): the disjoint sample-range
+# claim point, shared with the render coordinator's lane pool.
+pleochroma-dispatch = { workspace = true }
+# The editor-core crate -- preform, editable cutting instructions, and undo/redo, see
+# `pleochroma-cut-core`'s own module doc comment. A plain, non-optional dependency:
+# an ordinary build always wires up the Edit tab, so nothing gates this crate
+# behind a feature.
+pleochroma-cut-core = { workspace = true }
+# The pure-CPU solid rasterizer and 2D faceting diagram (`raster`, `diagram2d`,
+# `facet_map`, `mesh_cache`, `edges_layer`, `pixel_font`, the pure `live_update`
+# replan planner) -- `gui::solid_preview` re-exports every module here at its old
+# paths and keeps only the Slint-facing/threaded half locally; see that module's
+# own doc comment and `pleochroma-solid`'s README.
+pleochroma-solid = { workspace = true }
+# The GUI-free editor core (`EditorSession`, form parsers, plain-struct view models,
+# cutting sheet, Retarget, guide, solve policy) -- `gui::editor` wraps
+# `EditorSession` in its own `EditorState`, maps the view models to its Slint row
+# types, and re-exports the rest at the old module paths; see
+# `pleochroma-editor`'s README.
+pleochroma-editor = { workspace = true }
+# The render job file, state machine and progress types (`gui::render_jobs`): shared with
+# `pleochroma-cli render` / `tilt-video`, which run the same executor.
+pleochroma-render-jobs = { workspace = true }
+glam = { workspace = true }
+# "gif" added alongside the pre-existing "png" for `gui::tilt::video_export::encode`'s
+# animated-GIF fallback when no `ffmpeg` executable is found on PATH to mux an MP4.
+# "jpeg" for the photos of "Locate inclusion from photos" (`gui::rough_plan::locate::photo`):
+# the decoder (`zune-jpeg`) is already in the lock file through Slint's own image loading.
+image = { workspace = true, features = ["png", "gif", "jpeg"] }
+# Local import ("Import" button) and export ("Export .asc" -- see `gui::library`) of
+# the user's own `.asc` files.
+pleochroma-formats = { workspace = true }
+postcard = { workspace = true }
+# Native OS file/folder picker dialogs for every path input in this crate's GUI
+# (import .asc, HDR environment map, remote-worker cert-dir, high-res PNG export, and
+# attachment export -- see each call site's own comment).
+#
+# `rfd::FileDialog` is constructed in exactly one place, `gui::pickers` -- every
+# dialog runs on a background thread (`std::thread::spawn`, never
+# `slint::spawn_local`: nothing here needs an async runtime, only a thread that is
+# not the UI/event-loop one) and hands its result back via
+# `Weak::upgrade_in_event_loop`, so the native modal (which pumps its own message
+# loop while up, same as any other native Win32/Cocoa/GTK modal dialog) never
+# blocks Slint's own event loop. The single exception is
+# `gui::render::camera_lighting`'s HDR-map picker, which a Slint callback still
+# calls synchronously because it RETURNS its result directly into a property
+# binding (the Lighting & Environment tab's HDR section, `ui/components/settings_dialog/environment_map_section.slint`) -- Slint has no way to await a
+# value-returning callback, so making that one async too needs a `.slint`-side
+# change (see `gui::pickers`'s own module doc comment for why).
+rfd = { workspace = true }
+# Remote rendering -- `bridge::remote_render` owns the actual
+# mutual-TLS `TcpStream` to a configured worker (`rustls::ClientConnection`/
+# `StreamOwned`, built from `pleochroma_net::tls::client_config`) and postcard-decodes
+# `StreamEvent` headers itself so it can apply a short read timeout between frames --
+# see that module's doc comment for why (interleaving a `CANCEL` write without a
+# second thread touching the same TLS connection).
+rustls = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Connection-liveness-only dependency: connect/handshake/write
+# deadlines and TCP keepalive tuning for `bridge::remote::remote_render::connection`.
+# `std::net::TcpStream` has no API to tune keepalive probe timing at all -- only
+# `set_nodelay`/`set_read_timeout`/`set_write_timeout`/`connect_timeout` are std, so this
+# is the one piece that genuinely needs an external crate. Not added to
+# `[workspace.dependencies]` -- deliberately scoped to this crate alone, since nothing
+# else in this workspace needs it.
+socket2 = "0.6.5"
+# slint 1.17.1's own `default` set, named verbatim because the workspace root sets
+# `default-features = false` on `slint` (see the root manifest's comment on why that
+# override must live there and not in a member).
+slint = { workspace = true, features = [
+    "std",
+    "backend-default",
+    "renderer-femtovg",
+    "renderer-software",
+    "accessibility",
+    "compat-1-2",
+    "system-tray",
+    # `gui::window_sizing` needs `slint::winit_030::WinitWindowAccessor` to reach the
+    # underlying `winit::window::Window` (monitor size for the initial window fit) --
+    # Slint's own public `slint::Window` API does not expose it. This feature is
+    # additive on top of `backend-default` above (it also implies `backend-winit`,
+    # already what `backend-default` resolves to on desktop).
+    "unstable-winit-030",
+] }
+# Settings-persistence-only dependency. Also used by
+# `pleochroma_cut_core::native` for its on-disk design-file format, so this is pulled through the
+# workspace table rather than pinned here alone.
+toml = { workspace = true }
+tracing = { workspace = true }
+# Diagnostics: `main::install_tracing_subscriber` installs a subscriber so every
+# `tracing::warn!`/`error!`/`debug!` call in this crate -- including the GPU
+# backend's own "device lost"/"uncaptured error" diagnostics -- is actually shown,
+# with `RUST_LOG` support. A release build has no console
+# (`windows_subsystem = "windows"`), so without an installed subscriber there is
+# nowhere to show them. `env-filter` is already requested at the workspace level.
+tracing-subscriber = { workspace = true }
+# Test-only seams (file dialogs, clipboard, opener) behind the `ui-harness` feature; see
+# `harness_support`.
+uiprobe-hooks = { workspace = true, optional = true }
+
+[features]
+default = []
+# Opt-in headless latency harness around the desktop live-render implementation.
+render-bench = []
+# The Edit tab is always wired up: `pleochroma-cut-core` is a plain dependency
+# above, and `MainWindow`'s `EditorModel.enabled` is unconditionally `true`
+# (`gui::mod::build_main_window`).
+#
+# Routes the viewport's progressive accumulation through `pleochroma`'s verified GPU
+# megakernel (`pleochroma::renderer::gpu::frame`), falling back to the CPU tracer per frame
+# whenever the GPU declines -- no adapter on this machine, or a scene the megakernel has
+# no `env_mode` for. Off by default: the CPU path is the reference implementation and
+# needs no `wgpu`/`pollster` dependency tree, so an ordinary build stays exactly as lean
+# as it was. See `bridge::render_thread::GpuBackend`.
+gpu = ["pleochroma/gpu"]
+# Shows the physics-based color editor in the Gem Material Editor: the "Color Mode:
+# Fantasy | Physics" toggle and the whole host-crystal / element-recipe section
+# (`ChromophorePicker`), plus the "color changed by an older version" question and the
+# "color data updated" badge. UI only: the data layer is compiled and active in EVERY
+# build -- a material's stored color mode and recipe (vault `color_recipe_json`, the
+# design file's `color_recipe`) are kept byte-for-byte and still render as before. Off by
+# default (and left out of the shipped/PGO feature sets) because the physical color mode is
+# out of focus; see `gui::optics::physics_state::PHYSICS_COLOR_UI`.
+physical-color = []
+# Experimental features bundle: activates the physical-color feature set. (Rough colour and
+# colour zoning from rig photos are always built and shown.)
+experimental = ["physical-color"]
+
+# Test-only UI harness (`tests/ui_harness`): compiles `crate::harness_support` (forwards to
+# `uiprobe-hooks`: the file-picker answer queue that replaces the native `rfd` dialog,
+# the clipboard and opener captures, plus the paths the harness asserts are inside its
+# throw-away profile). Never part of a shipped build.
+ui-harness = ["dep:uiprobe-hooks"]
+
+[build-dependencies]
+slint-build = { workspace = true }
+# Unconditional on purpose: a `[target.'cfg(windows)'.build-dependencies]` gate follows
+# the platform the build script is evaluated for, so a Windows binary cross-compiled
+# from Linux lost its icon. `build.rs` decides at run time from `CARGO_CFG_TARGET_OS`
+# whether to embed anything; `winresource` compiles on every host.
+winresource = { workspace = true }
+
+[dev-dependencies]
+# Test-only: `bridge::library_mirror`'s tests build a deterministic stand-in for the
+# real server-side content hash (`apps/pleochroma-worker/src/serve/library/mod.rs`'s own
+# `hash_summary`/`hash_record`) so a scripted `FakeTransport` can produce
+# `DesignSummary`/`DesignRecord` version hashes that change exactly when a test wants
+# them to -- see that module's `tests::content_hash`.
+sha2 = { workspace = true }
+# The UI harness drives the real `MainWindow` through Slint's testing backend (accessibility
+# tree queries, mock time, event-loop pumping). `screenshots` adds the software renderer for
+# `ui_screens`; the other targets keep the mock renderer. `recording` adds the video recorder
+# (cursor, ripples, ffmpeg sink, captions) for `tutorial_videos`.
+uiprobe = { workspace = true, features = ["screenshots", "recording"] }
+
+# The three UI targets run only on command, like the GPU equivalence harness: `test = false`
+# keeps them out of `cargo test` / `--tests` / `--all-targets` (so also out of a workspace
+# clippy run); naming one with `--test` runs it. Aliases in `.cargo/config.toml`:
+# `cargo ui-harness`, `cargo ui-static`, `cargo ui-screens`, `cargo ui-clippy`.
+#
+# `harness = false`: Slint's testing backend may be initialised once per process and wants the
+# main thread, so the harness has its own `main`.
+[[test]]
+name = "ui_harness"
+path = "tests/ui_harness/main.rs"
+harness = false
+test = false
+required-features = ["ui-harness"]
+
+# The static scan of the `.slint` sources (callbacks wired, labels, spelling); plain `#[test]`s.
+[[test]]
+name = "ui_static"
+path = "tests/ui_static.rs"
+test = false
+
+# Rewrites the UI screenshots in the workspace's `assets/` folder (software renderer, isolated
+# profile, a copy of the library named by `PLEOCHROMA_HARNESS_LIBRARY`).
+[[test]]
+name = "ui_screens"
+path = "tests/ui_screens/main.rs"
+harness = false
+test = false
+required-features = ["ui-harness"]
+
+# Plays every built-in tutorial in the real app and writes one video per tutorial (MP4, captions,
+# chapters) into the workspace's `videos/` folder. Needs ffmpeg on PATH (or `UIPROBE_FFMPEG`).
+[[test]]
+name = "tutorial_videos"
+path = "tests/tutorial_videos/main.rs"
+harness = false
+test = false
+required-features = ["ui-harness"]
+
+[lints]
+workspace = true
+
+[[example]]
+name = "live_render_bench"
+path = "examples/live_render_bench.rs"
+required-features = ["render-bench"]
+test = false

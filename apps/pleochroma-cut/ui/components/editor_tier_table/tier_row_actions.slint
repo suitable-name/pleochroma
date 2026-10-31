@@ -1,0 +1,311 @@
+import { EditorTierItem } from "../../types.slint";
+import { Theme } from "../../theme.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { CompactButton, CompactIcon } from "../compact_controls.slint";
+
+// A compact action of a tier row: a small icon button (Pin, Detach, Reattach) or, when `text` is
+// set, a short text chip (Add Anchor). It behaves like `CompactButton` and `CompactIcon` (hover
+// look, tooltip, focus ring, Space/Enter, screen-reader label with the tooltip as description), but
+// the screen-reader `label` is separate from what is drawn, so an icon (or the short "+ Anchor") is
+// still announced as "Pin", "Detach", "Reattach" and "Add Anchor".
+component RowAction inherits Rectangle {
+    in property <image> icon;
+    // The chip text. Empty: an icon button.
+    in property <string> text;
+    // What a screen reader (and the tutorial routes) call this control.
+    in property <string> label;
+    // One plain sentence: what the control does. Shown as the tooltip.
+    in property <string> hint;
+    in property <color> ink: Theme.text-secondary;
+    in property <color> hover_ink: Theme.accent-cyan;
+    in property <bool> enabled: true;
+    in property <bool> reachable: false;
+    callback clicked();
+
+    border-radius: root.text != "" ? 3px : Theme.radius-sm;
+    opacity: root.enabled ? 1.0 : 0.4;
+    background: root.text != ""
+        ? ((row_action_touch.has-hover && root.enabled) ? Theme.primary-glow : Theme.bg-card-hover)
+        : ((row_action_touch.has-hover && root.enabled) ? Theme.overlay-hover : transparent);
+    border-width: row_action_focus.has-focus ? 2px : 0px;
+    border-color: Theme.accent-cyan-hover;
+
+    accessible-role: AccessibleRole.button;
+    accessible-label: root.label;
+    accessible-description: root.hint;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.clicked();
+        }
+    }
+
+    Tooltip { text: @markdown("\{root.hint}"); }
+
+    row_action_focus := FocusScope {
+        enabled: root.enabled && root.reachable;
+        key-pressed(event) => {
+            if event.text == Key.Space || event.text == Key.Return {
+                root.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    if root.text != "": Text {
+        text: root.text;
+        // 9 px so "+ Anchor" fits its 44 px chip whole.
+        font-size: 9px;
+        font-weight: 600;
+        color: root.ink;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    if root.text == "": Image {
+        source: root.icon;
+        colorize: (row_action_touch.has-hover && root.enabled) ? root.hover_ink : root.ink;
+        width: 12px;
+        height: 12px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        image-fit: contain;
+    }
+
+    row_action_touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
+}
+
+// The action buttons at the end of one tier row, packed as tightly as the row allows (about 151 px
+// in the Advanced interface): left to right a slot for Adopt, Pin or Add Anchor (the three that only
+// some rows offer, right-aligned in it so they sit against the next button), then Detach/Reattach,
+// move up/down, Duplicate and Remove -- the last five are icons with tooltips. `TierTableRow` pins
+// this group to the right edge of the table's visible area (it does not scroll sideways with the
+// data columns, so these buttons are always within reach in a dock narrower than the whole row)
+// and gives it the row's own background so the data columns pass beneath it cleanly.
+//
+// The slot is `slot_width` wide (`EditorTierTable.col_slot_width`), sized for the widest single
+// occupant: Adopt (a tier with an imported meet), Pin (an unpinned tier with a certain solve) and
+// Add Anchor (a tier whose solve is uncertain for lack of an anchor). Most rows offer at most one.
+// A row that offers two -- a failed solve can show Adopt and Add Anchor together -- widens its
+// own group to the left by `needed_width - col_actions_width`, so the chips never overlap and
+// never shrink; `TierTableRow` hides the data cells that the wider group then covers.
+//
+// While the worked-example guide locks the tier table (`GuideModel.allows_tier_table()`) every
+// button here is disabled and dimmed and its tooltip explains the lock. The Simple interface
+// leaves out Adopt, Pin and Detach (their state is untouched).
+export component TierRowActions inherits Rectangle {
+    in property <EditorTierItem> item;
+    // Whether Tab can stop on the buttons -- only the row that holds the keyboard cursor offers
+    // them (see `CompactButton`).
+    in property <bool> reachable: false;
+    // Fired by "Add Anchor", like a plain click on the row: reports which tier to select.
+    callback tier_selected(int);
+
+    property <bool> unlocked: GuideModel.allows_tier_table();
+    property <bool> advanced: GuideModel.shows_advanced();
+    // The room of the Adopt / Pin / Add Anchor slot (`EditorTierTable.col_slot_width`).
+    in property <length> slot_width: 44px;
+
+    // What this row puts in the slot, and how wide each occupant is.
+    property <bool> adopt_shown: root.advanced && root.item.imported_meet_text != "";
+    property <bool> pin_shown: root.advanced && root.item.kind == 0 && root.item.constraint_kind != 2 && root.item.constraint_kind < 3 && !root.item.strategy_is_uncertain;
+    property <bool> anchor_shown: root.item.needs_anchor;
+    property <length> adopt_width: 34px;
+    property <length> pin_width: 20px;
+    property <length> anchor_width: 44px;
+    property <length> chip_gap: 2px;
+    property <length> occupants_width: (root.adopt_shown ? root.adopt_width : 0px)
+        + (root.pin_shown ? root.pin_width : 0px)
+        + (root.anchor_shown ? root.anchor_width : 0px)
+        + root.chip_gap * (max(0, (root.adopt_shown ? 1 : 0) + (root.pin_shown ? 1 : 0) + (root.anchor_shown ? 1 : 0) - 1));
+    // The width of the whole group for this row: the slot (widened for a crowded row), then the
+    // Detach/Reattach icon (Advanced only), the move pair, Duplicate and Remove, with the 3 px
+    // padding and the 1 px gaps. Keep in step with the layout below and `col_actions_width`.
+    out property <length> needed_width: 3px + max(root.slot_width, root.occupants_width) + 1px
+        + (root.advanced ? 21px : 0px) + 82px;
+
+    // A hairline on the left edge shows where the pinned group begins while data scrolls under it.
+    Rectangle {
+        x: 0px;
+        width: 1px;
+        background: Theme.border-subtle;
+    }
+
+    HorizontalLayout {
+        padding-left: 3px;
+        spacing: 1px;
+        Rectangle {
+            width: max(root.slot_width, root.occupants_width);
+            height: 100%;
+            HorizontalLayout {
+                alignment: end;
+                spacing: root.chip_gap;
+                // One-click "Adopt": switches this pinned tier over to the meet instruction the
+                // file actually stated (`Edit::SetConstraint`). Absent when there is nothing to
+                // adopt (`imported_meet_text == ""`).
+                if root.adopt_shown: VerticalLayout {
+                    horizontal-stretch: 0;
+                    min-width: root.adopt_width;
+                    preferred-width: root.adopt_width;
+                    max-width: root.adopt_width;
+                    alignment: center;
+                    CompactButton {
+                        height: 20px;
+                        text: "Adopt";
+                        font_size: 10px;
+                        // Names what the file actually said, not a generic action description, so the
+                        // cutter can see the imported geometry before committing to adopt it.
+                        hint: root.unlocked ? "File says this tier " + root.item.imported_meet_text + ".\nClick Adopt to switch to it so the solver and Optimize can move this facet." : GuideModel.locked_hint;
+                        enabled: root.unlocked;
+                        reachable: root.reachable;
+                        clicked => { EditorModel.adopt_meet(root.item.index); }
+                    }
+                }
+                // The inverse of Adopt: pins this tier's solved mast as an exact scale-reference
+                // anchor, freezing a value before optimizing the rest. Absent when already a scale
+                // reference, for authored target rows (would be overwritten on next solve), or with
+                // uncertain strategy (pinning a stale mast would freeze the wrong number).
+                if root.pin_shown: RowAction {
+                    horizontal-stretch: 0;
+                    min-width: root.pin_width;
+                    preferred-width: root.pin_width;
+                    max-width: root.pin_width;
+                    icon: @image-url("../../icons/pin.svg");
+                    label: "Pin";
+                    hint: root.unlocked ? "Pin this tier's current solved mast (" + root.item.mast_full + ") as an exact scale-reference anchor. See the glossary." : GuideModel.locked_hint;
+                    enabled: root.unlocked;
+                    reachable: root.reachable;
+                    clicked => { EditorModel.pin_to_mast(root.item.index); }
+                }
+                // The missing-anchor remedy action (`EditorTierItem::needs_anchor`, set only for
+                // the tiers `MissingAnchor::block_details` actually names). Opens the Tier tab on
+                // THIS row already set to "Exact scale value"
+                // (`EditorModel.suggested_constraint_kind`, consumed by
+                // `EditorInspector.load_tier_into_form`).
+                //
+                // Goes through `root.tier_selected` -- the SAME callback a plain click on this row
+                // fires -- rather than writing `EditorModel.selected_tier_index` directly:
+                // `EditorView`'s own handler for that callback already covers the "this row is
+                // already selected" case (a same-value property write raises no `changed` at all).
+                if root.anchor_shown: VerticalLayout {
+                    horizontal-stretch: 0;
+                    min-width: root.anchor_width;
+                    preferred-width: root.anchor_width;
+                    max-width: root.anchor_width;
+                    alignment: center;
+                    RowAction {
+                        height: 20px;
+                        text: "+ Anchor";
+                        label: "Add Anchor";
+                        ink: Theme.accent-amber;
+                        hint: root.unlocked
+                            ? (root.item.strategy_detail != ""
+                                ? root.item.strategy_detail
+                                : "Add Anchor: open the Tier tab on this row set to an exact scale value,\nwhich gives its block the anchor it needs. See the glossary.")
+                            : GuideModel.locked_hint;
+                        enabled: root.unlocked;
+                        reachable: root.reachable;
+                        clicked => {
+                            EditorModel.suggested_constraint_kind = 2;
+                            root.tier_selected(root.item.index);
+                            EditorModel.inspector_tab = 0;
+                            EditorModel.inspector_collapsed = false;
+                        }
+                    }
+                }
+            }
+        }
+        // Explicit, visible detach/reattach act (`Design::detach_all_in_tier`/
+        // `reattach_all_in_tier`) -- absent for a tier with nothing to link
+        // (`orbit_status == ""`). The icon is a broken link (Detach) or a link (Reattach).
+        if root.advanced: Rectangle {
+            width: 20px;
+            height: 100%;
+            if root.item.kind == 0 && root.item.orbit_status != "": RowAction {
+                y: (parent.height - self.height) / 2;
+                width: 20px;
+                height: 20px;
+                icon: root.item.is_detached ? @image-url("../../icons/link.svg") : @image-url("../../icons/detach.svg");
+                label: root.item.is_detached ? "Reattach" : "Detach";
+                ink: root.item.is_detached ? Theme.accent-cyan : Theme.text-secondary;
+                // Describes what the button actually, observably does: the ONLY behavioral
+                // consumer of `detached` is `Design::remove_orbit_member`, so this avoids
+                // promising a general "exempt from orbit symmetry handling".
+                hint: root.unlocked
+                    ? (root.item.is_detached
+                        ? "Reattach this tier's facets to their symmetric\nfamily, so they follow it again. See the glossary."
+                        : "Detach this tier's facets: mark them as hand-managed -- they stay\nindependent and are not swept along when an orbit\nmember elsewhere is removed. See the glossary.")
+                    : GuideModel.locked_hint;
+                enabled: root.unlocked;
+                reachable: root.reachable;
+                clicked => { EditorModel.toggle_detach(root.item.index); }
+            }
+        }
+        // Reorder this tier in cutting order (Alt+Up/Alt+Down do the same thing from the
+        // keyboard) -- swaps this tier's content with its neighbor's (`EditorModel.move_tier`).
+        // Two 20 px buttons side by side.
+        Rectangle {
+            width: 40px;
+            height: 100%;
+            VerticalLayout {
+                alignment: center;
+                HorizontalLayout {
+                    CompactIcon {
+                        icon: @image-url("../../icons/chevron-up.svg");
+                        glyph: 11px;
+                        hint: root.unlocked ? "Move this tier up in cutting order (Alt+Up)." : GuideModel.locked_hint;
+                        enabled: root.unlocked;
+                        reachable: root.reachable;
+                        clicked => { EditorModel.move_tier(root.item.index, -1); }
+                    }
+                    CompactIcon {
+                        icon: @image-url("../../icons/chevron-down.svg");
+                        glyph: 11px;
+                        hint: root.unlocked ? "Move this tier down in cutting order (Alt+Down)." : GuideModel.locked_hint;
+                        enabled: root.unlocked;
+                        reachable: root.reachable;
+                        clicked => { EditorModel.move_tier(root.item.index, 1); }
+                    }
+                }
+            }
+        }
+        // Duplicate this tier -- the row-button half of the tier list's Ctrl+D shortcut.
+        Rectangle {
+            width: 20px;
+            height: 100%;
+            CompactIcon {
+                y: (parent.height - self.height) / 2;
+                icon: @image-url("../../icons/copy.svg");
+                tint: Theme.accent-cyan;
+                hint: root.unlocked ? "Duplicate this tier, inserted right after it (Ctrl+D)." : GuideModel.locked_hint;
+                enabled: root.unlocked;
+                reachable: root.reachable;
+                clicked => { EditorModel.duplicate_tier(root.item.index); }
+            }
+        }
+        Rectangle {
+            width: 20px;
+            height: 100%;
+            CompactIcon {
+                y: (parent.height - self.height) / 2;
+                icon: @image-url("../../icons/trash.svg");
+                tint: Theme.accent-ruby;
+                hover_tint: Theme.accent-ruby;
+                hint: root.unlocked ? "Remove this tier (Delete)." : GuideModel.locked_hint;
+                enabled: root.unlocked;
+                reachable: root.reachable;
+                clicked => {
+                    // `remove_tier` already shifts/clears the selection correctly on the Rust
+                    // side (see the keyboard Delete handler in `EditorTierTable`).
+                    EditorModel.remove_tier(root.item.index);
+                }
+            }
+        }
+    }
+}

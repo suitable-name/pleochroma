@@ -1,0 +1,212 @@
+// Renderer choices are separate from the primary render actions. Explicit sizing keeps
+// long compute labels from increasing the viewport's minimum width.
+import { ComboBox, ScrollView } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { Chip } from "../../shell/chips.slint";
+import { RenderModel } from "render_model.slint";
+
+component RenderSelect inherits Rectangle {
+    in property <string> field-label;
+    in property <[string]> choices;
+    in property <int> model-index;
+    callback value-selected(int);
+    height: 20px + Theme.touch;
+
+    // ComboBox may write its local index during interaction. Rust remains the source
+    // of truth, including a refused choice or a backend changed by an async result.
+    changed model-index => { choice.current-index = root.model-index; }
+    Text {
+        width: root.width;
+        height: 20px;
+        text: root.field-label;
+        color: Theme.on-surface-variant;
+        font-size: Theme.text-label;
+        overflow: elide;
+    }
+    choice := ComboBox {
+        x: 0px;
+        y: 20px;
+        width: root.width;
+        min-width: 0px;
+        height: Theme.touch;
+        model: root.choices;
+        current-index: root.model-index;
+        accessible-label: root.field-label;
+        selected => {
+            if self.current-index != root.model-index {
+                root.value-selected(self.current-index);
+            }
+            self.current-index = root.model-index;
+        }
+    }
+}
+
+component RenderChoices inherits Rectangle {
+    property <bool> wide-controls: root.width >= 640px;
+    property <length> field-width: root.wide-controls
+        ? max(1px, (root.width - 2 * Theme.space-sm) / 3)
+        : max(1px, (root.width - Theme.space-sm) / 2);
+    height: root.wide-controls ? 68px : 144px;
+
+    RenderSelect {
+        x: 0px;
+        width: root.field-width;
+        field-label: "Renderer";
+        choices: ["Path-Traced", "Ray-Traced"];
+        model-index: RenderModel.engine;
+        value-selected(index) => { RenderModel.engine-selected(index); }
+    }
+    RenderSelect {
+        x: root.wide-controls ? root.field-width + Theme.space-sm : 0px;
+        y: root.wide-controls ? 0px : 76px;
+        width: root.wide-controls ? root.field-width : root.width;
+        field-label: "Compute";
+        choices: root.wide-controls
+            ? ["Automatic On Device", "Device CPU", "Device GPU", "Remote (Upload)"]
+            : ["Automatic On Device", "Device CPU", "Device GPU", "Remote · Upload Scene"];
+        model-index: RenderModel.backend;
+        value-selected(index) => { RenderModel.backend-selected(index); }
+    }
+    RenderSelect {
+        x: root.wide-controls ? 2 * (root.field-width + Theme.space-sm)
+            : root.field-width + Theme.space-sm;
+        width: root.field-width;
+        field-label: "Quality";
+        choices: ["Draft", "Normal", "Fine"];
+        model-index: RenderModel.quality;
+        value-selected(index) => { RenderModel.quality-selected(index); }
+    }
+}
+
+// Settings unfold only when requested. Primary actions stay outside the scroll area;
+// short viewports scroll choices vertically and retain the viewport's top-strip space.
+export component RenderControls inherits Rectangle {
+    // The height the panel may take; the viewport passes its own height minus the bottom bar.
+    // A component's property default cannot read `parent`, so the default is unbounded.
+    in property <length> height-budget: 10000px;
+    callback settings-toggled();
+    property <bool> wide-controls: root.width - 2 * Theme.space-sm - 20px >= 640px;
+    property <length> choices-height: root.wide-controls ? 68px : 144px;
+    property <length> status-height: root.height-budget < 160px ? 0px : 48px;
+    property <length> natural-height: 3px + root.status-height + Theme.touch
+        + (RenderModel.controls-open ? root.choices-height + Theme.touch
+            + 4 * Theme.space-xs + (RenderModel.engine == 1 ? 72px : 0px) : 0px);
+    height: min(root.natural-height, max(0px, root.height-budget));
+    background: Theme.surface.with-alpha(0.82);
+    clip: true;
+
+    TouchArea { }
+
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: 3px;
+        background: Theme.outline-variant;
+        Rectangle {
+            width: parent.width * clamp(RenderModel.progress, 0.0, 1.0);
+            height: parent.height;
+            background: Theme.primary;
+        }
+    }
+    if root.status-height > 0px: Text {
+        x: Theme.space-sm;
+        y: 3px;
+        width: max(1px, root.width - 2 * Theme.space-sm);
+        height: 28px;
+        text: RenderModel.status-text;
+        color: Theme.on-surface-variant;
+        font-size: Theme.text-label;
+        vertical-alignment: center;
+        overflow: elide;
+        accessible-role: AccessibleRole.text;
+        accessible-label: "Render status: " + RenderModel.status-text;
+    }
+    if root.status-height > 0px: Text {
+        x: Theme.space-sm;
+        y: 31px;
+        width: max(1px, root.width - 2 * Theme.space-sm);
+        height: 20px;
+        text: RenderModel.backend-report;
+        color: Theme.on-surface-variant;
+        font-size: Theme.text-label;
+        overflow: elide;
+        accessible-role: AccessibleRole.text;
+        accessible-label: RenderModel.backend-report;
+    }
+    if RenderModel.controls-open: ScrollView {
+        x: 0px;
+        y: 3px + root.status-height;
+        width: root.width;
+        height: max(0px, root.height - 3px - root.status-height - Theme.touch);
+        content-width: self.visible-width;
+        horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
+        VerticalLayout {
+            width: parent.visible-width;
+            padding-left: Theme.space-sm;
+            padding-right: Theme.space-sm;
+            padding-top: Theme.space-xs;
+            padding-bottom: Theme.space-xs;
+            spacing: Theme.space-xs;
+            // Reserve the scrollbar gutter even when it is hidden, so its appearance
+            // cannot switch the row count while the height is being constrained.
+            RenderChoices { width: max(1px, root.width - 2 * Theme.space-sm - 20px); }
+            HorizontalLayout {
+                height: Theme.touch;
+                spacing: Theme.space-xs;
+                alignment: start;
+                Chip {
+                    text: "Light";
+                    selected: RenderModel.light-drag;
+                    clicked => { RenderModel.light-toggled(); }
+                }
+                if RenderModel.engine == 0: Chip {
+                    text: "Denoise";
+                    selected: RenderModel.denoise;
+                    clicked => { RenderModel.denoise-toggled(); }
+                }
+            }
+            Text {
+                text: RenderModel.engine == 1
+                    ? "Approximate tint and frost. No polarization, double images, haze, zones or rounding. Paths are depth-limited; metrics use their own tracer."
+                    : "";
+                height: RenderModel.engine == 1 ? self.preferred-height : 0px;
+                wrap: word-wrap;
+                font-size: Theme.text-label;
+                color: Theme.on-surface-variant;
+                accessible-role: AccessibleRole.text;
+            }
+        }
+    }
+    HorizontalLayout {
+        x: 0px;
+        y: max(0px, root.height - Theme.touch);
+        width: root.width;
+        height: Theme.touch;
+        padding-left: Theme.space-sm;
+        padding-right: Theme.space-sm;
+        spacing: Theme.space-xs;
+        alignment: start;
+        if RenderModel.can-pause: Chip {
+            text: RenderModel.backend == 3 ? "Cancel" : (RenderModel.paused ? "Resume" : "Pause");
+            selected: RenderModel.paused;
+            clicked => { RenderModel.pause-toggled(); }
+        }
+        if !RenderModel.can-pause && RenderModel.can-render: Chip {
+            text: "Retry";
+            clicked => { RenderModel.restart-requested(); }
+        }
+        Chip {
+            text: "Settings";
+            accessible-label: "Render Settings";
+            selected: RenderModel.controls-open;
+            clicked => { root.settings-toggled(); }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        Chip {
+            text: "Export";
+            enabled: RenderModel.can-render;
+            clicked => { RenderModel.export-requested(); }
+        }
+    }
+}

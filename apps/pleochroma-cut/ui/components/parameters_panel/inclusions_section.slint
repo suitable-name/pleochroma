@@ -1,0 +1,236 @@
+import { Theme } from "../../theme.slint";
+import { RenderEffectsModel } from "../../models/render_effects.slint";
+import { PillButton, SegmentPill } from "../pill_button.slint";
+import { SettingLabel } from "../settings_dialog/setting_label.slint";
+import { ToggleRow } from "../toggle_switch.slint";
+import { GroupHeader, SliderRow } from "parts.slint";
+
+// The Stone tab's Inclusions group: the silk, needles or platelets the stone's material is
+// known for, as a preset from the catalogue with a strength (Density), a Silk Turn about the
+// crystal axis, a Sheen (how wide the glint cone is) and a Silk Color. Every choice is saved in
+// the design as one undoable step; "None" is the plain render. A material the catalogue has no
+// preset for says so and offers nothing.
+//
+// `saved_note` is the closing sentence of the tooltips (where the value lives); `ray_traced` is
+// true while the view is the Ray-Traced one, which does not draw inclusions.
+export component InclusionsSection inherits VerticalLayout {
+    in property <string> saved_note;
+    in property <bool> ray_traced: false;
+
+    spacing: 10px;
+
+    init => { RenderEffectsModel.refresh(); }
+
+    GroupHeader { text: "Inclusions"; }
+
+    if RenderEffectsModel.inclusion_preset_names.length == 0 && RenderEffectsModel.inclusion_own_count == 0: Text {
+        text: RenderEffectsModel.inclusion_note != ""
+            ? RenderEffectsModel.inclusion_note
+            : "This material has no inclusion presets.";
+        font-size: 10px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+        accessible-role: AccessibleRole.text;
+    }
+
+    // A custom material's own families: shown, never edited here.
+    if RenderEffectsModel.inclusion_own_count > 0: VerticalLayout {
+        spacing: 3px;
+        Text {
+            text: RenderEffectsModel.inclusion_own_text;
+            font-size: 11px;
+            font-weight: 600;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+            accessible-role: AccessibleRole.text;
+        }
+        Text {
+            text: "They are part of the material and are edited in the Material Editor.";
+            font-size: 10px;
+            color: Theme.text-muted;
+            wrap: word-wrap;
+            accessible-role: AccessibleRole.text;
+        }
+        if root.ray_traced: Text {
+            text: "Ray-Traced ignores Inclusions. Switch to Path-Traced to see them.";
+            font-size: 10px;
+            color: Theme.text-muted;
+            wrap: word-wrap;
+            accessible-role: AccessibleRole.text;
+        }
+    }
+
+    if RenderEffectsModel.inclusion_preset_names.length > 0: VerticalLayout {
+        spacing: 8px;
+
+        VerticalLayout {
+            spacing: 4px;
+            SettingLabel {
+                text: "Preset";
+                hint: "The inclusions this stone is known for, drawn\ninside it: fine silk, rutile needles, growth tubes,\na cat's-eye band. None keeps the plain stone." + root.saved_note;
+            }
+            PillButton {
+                text: "None";
+                hint: "No inclusions: the plain stone.";
+                lit: RenderEffectsModel.inclusion_preset == "";
+                checkable: true;
+                clicked => { RenderEffectsModel.inclusion_preset_chosen(""); }
+            }
+            for name[index] in RenderEffectsModel.inclusion_preset_names: PillButton {
+                text: name;
+                hint: RenderEffectsModel.inclusion_preset_blocked[index]
+                    ? "Not available yet: this preset needs a Second Axis. Set the\nCrystal Axis for this stone and set its Second Axis first."
+                    : "Draw this inclusion preset inside the stone." + root.saved_note;
+                lit: RenderEffectsModel.inclusion_preset == name;
+                checkable: true;
+                enabled: !RenderEffectsModel.inclusion_preset_blocked[index];
+                clicked => { RenderEffectsModel.inclusion_preset_chosen(name); }
+            }
+        }
+
+        if RenderEffectsModel.inclusion_preset != "": VerticalLayout {
+            spacing: 8px;
+
+            SliderRow {
+                text: "Density";
+                hint: "Density: how many inclusions the stone holds, from 0 (none) to\n1 (packed). About 0.35 is the usual amount for the preset." + root.saved_note;
+                value_text: Math.round(RenderEffectsModel.inclusion_density * 100.0) / 100.0 + "";
+                minimum: 0.0;
+                maximum: 1.0;
+                value <=> RenderEffectsModel.inclusion_density;
+                edited(val) => { RenderEffectsModel.inclusions_edited(); }
+            }
+
+            ToggleRow {
+                text: "Set Silk Turn";
+                hint: "Silk Turn: turn the inclusions about the crystal\naxis. Off follows the stone's Second Axis." + root.saved_note;
+                checked: RenderEffectsModel.inclusion_turn_set;
+                toggled => {
+                    RenderEffectsModel.inclusion_turn_set = !RenderEffectsModel.inclusion_turn_set;
+                    RenderEffectsModel.inclusions_edited();
+                }
+            }
+
+            if RenderEffectsModel.inclusion_turn_set: SliderRow {
+                text: "Silk Turn";
+                hint: "Silk Turn: how far the inclusions are turned\nabout the crystal axis, from 0 to 180 degrees." + root.saved_note;
+                value_text: Math.round(RenderEffectsModel.inclusion_turn_deg) + "°";
+                minimum: 0.0;
+                maximum: 180.0;
+                value <=> RenderEffectsModel.inclusion_turn_deg;
+                edited(val) => { RenderEffectsModel.inclusions_edited(); }
+            }
+
+            VerticalLayout {
+                spacing: 3px;
+                SettingLabel {
+                    text: "Sheen";
+                    hint: "Sheen: how widely the light spreads off the\ninclusions. Soft is a diffuse glow, Sharp is a\nnarrow streak. Preset's Own keeps the preset's width." + root.saved_note;
+                }
+                HorizontalLayout {
+                    spacing: 4px;
+                    SegmentPill {
+                        text: "Preset's Own";
+                        hint: "Keep the width the preset has.";
+                        selected: RenderEffectsModel.inclusion_sheen == 0;
+                        picked => {
+                            RenderEffectsModel.inclusion_sheen = 0;
+                            RenderEffectsModel.inclusions_edited();
+                        }
+                    }
+                    SegmentPill {
+                        text: "Soft";
+                        hint: "A wider cone: a diffuse glow.";
+                        selected: RenderEffectsModel.inclusion_sheen == 1;
+                        picked => {
+                            RenderEffectsModel.inclusion_sheen = 1;
+                            RenderEffectsModel.inclusions_edited();
+                        }
+                    }
+                    SegmentPill {
+                        text: "Sharp";
+                        hint: "A narrower cone: sharp streaks.";
+                        selected: RenderEffectsModel.inclusion_sheen == 2;
+                        picked => {
+                            RenderEffectsModel.inclusion_sheen = 2;
+                            RenderEffectsModel.inclusions_edited();
+                        }
+                    }
+                }
+            }
+
+            VerticalLayout {
+                spacing: 3px;
+                SettingLabel {
+                    text: "Silk Color";
+                    hint: "Silk Color: the color of the light the inclusions scatter.\nGrey is white, Slightly Blue and Blue are the bluish look\nof fine silk. Preset's Own keeps the preset's color." + root.saved_note;
+                }
+                HorizontalLayout {
+                    spacing: 4px;
+                    SegmentPill {
+                        text: "Preset's Own";
+                        hint: "Keep the color the preset has.";
+                        selected: RenderEffectsModel.inclusion_color == 0;
+                        picked => {
+                            RenderEffectsModel.inclusion_color = 0;
+                            RenderEffectsModel.inclusions_edited();
+                        }
+                    }
+                    SegmentPill {
+                        text: "Grey";
+                        hint: "White scattered light.";
+                        selected: RenderEffectsModel.inclusion_color == 1;
+                        picked => {
+                            RenderEffectsModel.inclusion_color = 1;
+                            RenderEffectsModel.inclusions_edited();
+                        }
+                    }
+                    SegmentPill {
+                        text: "Slightly Blue";
+                        hint: "A faint bluish tint.";
+                        selected: RenderEffectsModel.inclusion_color == 2;
+                        picked => {
+                            RenderEffectsModel.inclusion_color = 2;
+                            RenderEffectsModel.inclusions_edited();
+                        }
+                    }
+                    SegmentPill {
+                        text: "Blue";
+                        hint: "A clearly bluish tint, as fine silk looks.";
+                        selected: RenderEffectsModel.inclusion_color == 3;
+                        picked => {
+                            RenderEffectsModel.inclusion_color = 3;
+                            RenderEffectsModel.inclusions_edited();
+                        }
+                    }
+                }
+            }
+
+            ToggleRow {
+                text: "Show Silk Directions";
+                hint: "Draw the directions of the inclusions over the stone as lines,\nso you can see which way they run. A view aid: it is not saved.";
+                checked: RenderEffectsModel.show_silk_directions;
+                toggled => {
+                    RenderEffectsModel.show_silk_directions = !RenderEffectsModel.show_silk_directions;
+                    RenderEffectsModel.silk_toggled(RenderEffectsModel.show_silk_directions);
+                }
+            }
+        }
+
+        if RenderEffectsModel.inclusion_note != "": Text {
+            text: RenderEffectsModel.inclusion_note;
+            font-size: 10px;
+            color: Theme.accent-amber;
+            wrap: word-wrap;
+            accessible-role: AccessibleRole.text;
+        }
+
+        if root.ray_traced && RenderEffectsModel.inclusion_preset != "": Text {
+            text: "Ray-Traced ignores Inclusions. Switch to Path-Traced to see them.";
+            font-size: 10px;
+            color: Theme.text-muted;
+            wrap: word-wrap;
+            accessible-role: AccessibleRole.text;
+        }
+    }
+}

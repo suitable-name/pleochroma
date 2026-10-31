@@ -1,0 +1,784 @@
+# Built-in color variants: garnet peridot zircon benitoite tanzanite (fit lane F3, 2026-10-27).
+# Schema: see ../color_variants.toml. Research: docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md.
+# Fit records: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md (one section per entry).
+#
+# Every entry is `per_mm` (Napierian absorption coefficient per millimetre of path) and calibrated for a 7 mm stone,
+# whose face-up light path is MODEL_UNIT_FACE_UP_PATH x 7 / REFERENCE_MODEL_WIDTH = 2.83 x 7 / 2 = 9.905 mm
+# (`variants::face_up_swatch_path`). The garnets are cubic: one band set, stored twice (o = e), `pleochroic = false`.
+# Peridot and tanzanite are biaxial (o = alpha, beta, e = gamma), zircon and benitoite uniaxial (o = E perp c,
+# e = E parallel c). All bands are energy Gaussians (width_nm = sigma in cm^-1 = FWHM / 2.35482).
+# Bands of the data fits are empirical: bands below about 440 nm describe the ultraviolet edge, and
+# individual centres are not assigned unless the fit record says so.
+#
+# Estimated flag (one rule for every data file): `estimated = true` when the spectrum shape is NOT a measured
+# spectrum of that variety, OR the strength is NOT anchored (no concentration, no published color value, a factor
+# chosen for how the variety looks). `estimated = false` only for a measured spectrum at a strength that a published
+# number fixes. The FIRST line of `sources` is one short plain sentence saying which part is estimated: the UI shows it
+# as the "Estimated" tooltip. The full citations follow on the later lines.
+
+data_version = 1
+
+# Pyrope Garnet, Rhodolite: Fe2+ on the dodecahedral site (spin-forbidden 504, 527-530, 576 nm, weak 610 and 690 nm), a rising ultraviolet edge and a broad Fe2+-Fe3+ continuum. About 33 mol% almandine, inside the rhodolite range.
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-01-pyrope-garnet-rhodolite
+[[variant]]
+material = "Pyrope Garnet"
+key = "pyrope_garnet.rhodolite"
+label = "Rhodolite"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 131 rhodolite).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman, CC BY-NC 4.0, DOI 10.7907/jywr-qq57): GRR 131 rhodolite (Mg1.82 Fe0.99 Ca0.16 Mn0.04 Al2.00, 2.007 mm), http://minerals.gps.caltech.edu/FILES/Visible/garnet/grr131, crates/pleochroma/data/reference_spectra/variant_pyrope_rhodolite_iso.csv; GRR 83 (Umba) agrees per almandine fraction",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.1.1 (Fe2+ 504 / 527 / 576 nm over a UV edge, Fe2+-Fe3+ IVCT continuum; Fe2+-Fe3+ IVCT band near 21 700 cm^-1 in Fe-rich garnets: Taran, Dyar and Matsyuk 2007, Am. Mineral. 92, 753-760 (the DOI formerly cited here could not be verified and is dropped))",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-01-pyrope-garnet-rhodolite"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 390.22, width_nm = 2367.4, peak = 0.3065, shape = "energy" },
+    { center_nm = 427.95, width_nm = 537.4, peak = 0.04581, shape = "energy" },
+    { center_nm = 462.64, width_nm = 500.8, peak = 0.05525, shape = "energy" },
+    { center_nm = 501.21, width_nm = 218.0, peak = 0.06347, shape = "energy" },
+    { center_nm = 517.64, width_nm = 1033.5, peak = 0.2754, shape = "energy" },
+    { center_nm = 575.31, width_nm = 404.0, peak = 0.1913, shape = "energy" },
+    { center_nm = 614.19, width_nm = 475.7, peak = 0.09736, shape = "energy" },
+    { center_nm = 695.49, width_nm = 794.3, peak = 0.07463, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 390.22, width_nm = 2367.4, peak = 0.3065, shape = "energy" },
+    { center_nm = 427.95, width_nm = 537.4, peak = 0.04581, shape = "energy" },
+    { center_nm = 462.64, width_nm = 500.8, peak = 0.05525, shape = "energy" },
+    { center_nm = 501.21, width_nm = 218.0, peak = 0.06347, shape = "energy" },
+    { center_nm = 517.64, width_nm = 1033.5, peak = 0.2754, shape = "energy" },
+    { center_nm = 575.31, width_nm = 404.0, peak = 0.1913, shape = "energy" },
+    { center_nm = 614.19, width_nm = 475.7, peak = 0.09736, shape = "energy" },
+    { center_nm = 695.49, width_nm = 794.3, peak = 0.07463, shape = "energy" },
+  ]
+
+# Pyrope Garnet, Chrome Pyrope: Cr3+ on the Y site (4A2 -> 4T1 near 410 nm, 4A2 -> 4T2 at 569 nm) plus Fe2+ 504 / 530 nm.
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-02-pyrope-garnet-chrome-pyrope
+[[variant]]
+material = "Pyrope Garnet"
+key = "pyrope_garnet.chrome_pyrope"
+label = "Chrome Pyrope"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 1055 pyrope).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman, CC BY-NC 4.0, DOI 10.7907/jywr-qq57): GRR 1055 pyrope, Moses Rock, Utah (Ca0.33 Mn0.02 Mg2.13 Fe0.54 Al1.95 Cr0.07, 0.840 mm), http://minerals.gps.caltech.edu/FILES/Visible/garnet/Pyrope_grr1055.txt, crates/pleochroma/data/reference_spectra/variant_pyrope_chrome_iso.csv",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.1.2 (Cr3+ 415 and 571 nm plus Fe2+ 504 / 527 nm; GIA Gems & Gemology Winter 2015 pink pyrope)",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-02-pyrope-garnet-chrome-pyrope"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 406.06, width_nm = 1565.2, peak = 0.5633, shape = "energy" },
+    { center_nm = 428.73, width_nm = 766.8, peak = 0.1434, shape = "energy" },
+    { center_nm = 462.73, width_nm = 707.3, peak = 0.09431, shape = "energy" },
+    { center_nm = 503.76, width_nm = 830.7, peak = 0.145, shape = "energy" },
+    { center_nm = 529.93, width_nm = 341.3, peak = 0.02126, shape = "energy" },
+    { center_nm = 568.89, width_nm = 982.8, peak = 0.3682, shape = "energy" },
+    { center_nm = 686.30, width_nm = 586.2, peak = 0.02624, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 406.06, width_nm = 1565.2, peak = 0.5633, shape = "energy" },
+    { center_nm = 428.73, width_nm = 766.8, peak = 0.1434, shape = "energy" },
+    { center_nm = 462.73, width_nm = 707.3, peak = 0.09431, shape = "energy" },
+    { center_nm = 503.76, width_nm = 830.7, peak = 0.145, shape = "energy" },
+    { center_nm = 529.93, width_nm = 341.3, peak = 0.02126, shape = "energy" },
+    { center_nm = 568.89, width_nm = 982.8, peak = 0.3682, shape = "energy" },
+    { center_nm = 686.30, width_nm = 586.2, peak = 0.02624, shape = "energy" },
+  ]
+
+# Almandine Garnet, Purplish: Fe2+ spin-forbidden bands at 504, 527 and 576 nm over a broad blue edge (83 mol% almandine).
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-03-almandine-garnet-purplish
+[[variant]]
+material = "Almandine Garnet"
+key = "almandine_garnet.purplish"
+label = "Purplish"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 1776 almandine).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman, CC BY-NC 4.0, DOI 10.7907/jywr-qq57): GRR 1776 almandine ([Fe2.5 Mg0.3 Mn0.2 Ca0.1]Al2.0(SiO4)3, 0.213 mm, merged file), crates/pleochroma/data/reference_spectra/variant_almandine_purplish_iso.csv",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.2.1 (Fe2+ 504 / 527 / 576 nm over a strong blue-ultraviolet edge, Fe2+-Fe3+ IVCT)",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-03-almandine-garnet-purplish"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 400.36, width_nm = 3224.9, peak = 0.3082, shape = "energy" },
+    { center_nm = 429.73, width_nm = 464.0, peak = 0.05266, shape = "energy" },
+    { center_nm = 462.51, width_nm = 421.7, peak = 0.05352, shape = "energy" },
+    { center_nm = 502.22, width_nm = 217.0, peak = 0.0798, shape = "energy" },
+    { center_nm = 517.74, width_nm = 1102.9, peak = 0.3543, shape = "energy" },
+    { center_nm = 575.60, width_nm = 403.6, peak = 0.2272, shape = "energy" },
+    { center_nm = 613.34, width_nm = 438.8, peak = 0.1289, shape = "energy" },
+    { center_nm = 692.92, width_nm = 792.2, peak = 0.0919, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 400.36, width_nm = 3224.9, peak = 0.3082, shape = "energy" },
+    { center_nm = 429.73, width_nm = 464.0, peak = 0.05266, shape = "energy" },
+    { center_nm = 462.51, width_nm = 421.7, peak = 0.05352, shape = "energy" },
+    { center_nm = 502.22, width_nm = 217.0, peak = 0.0798, shape = "energy" },
+    { center_nm = 517.74, width_nm = 1102.9, peak = 0.3543, shape = "energy" },
+    { center_nm = 575.60, width_nm = 403.6, peak = 0.2272, shape = "energy" },
+    { center_nm = 613.34, width_nm = 438.8, peak = 0.1289, shape = "energy" },
+    { center_nm = 692.92, width_nm = 792.2, peak = 0.0919, shape = "energy" },
+  ]
+
+# Spessartine Garnet, Reddish Orange: Mn2+ spin-forbidden bands (429, 462, 482, 524 nm) with Fe2+; Fe- and Mn-rich, deeper than the Material Default (GRR 43, near end-member).
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-04-spessartine-garnet-reddish-orange
+[[variant]]
+material = "Spessartine Garnet"
+key = "spessartine_garnet.reddish_orange"
+label = "Reddish Orange"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 72 spessartine).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman, CC BY-NC 4.0, DOI 10.7907/jywr-qq57): GRR 72 spessartine, Rutherford Mine, Virginia (Mn2.79 Fe0.07 Mg0.04 Ca0.03 Al2.00, 3.446 mm), crates/pleochroma/data/reference_spectra/variant_spessartine_reddishorange_iso.csv (the file starts at 430 nm)",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.3.1 (Mn2+ 429 / 462 / 486 / 523 nm; Taran et al. 2023, Am. Min. 108)",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-04-spessartine-garnet-reddish-orange"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 394.42, width_nm = 1544.2, peak = 2.033, shape = "energy" },
+    { center_nm = 434.50, width_nm = 207.9, peak = 0.1112, shape = "energy" },
+    { center_nm = 461.35, width_nm = 328.4, peak = 0.169, shape = "energy" },
+    { center_nm = 482.16, width_nm = 484.6, peak = 0.2502, shape = "energy" },
+    { center_nm = 523.68, width_nm = 932.3, peak = 0.2147, shape = "energy" },
+    { center_nm = 596.82, width_nm = 911.1, peak = 0.06521, shape = "energy" },
+    { center_nm = 682.96, width_nm = 601.0, peak = 0.02229, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 394.42, width_nm = 1544.2, peak = 2.033, shape = "energy" },
+    { center_nm = 434.50, width_nm = 207.9, peak = 0.1112, shape = "energy" },
+    { center_nm = 461.35, width_nm = 328.4, peak = 0.169, shape = "energy" },
+    { center_nm = 482.16, width_nm = 484.6, peak = 0.2502, shape = "energy" },
+    { center_nm = 523.68, width_nm = 932.3, peak = 0.2147, shape = "energy" },
+    { center_nm = 596.82, width_nm = 911.1, peak = 0.06521, shape = "energy" },
+    { center_nm = 682.96, width_nm = 601.0, peak = 0.02229, shape = "energy" },
+  ]
+
+# Spessartine Garnet, Pale Golden Orange: The same Mn2+ bands at lower Mn content (spessartine-pyrope or -grossular solid solution).
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-05-spessartine-garnet-pale-golden-orange
+[[variant]]
+material = "Spessartine Garnet"
+key = "spessartine_garnet.pale_golden_orange"
+label = "Pale Golden Orange"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Scaled copy of the Spessartine Material Default (GRR 43) at a chosen strength; no pale stone measured.",
+  "Material Default of Spessartine Garnet (Caltech GRR 43, fitted 2026-10-19; docs/chromophores/calibration-records.md#spessartine) with every peak x 0.4, converted from model units to per mm by the 9.905 mm face-up path; estimated",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.3.2 (Mn2+ absorption scales linearly with the Mn fraction)",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-05-spessartine-garnet-pale-golden-orange"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 320.00, width_nm = 2982.4, peak = 1.107, shape = "energy" },
+    { center_nm = 411.00, width_nm = 236.1, peak = 0.5734, shape = "energy" },
+    { center_nm = 421.00, width_nm = 177.9, peak = 0.2673, shape = "energy" },
+    { center_nm = 429.00, width_nm = 279.9, peak = 0.3328, shape = "energy" },
+    { center_nm = 462.00, width_nm = 658.6, peak = 0.09006, shape = "energy" },
+    { center_nm = 485.00, width_nm = 344.4, peak = 0.06421, shape = "energy" },
+    { center_nm = 523.00, width_nm = 837.0, peak = 0.0634, shape = "energy" },
+    { center_nm = 590.00, width_nm = 1274.0, peak = 0.005331, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 320.00, width_nm = 2982.4, peak = 1.107, shape = "energy" },
+    { center_nm = 411.00, width_nm = 236.1, peak = 0.5734, shape = "energy" },
+    { center_nm = 421.00, width_nm = 177.9, peak = 0.2673, shape = "energy" },
+    { center_nm = 429.00, width_nm = 279.9, peak = 0.3328, shape = "energy" },
+    { center_nm = 462.00, width_nm = 658.6, peak = 0.09006, shape = "energy" },
+    { center_nm = 485.00, width_nm = 344.4, peak = 0.06421, shape = "energy" },
+    { center_nm = 523.00, width_nm = 837.0, peak = 0.0634, shape = "energy" },
+    { center_nm = 590.00, width_nm = 1274.0, peak = 0.005331, shape = "energy" },
+  ]
+
+# Grossular Garnet (Tsavorite), Mint: V3+ (traces of Cr3+) on the Y site, light type.
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-06-grossular-garnet-tsavorite-mint
+[[variant]]
+material = "Grossular Garnet (Tsavorite)"
+key = "grossular_garnet__tsavorite_.mint"
+label = "Mint"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Scaled copy of the Tsavorite Material Default (GRR 229) at a chosen strength; no pale stone measured.",
+  "Material Default of Grossular Garnet (Tsavorite) (Caltech GRR 229 fitted 2026-10-19 at 0.5 x the sample's vanadium; docs/chromophores/calibration-records.md#tsavorite) with every peak x 0.36 (= 0.18 x the sample's vanadium, the repo's own pale-tsavorite rule), converted to per mm by the 9.905 mm face-up path; estimated",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.4.1 (V3+ 436 / 606 nm; about 0.33 wt% V2O3)",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-06-grossular-garnet-tsavorite-mint"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 393.00, width_nm = 1583.6, peak = 0.2599, shape = "energy" },
+    { center_nm = 436.00, width_nm = 994.1, peak = 0.2504, shape = "energy" },
+    { center_nm = 490.00, width_nm = 1061.7, peak = 0.04034, shape = "energy" },
+    { center_nm = 606.00, width_nm = 1158.1, peak = 0.1087, shape = "energy" },
+    { center_nm = 666.00, width_nm = 495.2, peak = 0.0241, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 393.00, width_nm = 1583.6, peak = 0.2599, shape = "energy" },
+    { center_nm = 436.00, width_nm = 994.1, peak = 0.2504, shape = "energy" },
+    { center_nm = 490.00, width_nm = 1061.7, peak = 0.04034, shape = "energy" },
+    { center_nm = 606.00, width_nm = 1158.1, peak = 0.1087, shape = "energy" },
+    { center_nm = 666.00, width_nm = 495.2, peak = 0.0241, shape = "energy" },
+  ]
+
+# Grossular Garnet (Tsavorite), Hessonite: Fe3+ charge-transfer edge and a weak 440 nm Fe3+ band plus a broad band near 490 nm (assignment estimated).
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-07-grossular-garnet-tsavorite-hessonite
+[[variant]]
+material = "Grossular Garnet (Tsavorite)"
+key = "grossular_garnet__tsavorite_.hessonite"
+label = "Hessonite"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 1386 brown grossular).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman, CC BY-NC 4.0, DOI 10.7907/jywr-qq57): GRR 1386 brown grossular, Lalatema Hills, Kenya (4.126 mm, composition unpublished), crates/pleochroma/data/reference_spectra/variant_grossular_hessonite_iso.csv; GRR 1113 as cross-check",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.4.2 (Fe3+ edge; the Caltech index calls the orange-brown grossulars hessonite)",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-07-grossular-garnet-tsavorite-hessonite"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 369.91, width_nm = 3869.5, peak = 0.4289, shape = "energy" },
+    { center_nm = 432.81, width_nm = 352.2, peak = 0.04451, shape = "energy" },
+    { center_nm = 466.89, width_nm = 981.0, peak = 0.02636, shape = "energy" },
+    { center_nm = 488.42, width_nm = 2474.7, peak = 0.1217, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 369.91, width_nm = 3869.5, peak = 0.4289, shape = "energy" },
+    { center_nm = 432.81, width_nm = 352.2, peak = 0.04451, shape = "energy" },
+    { center_nm = 466.89, width_nm = 981.0, peak = 0.02636, shape = "energy" },
+    { center_nm = 488.42, width_nm = 2474.7, peak = 0.1217, shape = "energy" },
+  ]
+
+# Andradite Garnet (Demantoid), Topazolite: Fe3+ only (no Cr3+): the O -> Fe3+ edge and the narrow 441 nm band.
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-08-andradite-garnet-demantoid-topazolite
+[[variant]]
+material = "Andradite Garnet (Demantoid)"
+key = "andradite_garnet__demantoid_.topazolite"
+label = "Topazolite"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 48 andradite).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman, CC BY-NC 4.0, DOI 10.7907/jywr-qq57): GRR 48 andradite, Val Malenco, Italy (Ca3.0 Mg0.01 Fe1.98, 99 mol% andradite, 1.026 mm), http://minerals.gps.caltech.edu/FILES/Visible/garnet/grr48, crates/pleochroma/data/reference_spectra/variant_andradite_topazolite_iso.csv",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.5.1 (Fe3+ only, no Cr3+: charge-transfer edge and the 441 nm 6A1 -> 4A1,4E(G) band)",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-08-andradite-garnet-demantoid-topazolite"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 383.45, width_nm = 604.7, peak = 1.326, shape = "energy" },
+    { center_nm = 406.15, width_nm = 265.8, peak = 0.07532, shape = "energy" },
+    { center_nm = 424.14, width_nm = 820.7, peak = 0.3109, shape = "energy" },
+    { center_nm = 429.59, width_nm = 2873.7, peak = 0.1754, shape = "energy" },
+    { center_nm = 436.74, width_nm = 277.0, peak = 0.558, shape = "energy" },
+    { center_nm = 441.18, width_nm = 65.7, peak = 0.539, shape = "energy" },
+    { center_nm = 582.95, width_nm = 1211.1, peak = 0.05616, shape = "energy" },
+    { center_nm = 638.21, width_nm = 587.3, peak = 0.01646, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 383.45, width_nm = 604.7, peak = 1.326, shape = "energy" },
+    { center_nm = 406.15, width_nm = 265.8, peak = 0.07532, shape = "energy" },
+    { center_nm = 424.14, width_nm = 820.7, peak = 0.3109, shape = "energy" },
+    { center_nm = 429.59, width_nm = 2873.7, peak = 0.1754, shape = "energy" },
+    { center_nm = 436.74, width_nm = 277.0, peak = 0.558, shape = "energy" },
+    { center_nm = 441.18, width_nm = 65.7, peak = 0.539, shape = "energy" },
+    { center_nm = 582.95, width_nm = 1211.1, peak = 0.05616, shape = "energy" },
+    { center_nm = 638.21, width_nm = 587.3, peak = 0.01646, shape = "energy" },
+  ]
+
+# Color-Change Garnet (Pyrope-Spessartine), Tunduru: A V3+ / Cr3+ band at 581 nm between a blue-green window near 480 nm and a red window beyond 650 nm, with the Mn2+ edge cutting the violet.
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-09-color-change-garnet-tunduru
+[[variant]]
+material = "Color-Change Garnet (Pyrope-Spessartine)"
+key = "color_change_garnet__pyrope_spessartine_.tunduru"
+label = "Tunduru"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 2225).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman, CC BY-NC 4.0, DOI 10.7907/jywr-qq57): GRR 2225 pyrope-spessartine, Tunduru, Tanzania (about 0.6 wt% V, 2.426 mm, 412-1101 nm), http://minerals.gps.caltech.edu/FILES/Visible/garnet/Pyrope2225.asc, crates/pleochroma/data/reference_spectra/variant_colorchange_tunduru_iso.csv",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.6.1 (V3+ / Cr3+ 4T2 band near 580 nm between a blue-green and a red window; GIA Gems & Gemology Winter 2015)",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-09-color-change-garnet-tunduru"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 386.64, width_nm = 1737.7, peak = 0.7517, shape = "energy" },
+    { center_nm = 425.55, width_nm = 599.9, peak = 0.2095, shape = "energy" },
+    { center_nm = 432.28, width_nm = 108.7, peak = 0.05158, shape = "energy" },
+    { center_nm = 449.45, width_nm = 262.6, peak = 0.01824, shape = "energy" },
+    { center_nm = 460.80, width_nm = 277.5, peak = 0.02333, shape = "energy" },
+    { center_nm = 492.98, width_nm = 1297.1, peak = 0.06316, shape = "energy" },
+    { center_nm = 580.85, width_nm = 1173.0, peak = 0.214, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 386.64, width_nm = 1737.7, peak = 0.7517, shape = "energy" },
+    { center_nm = 425.55, width_nm = 599.9, peak = 0.2095, shape = "energy" },
+    { center_nm = 432.28, width_nm = 108.7, peak = 0.05158, shape = "energy" },
+    { center_nm = 449.45, width_nm = 262.6, peak = 0.01824, shape = "energy" },
+    { center_nm = 460.80, width_nm = 277.5, peak = 0.02333, shape = "energy" },
+    { center_nm = 492.98, width_nm = 1297.1, peak = 0.06316, shape = "energy" },
+    { center_nm = 580.85, width_nm = 1173.0, peak = 0.214, shape = "energy" },
+  ]
+
+# Color-Change Garnet (Pyrope-Spessartine), Malaya: Mn2+ lines at 411 / 427 nm and Fe2+ over a broad 450-520 nm plateau.
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-10-color-change-garnet-malaya
+[[variant]]
+material = "Color-Change Garnet (Pyrope-Spessartine)"
+key = "color_change_garnet__pyrope_spessartine_.malaya"
+label = "Malaya"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 1267).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman, CC BY-NC 4.0, DOI 10.7907/jywr-qq57): GRR 1267 pyrope-spessartine, Kenya (composition unpublished, 1.686 mm), http://minerals.gps.caltech.edu/FILES/Visible/garnet/GRR1267b.txt, crates/pleochroma/data/reference_spectra/variant_colorchange_malaya_iso.csv",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.6.3 (Mn2+ lines and Fe2+ over a plateau; enough Fe2+ to fill the 480-520 nm window, so no color change)",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-10-color-change-garnet-malaya"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 383.78, width_nm = 1112.7, peak = 0.6396, shape = "energy" },
+    { center_nm = 410.67, width_nm = 258.7, peak = 0.3175, shape = "energy" },
+    { center_nm = 426.67, width_nm = 574.7, peak = 0.3816, shape = "energy" },
+    { center_nm = 454.77, width_nm = 533.7, peak = 0.08128, shape = "energy" },
+    { center_nm = 488.66, width_nm = 1831.3, peak = 0.252, shape = "energy" },
+    { center_nm = 572.00, width_nm = 352.4, peak = 0.04042, shape = "energy" },
+    { center_nm = 607.75, width_nm = 417.6, peak = 0.0199, shape = "energy" },
+    { center_nm = 691.90, width_nm = 7082.6, peak = 0.02893, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 383.78, width_nm = 1112.7, peak = 0.6396, shape = "energy" },
+    { center_nm = 410.67, width_nm = 258.7, peak = 0.3175, shape = "energy" },
+    { center_nm = 426.67, width_nm = 574.7, peak = 0.3816, shape = "energy" },
+    { center_nm = 454.77, width_nm = 533.7, peak = 0.08128, shape = "energy" },
+    { center_nm = 488.66, width_nm = 1831.3, peak = 0.252, shape = "energy" },
+    { center_nm = 572.00, width_nm = 352.4, peak = 0.04042, shape = "energy" },
+    { center_nm = 607.75, width_nm = 417.6, peak = 0.0199, shape = "energy" },
+    { center_nm = 691.90, width_nm = 7082.6, peak = 0.02893, shape = "energy" },
+  ]
+
+# Color-Change Garnet (Pyrope-Spessartine), Weaker Change: Less V3+ / Cr3+ than Tunduru: the stone tilts toward the Mn orange-yellow (daylight yellow-green, lamp yellow).
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-11-color-change-garnet-weaker-change
+[[variant]]
+material = "Color-Change Garnet (Pyrope-Spessartine)"
+key = "color_change_garnet__pyrope_spessartine_.weaker_change"
+label = "Weaker Change"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Tunduru spectrum (GRR 2225) with only the 581 nm band scaled; no such stone measured.",
+  "Derived from the fitted Tunduru entry (Caltech GRR 2225): the 581 nm V3+ / Cr3+ band x 0.6, every other band unchanged; estimated, no measured weaker stone",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.6.2",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-11-color-change-garnet-weaker-change"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 386.64, width_nm = 1737.7, peak = 0.7517, shape = "energy" },
+    { center_nm = 425.55, width_nm = 599.9, peak = 0.2095, shape = "energy" },
+    { center_nm = 432.28, width_nm = 108.7, peak = 0.05158, shape = "energy" },
+    { center_nm = 449.45, width_nm = 262.6, peak = 0.01824, shape = "energy" },
+    { center_nm = 460.80, width_nm = 277.5, peak = 0.02333, shape = "energy" },
+    { center_nm = 492.98, width_nm = 1297.1, peak = 0.06316, shape = "energy" },
+    { center_nm = 580.85, width_nm = 1173.0, peak = 0.1284, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 386.64, width_nm = 1737.7, peak = 0.7517, shape = "energy" },
+    { center_nm = 425.55, width_nm = 599.9, peak = 0.2095, shape = "energy" },
+    { center_nm = 432.28, width_nm = 108.7, peak = 0.05158, shape = "energy" },
+    { center_nm = 449.45, width_nm = 262.6, peak = 0.01824, shape = "energy" },
+    { center_nm = 460.80, width_nm = 277.5, peak = 0.02333, shape = "energy" },
+    { center_nm = 492.98, width_nm = 1297.1, peak = 0.06316, shape = "energy" },
+    { center_nm = 580.85, width_nm = 1173.0, peak = 0.1284, shape = "energy" },
+  ]
+
+# Color-Change Garnet (Pyrope-Spessartine), Stronger Change: More V3+ / Cr3+ than Tunduru: the stone tilts toward blue (daylight blue, lamp blue-violet).
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-12-color-change-garnet-stronger-change
+[[variant]]
+material = "Color-Change Garnet (Pyrope-Spessartine)"
+key = "color_change_garnet__pyrope_spessartine_.stronger_change"
+label = "Stronger Change"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Tunduru spectrum (GRR 2225) with only the 581 nm band scaled; no such stone measured.",
+  "Derived from the fitted Tunduru entry (Caltech GRR 2225): the 581 nm V3+ / Cr3+ band x 1.8, every other band unchanged; estimated, no measured stronger stone",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.6.2",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-12-color-change-garnet-stronger-change"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+    { center_nm = 386.64, width_nm = 1737.7, peak = 0.7517, shape = "energy" },
+    { center_nm = 425.55, width_nm = 599.9, peak = 0.2095, shape = "energy" },
+    { center_nm = 432.28, width_nm = 108.7, peak = 0.05158, shape = "energy" },
+    { center_nm = 449.45, width_nm = 262.6, peak = 0.01824, shape = "energy" },
+    { center_nm = 460.80, width_nm = 277.5, peak = 0.02333, shape = "energy" },
+    { center_nm = 492.98, width_nm = 1297.1, peak = 0.06316, shape = "energy" },
+    { center_nm = 580.85, width_nm = 1173.0, peak = 0.3852, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 386.64, width_nm = 1737.7, peak = 0.7517, shape = "energy" },
+    { center_nm = 425.55, width_nm = 599.9, peak = 0.2095, shape = "energy" },
+    { center_nm = 432.28, width_nm = 108.7, peak = 0.05158, shape = "energy" },
+    { center_nm = 449.45, width_nm = 262.6, peak = 0.01824, shape = "energy" },
+    { center_nm = 460.80, width_nm = 277.5, peak = 0.02333, shape = "energy" },
+    { center_nm = 492.98, width_nm = 1297.1, peak = 0.06316, shape = "energy" },
+    { center_nm = 580.85, width_nm = 1173.0, peak = 0.3852, shape = "energy" },
+  ]
+
+# Peridot, Deep Green: Fe2+ on M1 / M2 (NIR bands whose flank blocks the red, 403-490 and 635 nm bands, UV edge) at a higher fayalite content.
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-13-peridot-deep-green
+[[variant]]
+material = "Peridot"
+key = "peridot.deep_green"
+label = "Deep Green"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Scaled copy of the Peridot Material Default (GRR 418) at a chosen strength; no deeper stone measured.",
+  "Material Default of Peridot (Caltech GRR 418 San Carlos alpha / beta / gamma, fitted 2026-10-19; docs/chromophores/calibration-records.md#peridot) with every peak x 1.4, converted to per mm by the 9.905 mm face-up path; estimated",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 3.1 (Fe2+ scaling with the fayalite content, Report p. 46; Cr3+ and Ni2+ of the deepest Burmese and Pakistani stones are not modelled)",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-13-peridot-deep-green"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 345.00, width_nm = 4287.4, peak = 0.7604, shape = "energy" },
+    { center_nm = 455.00, width_nm = 598.8, peak = 0.07491, shape = "energy" },
+    { center_nm = 490.00, width_nm = 917.3, peak = 0.06219, shape = "energy" },
+    { center_nm = 637.00, width_nm = 732.1, peak = 0.1131, shape = "energy" },
+    { center_nm = 840.00, width_nm = 1391.2, peak = 0.6728, shape = "energy" },
+    { center_nm = 1000.00, width_nm = 1076.1, peak = 4.975, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 376.00, width_nm = 1408.6, peak = 0.6742, shape = "energy" },
+    { center_nm = 440.00, width_nm = 1245.5, peak = 0.3166, shape = "energy" },
+    { center_nm = 500.00, width_nm = 1274.0, peak = 0.1117, shape = "energy" },
+    { center_nm = 627.00, width_nm = 1061.7, peak = 0.1088, shape = "energy" },
+    { center_nm = 840.00, width_nm = 1698.6, peak = 0.3307, shape = "energy" },
+    { center_nm = 1000.00, width_nm = 1555.5, peak = 1.795, shape = "energy" },
+  ]
+  beta_ray = [
+    { center_nm = 341.00, width_nm = 5095.9, peak = 0.9583, shape = "energy" },
+    { center_nm = 465.00, width_nm = 1072.7, peak = 0.1512, shape = "energy" },
+    { center_nm = 500.00, width_nm = 1274.0, peak = 0.06643, shape = "energy" },
+    { center_nm = 635.00, width_nm = 1061.7, peak = 0.188, shape = "energy" },
+    { center_nm = 840.00, width_nm = 1698.6, peak = 0.6007, shape = "energy" },
+    { center_nm = 1000.00, width_nm = 1019.6, peak = 4.975, shape = "energy" },
+  ]
+
+# Zircon, Blue: A heat-induced centre near U4+: a broad band near 640 nm (FWHM 3700 cm^-1) polarized along E perpendicular to c, e-ray absorption below 0.01 per mm in the visible.
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-14-zircon-blue
+[[variant]]
+material = "Zircon"
+key = "zircon.blue"
+label = "Blue"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color (3.5 times the slab); spectrum measured (GRR 1898).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman, CC BY-NC 4.0, DOI 10.7907/jywr-qq57): GRR 1898 zircon, Burma near the Thai border, blue, probably heat treated (2.65 mm, E perp c and E parallel c), http://minerals.gps.caltech.edu/FILES/Visible/zircon/Zir1898.a and Zir1898.c, crates/pleochroma/data/reference_spectra/variant_zircon_blue_eperpc.csv and variant_zircon_blue_eparc.csv",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 4.1 (heat-induced electron-trap centre near U4+, 650 nm band along E perp c; GIA Lab Notes Summer 2015; Report p. 19)",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-14-zircon-blue"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 352.00, width_nm = 1153.7, peak = 0.4876, shape = "energy" },
+    { center_nm = 457.61, width_nm = 1306.3, peak = 0.02373, shape = "energy" },
+    { center_nm = 483.34, width_nm = 172.3, peak = 0.01021, shape = "energy" },
+    { center_nm = 516.62, width_nm = 187.7, peak = 0.0122, shape = "energy" },
+    { center_nm = 521.51, width_nm = 1222.6, peak = 0.03044, shape = "energy" },
+    { center_nm = 537.90, width_nm = 50.9, peak = 0.01126, shape = "energy" },
+    { center_nm = 641.63, width_nm = 1577.8, peak = 0.4006, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 387.23, width_nm = 1840.3, peak = 0.1205, shape = "energy" },
+    { center_nm = 518.57, width_nm = 420.9, peak = 0.008134, shape = "energy" },
+    { center_nm = 589.22, width_nm = 63.8, peak = 0.01498, shape = "energy" },
+    { center_nm = 598.23, width_nm = 1529.3, peak = 0.02073, shape = "energy" },
+    { center_nm = 615.70, width_nm = 93.3, peak = 0.01189, shape = "energy" },
+    { center_nm = 654.37, width_nm = 160.6, peak = 0.02433, shape = "energy" },
+  ]
+
+# Zircon, Golden Brown: A radiation-damage (alpha-recoil) continuum rising toward the UV over weak U4+ lines (515.5, 589.3, 654.8, 691 nm along o; 510, 588, 617, 652, 661 nm along e).
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-15-zircon-golden-brown
+[[variant]]
+material = "Zircon"
+key = "zircon.golden_brown"
+label = "Golden Brown"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 3106 brown region).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman, CC BY-NC 4.0, DOI 10.7907/jywr-qq57): GRR 3106 zircon, Mogok, Myanmar, light brown region (3.806 mm), http://minerals.gps.caltech.edu/FILES/Visible/zircon/Zircon3106-brown_a.asc and _c.asc, crates/pleochroma/data/reference_spectra/variant_zircon_golden_eperpc.csv and variant_zircon_golden_eparc.csv",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 4.2 (radiation-damage continuum over weak U4+ lines)",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-15-zircon-golden-brown"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 401.39, width_nm = 2244.5, peak = 0.2944, shape = "energy" },
+    { center_nm = 496.17, width_nm = 1214.1, peak = 0.1352, shape = "energy" },
+    { center_nm = 515.53, width_nm = 149.9, peak = 0.1125, shape = "energy" },
+    { center_nm = 588.48, width_nm = 2266.6, peak = 0.07763, shape = "energy" },
+    { center_nm = 589.29, width_nm = 107.6, peak = 0.09317, shape = "energy" },
+    { center_nm = 654.07, width_nm = 40.0, peak = 0.3361, shape = "energy" },
+    { center_nm = 654.82, width_nm = 186.6, peak = 0.1741, shape = "energy" },
+    { center_nm = 690.80, width_nm = 40.0, peak = 0.1724, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 393.09, width_nm = 2710.1, peak = 0.3046, shape = "energy" },
+    { center_nm = 478.34, width_nm = 691.3, peak = 0.09601, shape = "energy" },
+    { center_nm = 510.19, width_nm = 159.5, peak = 0.1045, shape = "energy" },
+    { center_nm = 527.61, width_nm = 3001.6, peak = 0.1102, shape = "energy" },
+    { center_nm = 588.34, width_nm = 96.9, peak = 0.1336, shape = "energy" },
+    { center_nm = 617.15, width_nm = 110.7, peak = 0.1252, shape = "energy" },
+    { center_nm = 652.44, width_nm = 66.2, peak = 0.1872, shape = "energy" },
+    { center_nm = 660.95, width_nm = 41.5, peak = 0.1924, shape = "energy" },
+  ]
+
+# Zircon, Red-Brown: Alpha-recoil radiation damage: a continuum rising toward the UV with a broad band near 485-515 nm.
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-16-zircon-red-brown
+[[variant]]
+material = "Zircon"
+key = "zircon.red_brown"
+label = "Red-Brown"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 1844).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman, CC BY-NC 4.0, DOI 10.7907/jywr-qq57): GRR 1844 zircon, Chanthaburi, Thailand, brownish red, radiation damage (1.519 mm), http://minerals.gps.caltech.edu/FILES/Visible/zircon/zi1844.a and zi1844.c, crates/pleochroma/data/reference_spectra/variant_zircon_redbrown_eperpc.csv and variant_zircon_redbrown_eparc.csv",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 4.3 (alpha-recoil damage band near 485 nm, Report p. 19)",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-16-zircon-red-brown"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 382.84, width_nm = 4475.3, peak = 0.4435, shape = "energy" },
+    { center_nm = 484.45, width_nm = 1559.8, peak = 0.05548, shape = "energy" },
+    { center_nm = 517.92, width_nm = 1797.7, peak = 0.1436, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 312.87, width_nm = 6402.2, peak = 0.8749, shape = "energy" },
+    { center_nm = 452.55, width_nm = 202.3, peak = 0.02599, shape = "energy" },
+    { center_nm = 469.66, width_nm = 1302.3, peak = 0.03904, shape = "energy" },
+    { center_nm = 513.89, width_nm = 1675.6, peak = 0.1869, shape = "energy" },
+  ]
+
+# Zircon, Green: U4+ sharp lines over a broad radiation-damage continuum (a crystalline Mogok crystal, not stated metamict).
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-17-zircon-green
+[[variant]]
+material = "Zircon"
+key = "zircon.green"
+label = "Green"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 3106 green region).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman, CC BY-NC 4.0, DOI 10.7907/jywr-qq57): GRR 3106 zircon, Mogok, Myanmar, green region (2.592 mm, E perp c and E parallel c), http://minerals.gps.caltech.edu/FILES/Visible/zircon/Zircon3106-GREEN_a.asc and _c.asc, crates/pleochroma/data/reference_spectra/variant_zircon_green_eperpc.csv and variant_zircon_green_eparc.csv",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 4.4 (U4+ lines 482.8, 515.7, 537.2, 562.3, 589.7, 653.4, 690.9 nm over a damage continuum)",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-17-zircon-green"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 415.16, width_nm = 1014.2, peak = 0.4794, shape = "energy" },
+    { center_nm = 499.14, width_nm = 1451.3, peak = 0.2501, shape = "energy" },
+    { center_nm = 515.14, width_nm = 152.3, peak = 0.3709, shape = "energy" },
+    { center_nm = 589.08, width_nm = 136.9, peak = 0.2477, shape = "energy" },
+    { center_nm = 643.89, width_nm = 125.1, peak = 0.1232, shape = "energy" },
+    { center_nm = 645.15, width_nm = 835.3, peak = 0.1388, shape = "energy" },
+    { center_nm = 655.92, width_nm = 117.5, peak = 0.8311, shape = "energy" },
+    { center_nm = 690.43, width_nm = 52.0, peak = 0.3359, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 409.45, width_nm = 1189.3, peak = 0.5785, shape = "energy" },
+    { center_nm = 495.46, width_nm = 1809.3, peak = 0.2346, shape = "energy" },
+    { center_nm = 510.08, width_nm = 127.6, peak = 0.2555, shape = "energy" },
+    { center_nm = 587.70, width_nm = 130.5, peak = 0.3194, shape = "energy" },
+    { center_nm = 614.37, width_nm = 547.1, peak = 0.1316, shape = "energy" },
+    { center_nm = 617.77, width_nm = 106.2, peak = 0.356, shape = "energy" },
+    { center_nm = 655.71, width_nm = 175.2, peak = 0.4776, shape = "energy" },
+    { center_nm = 683.81, width_nm = 122.9, peak = 0.09348, shape = "energy" },
+  ]
+
+# Zircon, Colorless: No visible chromophore.
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-18-zircon-colorless
+[[variant]]
+material = "Zircon"
+key = "zircon.colorless"
+label = "Colorless"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Colorless: no damage centres assumed; low-uranium zircon.",
+  "No spectrum: low-uranium zircon without damage centres (Caltech zircon page: 'colorless zircons have little uranium'); estimated",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 4.5",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-18-zircon-colorless"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = []
+  e_ray = []
+
+# Benitoite, Light Blue: Unresolved (Fe2+-Ti4+ or Fe2+-Fe3+ charge transfer proposed): a broad band near 700 nm running into the NIR, polarized along c.
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-19-benitoite-light-blue
+[[variant]]
+material = "Benitoite"
+key = "benitoite.light_blue"
+label = "Light Blue"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength estimated (2 percent of the dark zone); spectrum shape measured (GRR 561-D4).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman, CC BY-NC 4.0, DOI 10.7907/jywr-qq57): GRR 561-D4 benitoite, dark blue zone, The Gem Mine, San Benito County (0.997 mm), http://minerals.gps.caltech.edu/FILES/Visible/benitoite/benitoite561-D4D.A.txt and .C.txt, crates/pleochroma/data/reference_spectra/variant_benitoite_lightblue_eperpc.csv and variant_benitoite_lightblue_eparc.csv (shape only)",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 5.1; Laurs, Rohtert and Gray, Gems & Gemology 33(3), 1997, 166-187 (the cause of color is unresolved; blue FeO 0.20 wt%, colorless 0.04 wt%)",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-19-benitoite-light-blue"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 603.00, width_nm = 3664.8, peak = 0.0012, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 528.87, width_nm = 1934.3, peak = 0.01328, shape = "energy" },
+    { center_nm = 697.87, width_nm = 2848.6, peak = 0.1237, shape = "energy" },
+  ]
+
+# Tanzanite, Unheated: V3+ (about 540 and 600 nm, NIR 760-780 nm) plus the Fe2+-Ti4+ IVCT near 440-450 nm along gamma, which gives the brown to yellow direction and is removed by heating.
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-20-tanzanite-unheated
+[[variant]]
+material = "Tanzanite"
+key = "tanzanite.unheated"
+label = "Unheated"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (GRR 1265).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman, CC BY-NC 4.0, DOI 10.7907/jywr-qq57): GRR 1265 zoisite, Tanzania (V2O3 0.35, FeO 0.027), one crystal, alpha / beta / gamma at 3.00 mm normalized, http://minerals.gps.caltech.edu/FILES/Visible/zoisite/zo1265.a, .b, .c, crates/pleochroma/data/reference_spectra/variant_tanzanite_unheated_alpha.csv, _beta.csv, _gamma.csv",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 6.1 (V3+ bands near 600 and 740 nm plus the Fe2+-Ti4+ IVCT band near 440 nm along gamma; Hurlbut, Am. Min. 54, 702, 1969; Schwarzinger, Ulatowski and Rossman, IGC 2025; Pluthametwisute et al., Molecules 25, 3743, 2020)",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-20-tanzanite-unheated"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 363.30, width_nm = 5960.4, peak = 0.1768, shape = "energy" },
+    { center_nm = 380.38, width_nm = 1088.2, peak = 0.1347, shape = "energy" },
+    { center_nm = 454.53, width_nm = 856.0, peak = 0.04076, shape = "energy" },
+    { center_nm = 538.15, width_nm = 535.2, peak = 0.01471, shape = "energy" },
+    { center_nm = 539.89, width_nm = 1715.1, peak = 0.2107, shape = "energy" },
+    { center_nm = 597.56, width_nm = 771.9, peak = 0.1002, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 365.88, width_nm = 963.6, peak = 34.64, shape = "energy" },
+    { center_nm = 411.97, width_nm = 509.7, peak = 0.222, shape = "energy" },
+    { center_nm = 428.57, width_nm = 729.3, peak = 0.1313, shape = "energy" },
+    { center_nm = 452.21, width_nm = 925.7, peak = 0.2272, shape = "energy" },
+    { center_nm = 539.23, width_nm = 1982.9, peak = 0.116, shape = "energy" },
+    { center_nm = 610.10, width_nm = 838.0, peak = 0.1093, shape = "energy" },
+    { center_nm = 783.04, width_nm = 1646.2, peak = 0.1428, shape = "energy" },
+  ]
+  beta_ray = [
+    { center_nm = 379.09, width_nm = 259.4, peak = 0.143, shape = "energy" },
+    { center_nm = 385.76, width_nm = 905.3, peak = 0.3826, shape = "energy" },
+    { center_nm = 421.44, width_nm = 3451.8, peak = 0.1958, shape = "energy" },
+    { center_nm = 533.35, width_nm = 1090.0, peak = 0.1333, shape = "energy" },
+    { center_nm = 607.31, width_nm = 963.1, peak = 0.2143, shape = "energy" },
+    { center_nm = 762.39, width_nm = 1360.2, peak = 0.2443, shape = "energy" },
+  ]
+
+# Tanzanite, Green Zoisite: A mix of V3+ and the Fe-Ti IVCT (yellow plus blue-green) or Cr3+; the Pakistani chemistry is unpublished.
+# Fit record: docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-21-tanzanite-green-zoisite
+[[variant]]
+material = "Tanzanite"
+key = "tanzanite.green_zoisite"
+label = "Green Zoisite"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Strength chosen for a typical face-up color; spectrum measured (CIT-16940 zoisite).",
+  "Caltech Mineral Spectroscopy Server (G. R. Rossman, CC BY-NC 4.0, DOI 10.7907/jywr-qq57): CIT-16940 zoisite, Alchuri, Shigar Valley, Pakistan, alpha 6.75 mm / beta 5.585 mm / gamma 6.275 mm, http://minerals.gps.caltech.edu/FILES/Visible/zoisite/Zoisite16940_a.txt, _b.txt, _c.txt, crates/pleochroma/data/reference_spectra/variant_zoisite_green_alpha.csv, _beta.csv, _gamma.csv",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 6.2 (V3+ with Fe-Ti IVCT or Cr3+; Caltech zoisite page: green varieties contain Fe3+)",
+]
+fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-21-tanzanite-green-zoisite"
+
+  [variant.absorption]
+  pleochroic = true
+  o_ray = [
+    { center_nm = 390.18, width_nm = 710.6, peak = 0.7437, shape = "energy" },
+    { center_nm = 425.74, width_nm = 120.5, peak = 0.01793, shape = "energy" },
+    { center_nm = 451.56, width_nm = 224.1, peak = 0.1417, shape = "energy" },
+    { center_nm = 451.70, width_nm = 1656.4, peak = 0.2479, shape = "energy" },
+    { center_nm = 569.05, width_nm = 1454.2, peak = 0.05199, shape = "energy" },
+    { center_nm = 623.44, width_nm = 4811.9, peak = 0.06723, shape = "energy" },
+  ]
+  e_ray = [
+    { center_nm = 389.09, width_nm = 826.4, peak = 0.5311, shape = "energy" },
+    { center_nm = 406.34, width_nm = 7514.2, peak = 0.1119, shape = "energy" },
+    { center_nm = 426.06, width_nm = 269.3, peak = 0.01932, shape = "energy" },
+    { center_nm = 450.64, width_nm = 376.5, peak = 0.04508, shape = "energy" },
+    { center_nm = 452.87, width_nm = 118.7, peak = 0.05478, shape = "energy" },
+    { center_nm = 683.66, width_nm = 1560.1, peak = 0.1344, shape = "energy" },
+  ]
+  beta_ray = [
+    { center_nm = 362.81, width_nm = 1460.4, peak = 1.347, shape = "energy" },
+    { center_nm = 426.73, width_nm = 142.3, peak = 0.1735, shape = "energy" },
+    { center_nm = 448.80, width_nm = 3329.1, peak = 0.1578, shape = "energy" },
+    { center_nm = 452.72, width_nm = 168.0, peak = 0.1401, shape = "energy" },
+    { center_nm = 625.49, width_nm = 9000.0, peak = 0.2037, shape = "energy" },
+    { center_nm = 647.26, width_nm = 1174.4, peak = 0.1232, shape = "energy" },
+  ]

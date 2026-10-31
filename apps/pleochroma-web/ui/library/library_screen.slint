@@ -1,0 +1,255 @@
+import { Button, ComboBox, LineEdit, ScrollView } from "std-widgets.slint";
+import { Theme } from "../components/theme.slint";
+import { AppModel } from "../models/app_model.slint";
+import { GuideModel } from "../models/guide_model.slint";
+import { LibraryModel } from "../models/library_model.slint";
+import { FilterChip, GuideOutline, LibraryRowItem } from "library_row.slint";
+import { LibraryDetail } from "library_detail.slint";
+
+// The design library: search, filters and the list on the left, the selected design's detail
+// on the right (a window narrower than 760px shows one of the two). A full-window screen over
+// the editor, mounted by `app.slint` while `LibraryModel.open`; Escape closes it.
+export component LibraryScreen inherits Rectangle {
+    background: Theme.bg-darkest;
+
+    property <bool> narrow: root.width < 760px;
+    // On a narrow window the detail replaces the list while a design is selected.
+    property <bool> detail-only: root.narrow && LibraryModel.has-selection;
+
+    // A dialog above the screen had the keyboard; `app.slint` bumps the pulse when it closes.
+    property <int> pulse: LibraryModel.focus-pulse;
+    changed pulse => { scope.focus(); }
+
+    // Nothing under the screen takes a click.
+    TouchArea {}
+
+    scope := FocusScope {
+        width: parent.width;
+        height: parent.height;
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                if root.detail-only {
+                    LibraryModel.select("");
+                } else {
+                    LibraryModel.close();
+                }
+                return accept;
+            }
+            reject
+        }
+
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+
+            // Title, the storage line and the two top-level actions.
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 2px;
+                    Text {
+                        text: "Design Library";
+                        font-size: 16px;
+                        font-weight: 700;
+                        color: Theme.text-primary;
+                    }
+                    Text {
+                        text: LibraryModel.busy ? LibraryModel.busy-text : LibraryModel.storage-text;
+                        font-size: 10px;
+                        color: LibraryModel.busy ? Theme.accent-cyan : Theme.text-muted;
+                        overflow: elide;
+                    }
+                }
+                if !root.detail-only: Button {
+                    text: "Add Open Design";
+                    enabled: AppModel.has-design && LibraryModel.available && !LibraryModel.busy;
+                    clicked => { LibraryModel.save-current(); }
+                }
+                if !root.detail-only: GuideOutline {
+                    on: GuideModel.highlight-target == "library_import";
+                    Button {
+                        text: "Import Designs...";
+                        primary: true;
+                        enabled: LibraryModel.available && !LibraryModel.busy;
+                        clicked => { LibraryModel.import-files(); }
+                    }
+                }
+                Button {
+                    text: "Close";
+                    clicked => { LibraryModel.close(); }
+                }
+            }
+
+            if !LibraryModel.available: Text {
+                text: LibraryModel.unavailable-text;
+                font-size: 12px;
+                color: Theme.accent-amber;
+                wrap: word-wrap;
+            }
+
+            if LibraryModel.available && !root.detail-only: VerticalLayout {
+                spacing: 6px;
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    GuideOutline {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        on: GuideModel.highlight-target == "library_search";
+                        LineEdit {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            placeholder-text: "Search Title, Designer, Notes...";
+                            text <=> LibraryModel.search-text;
+                            edited => { LibraryModel.query-changed(); }
+                            changed has-focus => { AppModel.text-focus = self.has-focus; }
+                        }
+                    }
+                    GuideOutline {
+                        width: 154px;
+                        on: GuideModel.highlight-target == "library_filters";
+                        ComboBox {
+                            min-width: 0px;
+                            model: LibraryModel.sort-options;
+                            current-index <=> LibraryModel.sort-index;
+                            selected => { LibraryModel.query-changed(); }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    GuideOutline {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        on: GuideModel.highlight-target == "library_filters";
+                        ComboBox {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            model: LibraryModel.shape-options;
+                            current-index <=> LibraryModel.shape-index;
+                            selected => { LibraryModel.query-changed(); }
+                        }
+                    }
+                    GuideOutline {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        on: GuideModel.highlight-target == "library_filters";
+                        ComboBox {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            model: LibraryModel.gear-options;
+                            current-index <=> LibraryModel.gear-index;
+                            selected => { LibraryModel.query-changed(); }
+                        }
+                    }
+                    GuideOutline {
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        on: GuideModel.highlight-target == "library_filters";
+                        ComboBox {
+                            horizontal-stretch: 1;
+                            min-width: 0px;
+                            model: LibraryModel.tag-options;
+                            current-index <=> LibraryModel.tag-index;
+                            selected => { LibraryModel.query-changed(); }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    GuideOutline {
+                        on: GuideModel.highlight-target == "library_filters";
+                        FilterChip {
+                            text: "Concave Only";
+                            active: LibraryModel.concave-only;
+                            clicked => {
+                                LibraryModel.concave-only = !LibraryModel.concave-only;
+                                LibraryModel.query-changed();
+                            }
+                        }
+                    }
+                    GuideOutline {
+                        on: GuideModel.highlight-target == "library_filters";
+                        FilterChip {
+                            text: "Show Ignored";
+                            active: LibraryModel.show-ignored;
+                            clicked => {
+                                LibraryModel.show-ignored = !LibraryModel.show-ignored;
+                                LibraryModel.query-changed();
+                            }
+                        }
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: LibraryModel.list-text;
+                        font-size: 10px;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                        horizontal-alignment: right;
+                        overflow: elide;
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                vertical-stretch: 1;
+                spacing: 8px;
+
+                if LibraryModel.available && !root.detail-only: Rectangle {
+                    horizontal-stretch: 1;
+                    background: Theme.bg-input;
+                    border-radius: Theme.radius-md;
+                    border-width: 1px;
+                    border-color: Theme.border-subtle;
+                    clip: true;
+
+                    ScrollView {
+                        width: parent.width;
+                        height: parent.height;
+                        content-width: self.visible-width;
+
+                        VerticalLayout {
+                            padding: 6px;
+                            spacing: 4px;
+
+                            for item in LibraryModel.rows: LibraryRowItem {
+                                data: item;
+                                clicked => { LibraryModel.select(item.id); }
+                                double-clicked => {
+                                    LibraryModel.select(item.id);
+                                    LibraryModel.open-selected();
+                                }
+                            }
+                            if LibraryModel.more: HorizontalLayout {
+                                Rectangle { horizontal-stretch: 1; }
+                                Button {
+                                    text: "Show More";
+                                    clicked => { LibraryModel.show-more(); }
+                                }
+                                Rectangle { horizontal-stretch: 1; }
+                            }
+                            if LibraryModel.rows.length == 0 && !LibraryModel.busy: Text {
+                                text: LibraryModel.is-empty
+                                    ? "The library is empty. Import design files with the button above, or open a design and choose Add Open Design."
+                                    : "No design matches the search and filters.";
+                                font-size: 12px;
+                                color: Theme.text-muted;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+
+                if LibraryModel.available && LibraryModel.has-selection && !root.narrow: LibraryDetail {
+                    width: 340px;
+                }
+                if LibraryModel.available && root.detail-only: LibraryDetail {
+                    horizontal-stretch: 1;
+                    show-back: true;
+                }
+            }
+        }
+    }
+}

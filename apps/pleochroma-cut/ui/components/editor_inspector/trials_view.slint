@@ -1,0 +1,384 @@
+import { CheckBox, ComboBox, LineEdit, ListView, ScrollView } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { TrialsModel, TrialRow, TrialCellItem } from "../../models/trials.slint";
+import { CompactButton } from "../compact_controls.slint";
+import { FormRowMetrics } from "form_row.slint";
+import { WrapNote } from "wrap_note.slint";
+import { ScrollFade } from "scroll_fade.slint";
+
+// One figure of a trial: its column name over the value and the signed change since the
+// Baseline. Green is better than the figure's noise threshold, red is worse, grey is about the
+// same (or not comparable); the best value of the list has an outline.
+component TrialFigure inherits Rectangle {
+    in property <string> heading;
+    in property <TrialCellItem> cell;
+    // The row is the selected one: the grey of an unselected row would sink into its blue fill.
+    in property <bool> on_selected: false;
+
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.heading + " " + root.cell.text + " " + root.cell.change_text
+        + (root.cell.tone == 1 ? ", better" : (root.cell.tone == 2 ? ", worse" : ", about the same"))
+        + (root.cell.best ? ", best of the list" : "");
+
+    Tooltip { text: @markdown("\{root.cell.tooltip}"); }
+
+    Rectangle {
+        background: transparent;
+        border-width: root.cell.best ? 1px : 0px;
+        border-color: Theme.accent-cyan;
+        border-radius: 3px;
+    }
+    VerticalLayout {
+        padding-left: 2px;
+        padding-right: 2px;
+        Text {
+            text: root.heading;
+            font-size: 9px;
+            color: root.on_selected ? Theme.text-secondary : Theme.text-muted;
+            overflow: elide;
+        }
+        Text {
+            text: root.cell.text + (root.cell.change_text != "" ? " " + root.cell.change_text : "");
+            font-size: 10px;
+            font-weight: 600;
+            color: root.cell.tone == 1 ? Theme.success : (root.cell.tone == 2 ? Theme.danger : (root.on_selected ? Theme.text-primary : Theme.text-muted));
+            overflow: elide;
+        }
+    }
+}
+
+// One line of the table: the number, the label and where the trial came from, the star, and the
+// five figures under them. The Baseline row (`baseline`) is the same line without a star and
+// without a click.
+component TrialLine inherits Rectangle {
+    in property <TrialRow> entry;
+    in property <bool> selected;
+    in property <bool> baseline: false;
+    in property <bool> usable: true;
+    // Room left free at the right edge for the list's scroll bar, which is drawn over the row
+    // (it covered the Star button).
+    in property <length> gutter: 0px;
+    callback chosen();
+    callback star_toggled();
+
+    // The card plus the 4px gap that separates it from the next row (a ListView has no
+    // `spacing`).
+    height: 62px;
+
+    property <string> line_hint: root.baseline
+        ? "The Baseline: the figures every trial is read against."
+        : (root.selected
+            ? "Selected. The stone shows this trial. Click it again to put the design back."
+            : "Click to preview this trial on the stone.");
+
+    card := Rectangle {
+        x: 0px;
+        y: 0px;
+        width: root.width - root.gutter;
+        height: 58px;
+        background: root.selected ? Theme.surface-selected : ((touch.has-hover && !root.baseline) ? Theme.bg-card-hover : Theme.bg-input);
+        border-radius: Theme.radius-sm;
+        border-width: root.selected ? 2px : 1px;
+        border-color: root.selected ? Theme.accent-cyan : Theme.border-subtle;
+        clip: true;
+        accessible-role: AccessibleRole.list-item;
+        accessible-label: root.baseline
+            ? root.entry.label
+            : ("Trial " + root.entry.number + ", " + root.entry.label + ", " + root.entry.origin
+                + (root.entry.starred ? ", starred" : "")
+                + (root.entry.note != "" ? ", " + root.entry.note : ""));
+        accessible-description: root.line_hint;
+        accessible-enabled: root.usable && !root.baseline;
+        accessible-item-selectable: !root.baseline;
+        accessible-item-selected: root.selected;
+        accessible-action-default => {
+            if root.usable && !root.baseline {
+                root.chosen();
+            }
+        }
+
+        Tooltip { text: @markdown("\{root.line_hint}"); }
+
+        // Declared before the layout, so the star button above it takes its own clicks.
+        touch := TouchArea {
+            enabled: root.usable && !root.baseline;
+            clicked => { root.chosen(); }
+        }
+
+        VerticalLayout {
+            padding: 4px;
+            spacing: 2px;
+
+            HorizontalLayout {
+                height: 24px;
+                spacing: 6px;
+                Text {
+                    text: root.baseline ? "B" : "\{root.entry.number}";
+                    font-size: 11px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                    width: 24px;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: root.entry.label + (root.entry.note != "" ? "  \"" + root.entry.note + "\"" : "");
+                    font-size: 10px;
+                    color: Theme.text-primary;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: root.entry.origin;
+                    font-size: 9px;
+                    color: Theme.text-muted;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+                if !root.baseline: CompactButton {
+                    width: 34px;
+                    text: "Star";
+                    lit: root.entry.starred;
+                    checkable: true;
+                    reachable: root.selected;
+                    hint: root.entry.starred
+                        ? "Starred: this trial stays when the list is full. Click to clear the star."
+                        : "Star this trial so it stays when the list is full.";
+                    enabled: root.usable;
+                    clicked => { root.star_toggled(); }
+                }
+            }
+            Rectangle {
+                height: 28px;
+                for figure[i] in root.entry.cells: TrialFigure {
+                    x: i * (parent.width / 5);
+                    width: parent.width / 5;
+                    height: parent.height;
+                    heading: TrialsModel.columns[i];
+                    cell: figure;
+                    on_selected: root.selected;
+                }
+            }
+        }
+    }
+}
+
+// The Inspector's History tab, third view: the trials the cutter kept. A trial is the design with
+// its figures; the table reads them against the Baseline (the strip under the tabs). A click on a
+// row previews the trial on the stone; Restore brings it back as one undo step.
+export component TrialsView inherits Rectangle {
+    // The same condition as the History tab's other buttons.
+    property <bool> usable: EditorModel.enabled && GuideModel.allows_history();
+    property <bool> has_selection: TrialsModel.selected >= 0;
+
+    // The guide's Keep Trials lesson waits for the view to open.
+    init => { GuideModel.event("trials_view_opened"); }
+
+    // The view scrolls as a whole when the Inspector is too short for its minimum (the list
+    // keeps two rows and the detail of a chosen trial stays reachable); with room to spare the
+    // column is exactly as tall as the viewport and the list takes the spare height.
+    trials_scroll := ScrollView {
+        VerticalLayout {
+        width: trials_scroll.visible-width;
+        height: max(trials_scroll.visible-height, self.min-height);
+        spacing: 6px;
+        // The scroll bar is drawn over the right edge: keep the buttons, the Star buttons and the
+        // note field clear of it. A small inset above, so nothing is cut at the top edge.
+        padding-right: FormRowMetrics.scroll_gutter;
+        padding-top: 2px;
+
+        // The title, the buttons and the Sort drop-down share ONE row, so the first trial sits
+        // as high as the view allows: a step that clicks a trial needs the list, not the heading
+        // and the hint above it (the hint is under the list now).
+        HorizontalLayout {
+            spacing: 6px;
+            // As tall as the Sort drop-down beside the buttons, so the row reads as one line.
+            height: 30px;
+            Rectangle {
+                width: trials_title.preferred-width;
+                Tooltip { text: @markdown("Click a trial to see it on the stone. Colors show the change\nsince the Baseline; the best figure of each column has an outline."); }
+                trials_title := Text {
+                    x: 0px;
+                    y: 0px;
+                    height: parent.height;
+                    text: "Trials";
+                    font-size: 12px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                    vertical-alignment: center;
+                    accessible-role: AccessibleRole.text;
+                }
+            }
+            // The wrapper carries the guide's outline, so the button keeps its own size.
+            Rectangle {
+                width: 92px;
+                CompactButton {
+                    width: parent.width;
+                    height: parent.height;
+                    font_size: 10px;
+                    text: "Keep as Trial";
+                    hint: "Keep the design as it is now as a trial,\nwith its figures. Shortcut: Ctrl+Shift+K.";
+                    enabled: root.usable && TrialsModel.design_open;
+                    clicked => { TrialsModel.keep_trial(); }
+                }
+                // The guide's Keep Trials lesson outlines this button.
+                if GuideModel.highlight_target == "keep_trial_button": Rectangle {
+                    border-width: 2px;
+                    border-color: Theme.accent-cyan;
+                    border-radius: Theme.radius-sm;
+                }
+            }
+            CompactButton {
+                width: 100px;
+                height: 30px;
+                font_size: 10px;
+                text: TrialsModel.rescoring ? "Scoring..." : "Re-score Trials";
+                hint: "Score the trials that were scored in another material,\nor not at all, under the design's material.";
+                enabled: root.usable && TrialsModel.rescore_needed && !TrialsModel.rescoring;
+                clicked => { TrialsModel.rescore(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Text {
+                text: "Sort";
+                font-size: 10px;
+                color: Theme.text-muted;
+                vertical-alignment: center;
+            }
+            ComboBox {
+                width: 112px;
+                height: 30px;
+                model: TrialsModel.sort_options;
+                current-index <=> TrialsModel.sort_index;
+                accessible-label: "Sort Trials";
+                selected(value) => { TrialsModel.sort_changed(self.current-index); }
+            }
+        }
+
+        // No trial yet: what to do about it, in place of the list.
+        if TrialsModel.rows.length == 0: WrapNote {
+            text: TrialsModel.empty_text;
+            font_size: 10px;
+        }
+
+        // The Baseline as the first line of the table.
+        if TrialsModel.baseline_row.has_metrics: TrialLine {
+            entry: TrialsModel.baseline_row;
+            baseline: true;
+            gutter: 14px;
+        }
+
+        trials_list := ListView {
+            vertical-stretch: 1;
+            // Two rows at least, so the detail below never squeezes the list away.
+            min-height: TrialsModel.rows.length == 0 ? 0px : 124px;
+            for trial in TrialsModel.rows: TrialLine {
+                entry: trial;
+                usable: root.usable;
+                gutter: 14px;
+                selected: TrialsModel.selected == trial.number;
+                chosen => { TrialsModel.select(trial.number); }
+                star_toggled => { TrialsModel.toggle_star(trial.number); }
+            }
+        }
+
+        if root.has_selection: VerticalLayout {
+            spacing: 4px;
+            Text {
+                text: TrialsModel.selected_label;
+                font-size: 10px;
+                font-weight: 700;
+                color: Theme.text-primary;
+                overflow: elide;
+            }
+            LineEdit {
+                text: TrialsModel.selected_note;
+                placeholder-text: "Note (optional), for example: steeper crown";
+                enabled: root.usable;
+                accessible-label: "Trial Note";
+                accepted(value) => { TrialsModel.set_note(TrialsModel.selected, value); }
+                changed has-focus => {
+                    EditorModel.text_focus = self.has-focus;
+                    if !self.has-focus {
+                        TrialsModel.set_note(TrialsModel.selected, self.text);
+                    }
+                }
+            }
+            // One row of five equal buttons as tall as the Note field above (a label too long
+            // for its button is elided; the tooltip has the full wording).
+            HorizontalLayout {
+                spacing: 6px;
+                height: 30px;
+                CompactButton {
+                    horizontal-stretch: 1;
+                    height: 30px;
+                    font_size: 10px;
+                    text: "Restore";
+                    hint: "Bring this trial's design back as one step you can undo.";
+                    enabled: root.usable;
+                    clicked => { TrialsModel.restore(); }
+                }
+                CompactButton {
+                    horizontal-stretch: 1;
+                    height: 30px;
+                    font_size: 10px;
+                    text: "Compare to Current";
+                    hint: "Show this trial and the design now side by side in the Compare window.";
+                    enabled: root.usable;
+                    clicked => { TrialsModel.compare(); }
+                }
+                CompactButton {
+                    horizontal-stretch: 1;
+                    height: 30px;
+                    font_size: 10px;
+                    text: "Set as Baseline";
+                    hint: "Use this trial as the Baseline. The figures\nabove then show every change from it.";
+                    enabled: root.usable && GuideModel.allows_advanced();
+                    clicked => { TrialsModel.set_as_baseline(); }
+                }
+                CompactButton {
+                    horizontal-stretch: 1;
+                    height: 30px;
+                    font_size: 10px;
+                    text: "Save as Variant...";
+                    hint: "Keep this trial's design as a named variant in the library, not the design now.";
+                    enabled: root.usable;
+                    clicked => { TrialsModel.save_as_variant(); }
+                }
+                CompactButton {
+                    horizontal-stretch: 1;
+                    height: 30px;
+                    font_size: 10px;
+                    text: "Delete";
+                    ink: Theme.danger;
+                    hint: "Remove this trial from the list. The design is not changed.";
+                    enabled: root.usable;
+                    clicked => { TrialsModel.delete(); }
+                }
+            }
+        }
+
+        // How to read the list, and the recording switch: under the list, so the trial rows are
+        // what the view opens on.
+        if TrialsModel.rows.length > 0: WrapNote {
+            text: "Click a trial to see it on the stone. Colors show the change since the Baseline; the best figure of each column has an outline.";
+            font_size: 10px;
+        }
+        CheckBox {
+            text: "Record Every Change";
+            checked <=> TrialsModel.record_every_change;
+            enabled: root.usable;
+            accessible-description: "Keeps one trial for every change you make, at most one per second. Undo and Redo never add one.";
+            toggled => { TrialsModel.record_every_change_toggled(self.checked); }
+        }
+        }
+    }
+    // More below the edge: a fade, so a cut row reads as "scroll for more".
+    ScrollFade {
+        x: 0px;
+        y: parent.height - self.height;
+        width: parent.width - FormRowMetrics.scroll_gutter;
+        active: trials_scroll.content-height + trials_scroll.content-y > trials_scroll.visible-height + 2px;
+    }
+}

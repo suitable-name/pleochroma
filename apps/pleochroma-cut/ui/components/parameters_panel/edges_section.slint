@@ -1,0 +1,34 @@
+import { Theme } from "../../theme.slint";
+import { RenderEffectsModel } from "../../models/render_effects.slint";
+import { GroupHeader, SliderRow } from "parts.slint";
+
+// The Stone tab's Abraded Edges group: a narrow worn band along every facet edge, as on a stone
+// that has been worn or knocked about. Width is the band's width (0 is off) and Wear how rough
+// the band is. Both are saved in the design as one undoable step.
+export component EdgesSection inherits VerticalLayout {
+    in property <string> saved_note;
+
+    spacing: 10px;
+
+    GroupHeader { text: "Abraded Edges"; }
+
+    SliderRow {
+        text: "Width";
+        hint: "Width: the width of the worn band along the\nfacet edges. 0 is off: sharp, clean edges." + root.saved_note;
+        value_text: RenderEffectsModel.edge_width <= 0.0 ? "Off" : Math.round(RenderEffectsModel.edge_width * 1000.0) / 1000.0 + "";
+        minimum: 0.0;
+        maximum: 0.1;
+        value <=> RenderEffectsModel.edge_width;
+        edited(val) => { RenderEffectsModel.edges_edited(); }
+    }
+
+    if RenderEffectsModel.edge_width > 0.0: SliderRow {
+        text: "Wear";
+        hint: "Wear: how rough the worn band is. A low value is a\nlightly dulled edge, a high one a rough, frosted edge." + root.saved_note;
+        value_text: Math.round(RenderEffectsModel.edge_wear * 100.0) / 100.0 + "";
+        minimum: 0.0;
+        maximum: 1.0;
+        value <=> RenderEffectsModel.edge_wear;
+        edited(val) => { RenderEffectsModel.edges_edited(); }
+    }
+}

@@ -1,0 +1,151 @@
+import { Theme } from "../../theme.slint";
+import { CheckBox } from "std-widgets.slint";
+import { Zoning } from "../../models/zoning.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { ActionButton } from "../chip_toggle.slint";
+import { PatternSwatch } from "../color_pattern/parts.slint";
+import { LchEditor } from "lch_editor.slint";
+
+// The Color Pattern section of the Gem Material Editor (plan 2026-10-21, section 5.1): the strip
+// of zone colors, a one-line summary and the buttons that open the Color Pattern window. Its
+// data is the main window's `Zoning` instance (`pattern_*`); `pattern_state` picks what shows:
+//
+//   0  no pattern: "Add Pattern..."
+//   1  a pattern (or zones made by the Rough Color wizard): "Edit Pattern..." and "Remove Pattern"
+//   2  a built-in pattern: the strip and a note, no buttons
+//   3  the material's color is not band rows yet: "Pick a color for this material first."
+//   4  not offered: the caller does not mount the section
+//
+// The wizard-zone checkbox (`show_relative_to_stone`) stays here: a stored pattern keeps its size
+// setting in the pattern editor, but zones the wizard made have no other place for it.
+export component ColorPatternSection inherits VerticalLayout {
+    spacing: 6px;
+
+    Text {
+        text: "Color Pattern";
+        font-size: 11px;
+        font-weight: 600;
+        color: Theme.text-secondary;
+        accessible-role: AccessibleRole.text;
+    }
+
+    if Zoning.pattern_state == 1 || Zoning.pattern_state == 2: HorizontalLayout {
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: 3px;
+            alignment: start;
+            VerticalLayout {
+                alignment: center;
+                HorizontalLayout {
+                    spacing: 3px;
+                    for swatch in Zoning.pattern_swatches: PatternSwatch { color_a: swatch; }
+                }
+            }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: Zoning.pattern_summary;
+            font-size: 11px;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+
+    if Zoning.pattern_state == 2: Text {
+        text: "Built-in pattern. Save the material under a new name to change it.";
+        font-size: 10px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+
+    if Zoning.pattern_state == 3: Text {
+        text: "Pick a color for this material first.";
+        font-size: 10px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+
+    if Zoning.pattern_state == 0 || Zoning.pattern_state == 1: HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        if Zoning.pattern_state == 0: Rectangle {
+            width: 120px;
+            height: 26px;
+            ActionButton {
+                width: parent.width;
+                height: parent.height;
+                text: "Add Pattern\u{2026}";
+                hint: "Open the Color Pattern editor to give this material zones of\ndifferent colors, such as a watermelon tourmaline.";
+                fill: Theme.surface-raised;
+                hover_fill: Theme.surface-control-hover;
+                font_size: 10px;
+                enabled: !Zoning.pattern_editor_open;
+                clicked => { Zoning.add_pattern(); }
+            }
+            // The guide's Watermelon Tourmaline lesson outlines this button.
+            if GuideModel.highlight_target == "pattern_add_button": Rectangle {
+                border-width: 2px;
+                border-color: Theme.accent-cyan;
+                border-radius: Theme.radius-sm;
+            }
+        }
+        if Zoning.pattern_state == 1: ActionButton {
+            width: 120px;
+            height: 26px;
+            text: "Edit Pattern\u{2026}";
+            hint: "Open the Color Pattern editor for this material.";
+            fill: Theme.surface-raised;
+            hover_fill: Theme.surface-control-hover;
+            font_size: 10px;
+            enabled: !Zoning.pattern_editor_open;
+            clicked => { Zoning.edit_pattern(); }
+        }
+        if Zoning.pattern_state == 1: ActionButton {
+            width: 120px;
+            height: 26px;
+            text: "Remove Pattern";
+            hint: "Take the zones away. The material keeps its base color.";
+            fill: Theme.surface-raised;
+            hover_fill: Theme.surface-control-hover;
+            font_size: 10px;
+            enabled: !Zoning.pattern_editor_open;
+            clicked => { Zoning.remove_pattern(); }
+        }
+    }
+
+    if Zoning.pattern_editor_open: Text {
+        text: "The Color Pattern window is open. Close it to go on with this material.";
+        font-size: 10px;
+        color: Theme.text-secondary;
+        wrap: word-wrap;
+    }
+
+    // The color editor for a zone color of the pattern window (its "Pick..." buttons).
+    if Zoning.pattern_pick_open: LchEditor {
+        apply_hint: "Use this color for the zone in the Color Pattern window.";
+        applied => { Zoning.pattern_pick_open = false; }
+        cancelled => { Zoning.pattern_pick_open = false; }
+    }
+
+    if Zoning.show_relative_to_stone: VerticalLayout {
+        spacing: 4px;
+        CheckBox {
+            text: "Zone Geometry Relative to Stone Size";
+            checked <=> Zoning.material_relative_to_stone;
+        }
+        Text {
+            text: "Ticked, the zones grow and shrink with the stone width setting. Unticked, they keep their size in millimeters.";
+            font-size: 10px;
+            color: Theme.text-muted;
+            wrap: word-wrap;
+        }
+    }
+
+    if Zoning.pattern_state != 3: Text {
+        text: "Patterns show in Path-Traced views. Ray-Traced shows the base color.";
+        font-size: 10px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+}

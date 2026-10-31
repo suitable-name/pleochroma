@@ -1,0 +1,564 @@
+//! The pipeline's request-resolution state machine: its remembered
+//! [`WorkerMemory`] (including the Diagram-mode [`DiagramMemory`] half), and
+//! [`resolve_request_state`], which turns one incoming [`RedrawRequest`] into the
+//! plane/camera/style tuple [`super::render_request`] draws.
+//!
+//! Moved verbatim from the desktop's `gui::solid_preview::preview_state::state`,
+//! which re-exports it.
+
+use super::{
+    request::{PlannedFrame, RedrawRequest, panel_kind_from_index},
+    types::{CameraPose, StoneGeometryBuf},
+};
+use crate::{
+    diagram2d::{DiagramStyle, PanelKind},
+    facet_map::{FacetKind, FacetMap},
+    mesh_cache::MeshCache,
+    raster::SolidStyle,
+};
+use glam::Vec3;
+use pleochroma::geometry::{ToolPrimitive, meet_solver::SolvedTier, stone_metrics::SolidStatus};
+use std::sync::{Arc, Mutex, PoisonError};
+
+/// Largest per-component plane difference [`WorkerMemory::same_stone`] still calls the same
+/// stone; the desktop sink's republish tolerance, orders of magnitude below any edit.
+pub const SAME_STONE_EPSILON: f32 = 1e-5;
+
+/// Facet outlines an embedding app owns OUTSIDE the request stream: the Slice tool's
+/// provisional tier and the tiers that follow a handle drag.
+///
+/// They cannot ride on [`RedrawRequest::UpdateFacetOverlay`] alone: every `Planned`
+/// request rebuilds the whole [`SolidStyle`] (so it would drop them), and the request
+/// gate is "latest wins", so an overlay update superseded by a `Reproject` or a
+/// `Planned` request is lost outright. Read at draw time through
+/// [`WorkerMemory::outlines`] instead, every request kind shows the newest value.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Outlines {
+    /// Facet ids of the provisional slice tier (green).
+    pub provisional: Vec<u32>,
+    /// Facet ids of the tiers that follow a drag (orange).
+    pub moved: Vec<u32>,
+}
+
+/// The handle an embedding app and the worker share: the app writes, the worker reads
+/// at draw time. See [`Outlines`].
+pub type SharedOutlines = Arc<Mutex<Outlines>>;
+
+/// The pipeline's memory of the last diagram-relevant data it computed.
+///
+/// Carried across a [`RedrawRequest::Reproject`] request, which has no `Design`
+/// to recompute gear info/labels from, exactly like [`WorkerMemory::style`] is
+/// carried forward for the ordinary solid render.
+///
+/// Defaults to a 96-tooth gear
+/// with no reference angle and no labels -- a reasonable "nothing solved into the
+/// diagram yet" starting point.
+pub struct DiagramMemory {
+    /// The index wheel's tooth count.
+    pub gear_teeth: u32,
+    /// The index wheel's reference angle.
+    pub gear_reference_angle: f32,
+    /// The schedule's own rotational symmetry order (`ScheduleMeta::
+    /// symmetry_order`), carried forward like `gear_teeth` -- see
+    /// [`crate::diagram2d::DiagramConfig::symmetry_order`].
+    pub symmetry_order: u32,
+    /// The schedule's own mirror flag (`ScheduleMeta::mirror`) -- see
+    /// [`crate::diagram2d::DiagramConfig::mirror`].
+    pub mirror: bool,
+    /// The enlarged panel at the last replan: `None` (the default) means the
+    /// ordinary three-column [`crate::diagram2d::render_diagram`] layout;
+    /// `Some(panel)` means [`crate::diagram2d::render_diagram_single_panel`].
+    pub enlarged_panel: Option<PanelKind>,
+    /// The diagram's facet-level style and labels.
+    pub style: DiagramStyle,
+    /// Facet id -> hover tooltip text.
+    pub hover_text: Vec<String>,
+    /// Facet id -> owning tier index.
+    pub facet_tier: Vec<Option<usize>>,
+    /// Facet id -> owning CONCAVE tier (an index into `Design::concave_tiers`, not a
+    /// tier-table position), `Some` only for a concave tool's facet. A parallel table to
+    /// [`Self::facet_tier`], which stays `None` for those facets.
+    pub facet_concave_tier: Vec<Option<usize>>,
+}
+
+impl Default for DiagramMemory {
+    fn default() -> Self {
+        Self {
+            gear_teeth: 96,
+            gear_reference_angle: 0.0,
+            // Matches `pleochroma_cut_core::ScheduleMeta::standard_round_brilliant`'s
+            // own 8-fold mirrored symmetry -- a reasonable "nothing solved into the
+            // diagram yet" starting point, same spirit as `gear_teeth: 96` above.
+            symmetry_order: 8,
+            mirror: true,
+            enlarged_panel: None,
+            style: DiagramStyle::default(),
+            hover_text: Vec::new(),
+            facet_tier: Vec::new(),
+            facet_concave_tier: Vec::new(),
+        }
+    }
+}
+
+/// Everything the pipeline remembers from one request to the next, bundled into
+/// a single value so [`resolve_request_state`]/[`super::render_request`] each take
+/// one `&mut` parameter.
+///
+/// `solved_masts` and `planes` exist for [`RedrawRequest::Reproject`]'s sake: a
+/// plain camera drag/zoom/pose-button redraw has no `Design` to replan against,
+/// so it must reuse the pipeline's own memory of the last real
+/// [`RedrawRequest::Planned`] rather than reporting "nothing solved" or leaking a
+/// previous design's leftover style.
+#[derive(Default)]
+pub struct WorkerMemory {
+    /// The last `Planned` request's facet-level style, reused (never mutated in
+    /// place) by a `Reproject` request.
+    pub style: SolidStyle,
+    /// The last `Planned` request's diagram label/hover/tier tables.
+    pub diagram: DiagramMemory,
+    /// The last non-empty mast list a `Planned` frame produced, chained forward
+    /// as a `Reproject` frame's own `solved`.
+    pub solved_masts: Option<Vec<SolvedTier>>,
+    /// The plane arrangement last rendered (`Planned` or `Reproject` alike),
+    /// `None` before the very first request -- used only to detect that a
+    /// `Reproject` request's planes actually changed (a different design was just
+    /// loaded/solved).
+    pub planes: Option<Vec<(Vec3, f32)>>,
+    /// The concave tools of the stone last rendered (empty for a flat stone); with
+    /// [`Self::planes`] this is the stone a `Reproject` is compared against.
+    pub tools: Vec<ToolPrimitive>,
+    /// `(concave tier, placement)` of each of [`Self::tools`].
+    pub placements: Vec<(usize, usize)>,
+    /// The camera last rendered at -- what a [`RedrawRequest::UpdateFacetOverlay`]
+    /// re-renders with, since it carries none of its own. `None` only before the
+    /// very first request; an overlay update arriving that early is a no-op.
+    pub camera: Option<CameraPose>,
+    /// The size last rendered at (see [`Self::camera`]).
+    pub size: Option<(u32, u32)>,
+    /// The view mode last rendered in (see [`Self::camera`]).
+    pub view_mode: Option<u8>,
+    /// The generation the fields above were last (re)computed for -- `0` before
+    /// the very first `Planned` frame. Set from a `Planned` frame's own
+    /// `generation`; carried forward UNCHANGED by `Reproject`/`UpdateFacetOverlay`.
+    pub generation: u64,
+    /// The outlines the embedding app sets out-of-band (see [`Outlines`]), stamped onto
+    /// the style of EVERY frame at draw time by [`Self::with_outlines`]. `None` (the
+    /// default) leaves the style exactly as the request produced it.
+    pub outlines: Option<SharedOutlines>,
+    /// Which flat tiers the last `Planned` frame's planes contain when the stone was only
+    /// partly cut (`None`: the finished stone) -- see [`PlannedFrame::visible_tiers`].
+    /// Carried forward by `Reproject`/`UpdateFacetOverlay` as long as the planes are the
+    /// same, so every frame's [`super::FrameGeometry::visible_tiers`] describes the facet
+    /// ids it holds.
+    pub visible_tiers: Option<Arc<Vec<bool>>>,
+}
+
+impl WorkerMemory {
+    /// The stone last rendered (planes plus tools), `None` before the very first
+    /// request.
+    #[must_use]
+    pub fn geometry(&self) -> Option<StoneGeometryBuf> {
+        self.planes.as_ref().map(|planes| {
+            let mut geometry = StoneGeometryBuf::from_halfspaces(planes);
+            geometry.tools.clone_from(&self.tools);
+            geometry.placements.clone_from(&self.placements);
+            geometry
+        })
+    }
+
+    /// Whether `planes` and `tools` are the stone last rendered, planes compared within
+    /// [`SAME_STONE_EPSILON`] per component and tools exactly.
+    ///
+    /// The desktop feeds a camera-follow `Reproject` the planes it holds in its render
+    /// context, which are the last `Planned` frame's planes round-tripped through
+    /// `GpuFacetPlane::new`; that `normalize()` is not idempotent in `f32`, so a normal
+    /// moves by one ULP now and then. An exact compare called such a pose change "a
+    /// different design" and wiped the selection, hover and labels (the tier highlight
+    /// vanished after turning the stone over). A real edit moves a plane by far more.
+    #[must_use]
+    pub fn same_stone(&self, planes: &[(Vec3, f32)], tools: &[ToolPrimitive]) -> bool {
+        self.tools == tools
+            && self.planes.as_deref().is_some_and(|last| {
+                last.len() == planes.len()
+                    && last.iter().zip(planes).all(|(&(ln, lm), &(rn, rm))| {
+                        (lm - rm).abs() <= SAME_STONE_EPSILON
+                            && (ln - rn).abs().max_element() <= SAME_STONE_EPSILON
+                    })
+            })
+    }
+
+    /// `style` with the shared [`Outlines`] (if any) copied over its `provisional` and
+    /// `moved` sets.
+    #[must_use]
+    pub fn with_outlines(&self, mut style: SolidStyle) -> SolidStyle {
+        if let Some(shared) = &self.outlines {
+            let outlines = shared.lock().unwrap_or_else(PoisonError::into_inner);
+            style.provisional.clone_from(&outlines.provisional);
+            style.moved.clone_from(&outlines.moved);
+        }
+        style
+    }
+}
+
+/// Dims `style` for a held-over solid that is not this frame's fresh result,
+/// using flatter, greyed base shading to read as visibly not current.
+/// Keeps every facet-overlay field untouched.
+#[must_use]
+pub fn dim_style(style: SolidStyle) -> SolidStyle {
+    SolidStyle {
+        base_color: [120, 122, 128],
+        ambient: 0.4,
+        diffuse: 0.35,
+        ..style
+    }
+}
+
+/// One `Unbounded` escaping plane's label for the status banner.
+///
+/// `"Girdle (tier 5)"` when the owning tier is named, else `"tier 5"` (1-based,
+/// matching the tier table's own `#` column), or the raw `"plane <n>"` fallback
+/// when `Design::tier_for_plane_index` can't place it (a preform plane, or an
+/// index past the arrangement).
+#[must_use]
+pub fn escaping_tier_label(
+    design: &pleochroma_cut_core::Design,
+    solved: &[SolvedTier],
+    plane_index: usize,
+) -> String {
+    design
+        .tier_for_plane_index(solved, plane_index)
+        .map_or_else(
+            || format!("plane {plane_index}"),
+            |tier_index| {
+                design.tiers.get(tier_index).map_or_else(
+                    || format!("tier {}", tier_index + 1),
+                    |tier| {
+                        if tier.name.is_empty() {
+                            format!("tier {}", tier_index + 1)
+                        } else {
+                            format!("{} (tier {})", tier.name, tier_index + 1)
+                        }
+                    },
+                )
+            },
+        )
+}
+
+/// Rebuilds `last_diagram`'s facet-label/hover-text/tier tables and style from a
+/// freshly (re)solved `design`. `solid_style` is the SAME [`SolidStyle`] the
+/// planned frame just finished, so the diagram's flagged/pending/selected overlay
+/// is guaranteed to agree with the ordinary Solid view's.
+fn update_diagram_memory_from_design(
+    last_diagram: &mut DiagramMemory,
+    design: &pleochroma_cut_core::Design,
+    solved: Option<&[SolvedTier]>,
+    solid_style: &SolidStyle,
+    n_d: f64,
+    placements: &[(usize, usize)],
+    visible_tiers: Option<&[bool]>,
+) {
+    let facet_map =
+        FacetMap::from_design_cut(design, solved.unwrap_or(&[]), placements, visible_tiers);
+    let facet_count = facet_map.facet_count();
+    let mut labels = vec![String::new(); facet_count];
+    let mut hover_text = vec![String::new(); facet_count];
+    let mut facet_tier = vec![None; facet_count];
+    let mut facet_concave_tier = vec![None; facet_count];
+    let mut facet_index_on_gear = vec![0u32; facet_count];
+    for id in 0..facet_count {
+        labels[id] = facet_map.facet_label(id);
+        hover_text[id] = facet_map.hover_text(id, n_d);
+        facet_tier[id] = facet_map.tier_of(id);
+        facet_concave_tier[id] = match facet_map.kind_of(id) {
+            FacetKind::Concave { tier, .. } => Some(tier),
+            FacetKind::Flat => None,
+        };
+        facet_index_on_gear[id] = facet_map.index_on_gear(id);
+    }
+    last_diagram.style = DiagramStyle {
+        flagged: solid_style.flagged.clone(),
+        pending: solid_style.pending.clone(),
+        selected: solid_style.selected.clone(),
+        facet_labels: labels,
+        // The index-wheel radial-line pass's facet->tooth lookup, and the
+        // meet-point markers -- both need nothing beyond `facet_map`, already
+        // built above for the label/hover/tier tables.
+        facet_index_on_gear,
+        meet_marker_pairs: facet_map.meeting_facet_pairs(design),
+        tool_facet_block: facet_map.tool_facet_blocks(),
+        ..DiagramStyle::default()
+    };
+    last_diagram.hover_text = hover_text;
+    last_diagram.facet_tier = facet_tier;
+    last_diagram.facet_concave_tier = facet_concave_tier;
+}
+
+/// Applies a [`RedrawRequest::Reproject`] request's optional `gear` override onto
+/// `last_diagram`. `None` leaves `last_diagram`'s gear fields exactly as they were.
+const fn apply_reproject_gear(last_diagram: &mut DiagramMemory, gear: Option<(u32, f32)>) {
+    if let Some((gear_teeth, gear_reference_angle)) = gear {
+        last_diagram.gear_teeth = gear_teeth;
+        last_diagram.gear_reference_angle = gear_reference_angle;
+    }
+}
+
+/// The state [`resolve_request_state`] resolves one [`RedrawRequest`] into.
+///
+/// In order: stone geometry (planes and tools), camera, size, view mode, style, solved masts,
+/// stale flag, the ready-to-show unsolvable/unbounded status (always `None` for a
+/// [`RedrawRequest::Reproject`], which never plans), the generation, and the stone's
+/// mesh-cache key when this call already hashed it (`Planned` only), so the render step
+/// need not hash the plane list again (perf review UI-7).
+pub type RequestState = (
+    StoneGeometryBuf,
+    CameraPose,
+    (u32, u32),
+    u8,
+    SolidStyle,
+    Option<Vec<SolvedTier>>,
+    bool,
+    Option<String>,
+    u64,
+    Option<u64>,
+);
+
+/// The request-kind `match` half of [`super::render_request`]. `mesh_cache` is
+/// only touched by the `Planned` arm, via the same cache the render step queries
+/// afterward, so it's always a cache hit there.
+///
+/// Returns `None` if a [`RedrawRequest::UpdateFacetOverlay`] arrives before the
+/// first `Planned`/`Reproject` request (`memory.size` still `None`).
+pub fn resolve_request_state(
+    memory: &mut WorkerMemory,
+    mesh_cache: &mut MeshCache,
+    request: RedrawRequest,
+) -> Option<RequestState> {
+    match request {
+        RedrawRequest::Reproject {
+            geometry,
+            camera,
+            size,
+            view_mode,
+            gear,
+        } => {
+            apply_reproject_gear(&mut memory.diagram, gear);
+            // A `Reproject` also carries every New/Load/explicit-Solve redraw on the
+            // desktop, not only a camera drag/zoom -- so when the incoming plane
+            // arrangement differs from the pipeline's last-known one, a genuinely
+            // different geometry just replaced the old one. Reset the leftover
+            // flagged/pending/selected style and diagram labels rather than let
+            // them leak onto a design that never produced them. An ordinary
+            // orbit/zoom always resubmits the SAME planes, so this never fires
+            // mid-drag.
+            let planes = geometry.halfspaces();
+            if !memory.same_stone(&planes, &geometry.tools) {
+                memory.style = SolidStyle::viewport();
+                memory.diagram = DiagramMemory::default();
+                memory.visible_tiers = None;
+            }
+            memory.planes = Some(planes);
+            memory.tools.clone_from(&geometry.tools);
+            memory.placements.clone_from(&geometry.placements);
+            memory.camera = Some(camera);
+            memory.size = Some(size);
+            memory.view_mode = Some(view_mode);
+            Some((
+                geometry,
+                camera,
+                size,
+                view_mode,
+                memory.style.clone(),
+                memory.solved_masts.clone(),
+                false,
+                None,
+                memory.generation,
+                None,
+            ))
+        }
+        // No `Design`, no new camera/planes/size, just an id-keyed style tweak
+        // re-rendered at whatever the pipeline last used.
+        RedrawRequest::UpdateFacetOverlay(overlay) => {
+            // `memory.size` is `None` only before the first `Planned`/`Reproject`
+            // frame. Bail out before touching style fields; they're recomputed anyway.
+            memory.size?;
+            memory.style.hovered = overlay.hovered;
+            memory.style.selected_facet = overlay.selected_facet;
+            memory.style.multi_selected = overlay.multi_selected.clone();
+            // The 3D-only outlines (slice tier, followers): the diagram draws neither.
+            memory.style.provisional = overlay.provisional;
+            memory.style.moved = overlay.moved;
+            memory.diagram.style.hovered = overlay.hovered;
+            memory.diagram.style.selected_facet = overlay.selected_facet;
+            memory.diagram.style.multi_selected = overlay.multi_selected;
+            Some((
+                memory.geometry().unwrap_or_default(),
+                memory.camera.unwrap_or(CameraPose {
+                    roll: 0.0,
+                    yaw: 0.0,
+                    pitch: 0.0,
+                    distance: 5.0,
+                }),
+                memory.size.unwrap_or((1, 1)),
+                memory.view_mode.unwrap_or(0),
+                memory.style.clone(),
+                memory.solved_masts.clone(),
+                false,
+                None,
+                memory.generation,
+                None,
+            ))
+        }
+        RedrawRequest::Planned(frame) => Some(resolve_planned_state(memory, mesh_cache, *frame)),
+    }
+}
+
+/// Copies the highlight of a coalesced [`super::types::FacetOverlay`] into `style`.
+fn apply_overlay(style: &mut SolidStyle, overlay: &super::types::FacetOverlay) {
+    style.hovered = overlay.hovered;
+    style.selected_facet = overlay.selected_facet;
+    style.multi_selected.clone_from(&overlay.multi_selected);
+    style.provisional.clone_from(&overlay.provisional);
+    style.moved.clone_from(&overlay.moved);
+}
+
+/// The `Unbounded` status of `geometry`: `None` when the arrangement closes, else which tiers'
+/// facets escape.
+fn escaping_status(
+    mesh_cache: &mut MeshCache,
+    cache_key: u64,
+    geometry: &StoneGeometryBuf,
+    design: &pleochroma_cut_core::Design,
+    solved: Option<&[SolvedTier]>,
+) -> Option<String> {
+    let closes = mesh_cache
+        .get_or_build_geometry_keyed(cache_key, geometry)
+        .is_some();
+    if closes {
+        return None;
+    }
+    match mesh_cache.status() {
+        Some(SolidStatus::Unbounded { escaping }) => {
+            let solved_ref = solved.unwrap_or(&[]);
+            let names = escaping
+                .iter()
+                .map(|&plane_index| escaping_tier_label(design, solved_ref, plane_index))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if names.is_empty() {
+                // The builder named no escaping plane: do not print an empty list.
+                return Some("Unbounded: the planes do not close the solid.".to_string());
+            }
+            Some(format!("Unbounded: {names} never close the solid."))
+        }
+        _ => None,
+    }
+}
+
+/// [`RedrawRequest::Planned`]'s half of [`resolve_request_state`]. Finishes what
+/// [`super::build_planned_frame`] could not: whether the arrangement closes, and
+/// the resulting `Unbounded` status.
+fn resolve_planned_state(
+    memory: &mut WorkerMemory,
+    mesh_cache: &mut MeshCache,
+    frame: PlannedFrame,
+) -> RequestState {
+    let PlannedFrame {
+        design,
+        planes,
+        tools,
+        placements,
+        style,
+        solved,
+        stale,
+        unsolvable_status,
+        camera,
+        size,
+        view_mode,
+        generation,
+        n_d,
+        enlarged_panel,
+        visible_tiers,
+        overlay,
+    } = frame;
+    // This frame's arrangement may not close. Name the tier whose facet escapes.
+    // Cheap even though it looks like a second mesh build: guaranteed cache hit.
+    let geometry = StoneGeometryBuf {
+        tools,
+        placements,
+        ..StoneGeometryBuf::from_halfspaces(&planes)
+    };
+    let cache_key = geometry.cache_key();
+    // Always built (a guaranteed cache hit); only reported when the anchors resolved.
+    let unbounded_status =
+        escaping_status(mesh_cache, cache_key, &geometry, &design, solved.as_deref())
+            .filter(|_| unsolvable_status.is_none());
+    // Both a missing anchor and a solid that never closes leave the viewport
+    // showing geometry that is NOT what the design currently says, so both dim
+    // it: the status line says why, and the dimming is what stops a cutter
+    // reading a held-over solid as current.
+    let holding_over = unsolvable_status.is_some() || unbounded_status.is_some();
+    let preview_status = unsolvable_status.or(unbounded_status);
+    let mut style = if holding_over {
+        dim_style(style)
+    } else {
+        style
+    };
+    // A highlight that was queued behind this frame (`RedrawRequest::coalesce`).
+    if let Some(overlay) = &overlay {
+        apply_overlay(&mut style, overlay);
+    }
+
+    memory.style = style.clone();
+    memory.visible_tiers = visible_tiers.clone().map(Arc::new);
+    if solved.is_some() {
+        memory.solved_masts.clone_from(&solved);
+    }
+    memory.planes = Some(planes);
+    memory.tools.clone_from(&geometry.tools);
+    memory.placements.clone_from(&geometry.placements);
+    memory.camera = Some(camera);
+    memory.size = Some(size);
+    memory.view_mode = Some(view_mode);
+    memory.generation = generation;
+    memory.diagram.gear_teeth = design.meta.gear_teeth_abs();
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "f32 is the diagram's angle precision; a gear reference angle is in degrees"
+    )]
+    let gear_reference_angle = design.meta.gear_reference_angle as f32;
+    memory.diagram.gear_reference_angle = gear_reference_angle;
+    memory.diagram.symmetry_order = design.meta.symmetry_order;
+    memory.diagram.mirror = design.meta.mirror;
+    memory.diagram.enlarged_panel = panel_kind_from_index(enlarged_panel);
+    // Unconditional -- not gated on `view_mode == 3`: an edit made while
+    // Solid/Both is on screen must still leave the diagram's label/hover/tier
+    // tables fresh, so switching to Diagram mode afterward (a `Reproject`, which
+    // has no `Design` to rebuild them from) shows a live, correct diagram
+    // immediately.
+    update_diagram_memory_from_design(
+        &mut memory.diagram,
+        &design,
+        solved.as_deref(),
+        &style,
+        n_d,
+        &geometry.placements,
+        visible_tiers.as_deref(),
+    );
+    if let Some(overlay) = overlay {
+        memory.diagram.style.hovered = overlay.hovered;
+        memory.diagram.style.selected_facet = overlay.selected_facet;
+        memory.diagram.style.multi_selected = overlay.multi_selected;
+    }
+    (
+        geometry,
+        camera,
+        size,
+        view_mode,
+        style,
+        solved,
+        stale,
+        preview_status,
+        generation,
+        Some(cache_key),
+    )
+}

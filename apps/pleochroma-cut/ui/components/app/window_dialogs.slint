@@ -1,0 +1,232 @@
+import { HelpModel } from "../../models/help.slint";
+import { RadvWorkaroundModel } from "../../models/radv_workaround.slint";
+import { RawTextModel } from "../../models/raw_text.slint";
+import { SweepModel } from "../../models/sweep.slint";
+import { TutorialsModel } from "../../models/tutorials.slint";
+import { UpdateModel } from "../../models/update.slint";
+import { ConfirmActionDialog } from "../confirm_action_dialog.slint";
+import { GlossaryDialog } from "../glossary_dialog.slint";
+import { RawTextDialog } from "../raw_text_dialog.slint";
+import { SweepDialog } from "../sweep_dialog.slint";
+import { TutorialBrowser } from "../tutorial_browser.slint";
+import { WelcomeDialog } from "../welcome_dialog.slint";
+
+// The in-window modal questions and cards `app.slint` mounts over the dialogs' area (the whole
+// window, less the two guide gutters while a guide is lifted above the scrim) -- split out of it to keep that file under its line budget: the glossary, Edit as Text,
+// Angle Sweep, the tutorial browser, the welcome dialog, the "Check for New Versions?" question, the
+// "RADV Shader Workaround" question and the window-close guard. Each is wrapped in a `FocusScope` (or is a `ConfirmActionDialog`, which
+// brings its own) with an explicit `z`, so they draw above `GlobalDialogsOverlay` and the toast;
+// `app.slint` gives this whole component a `z` for the same reason.
+//
+// Mounted with explicit `x`/`y`/`width`/`height` (the dialogs' area): every child is an
+// `if` branch, which contributes no layout info, so left to itself it would be 0 x 0. A plain
+// `Rectangle` with no `TouchArea` passes input through while every branch is false.
+export component WindowQuestionDialogs inherits Rectangle {
+    in property <bool> welcome_open: false;
+    in property <bool> update_consent_open: false;
+    in property <bool> radv_prompt_open: false;
+    in-out property <bool> close_confirm_open: false;
+    in property <string> close_confirm_message: "";
+    in property <bool> close_confirm_can_save: true;
+    callback close_confirm_save();
+    callback close_confirm_discard();
+
+    // The glossary (Help > Glossary, "More in the glossary" in a tooltip) -- see
+    // `models/help.slint`. Same wrapping-`FocusScope` convention as the dialogs
+    // above: Escape closes it, every other key is swallowed so a shortcut cannot
+    // fire on the design underneath, and Tab moves between its own controls.
+    if HelpModel.glossary_open: FocusScope {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        z: 420;
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                HelpModel.glossary_open = false;
+            } else if event.text == Key.Tab || event.text == Key.Backtab {
+                return reject;
+            }
+            return accept;
+        }
+
+        GlossaryDialog {
+            width: 100%;
+            height: 100%;
+        }
+    }
+
+    // The Edit as Text dialog (Edit > Edit as Text..., the palette) -- see
+    // `models/raw_text.slint`. Same wrapping-`FocusScope` convention: every key the text
+    // box does not use is swallowed so a shortcut cannot fire on the design underneath.
+    // Escape leaves the comparison first, then closes (asking first when there are edits
+    // that were not applied); Tab moves between the dialog's own controls.
+    if RawTextModel.is_open: FocusScope {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        z: 415;
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                if RawTextModel.compare_open {
+                    RawTextModel.compare_open = false;
+                } else {
+                    RawTextModel.request_close();
+                }
+            } else if event.text == Key.Tab || event.text == Key.Backtab {
+                return reject;
+            }
+            return accept;
+        }
+
+        RawTextDialog {
+            width: 100%;
+            height: 100%;
+        }
+    }
+
+    // The Angle Sweep dialog (Edit > Angle Sweep..., the palette) -- see `models/sweep.slint`.
+    // Same wrapping-`FocusScope` convention: Escape stops a running sweep, else closes
+    // the dialog; every other key the number fields do not use is swallowed so a shortcut
+    // cannot fire on the design underneath; Tab moves between the dialog's own controls.
+    if SweepModel.dialog_open: FocusScope {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        z: 405;
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                if SweepModel.running {
+                    SweepModel.cancel();
+                } else {
+                    SweepModel.close_dialog();
+                }
+            } else if event.text == Key.Tab || event.text == Key.Backtab {
+                return reject;
+            }
+            return accept;
+        }
+
+        SweepDialog {
+            width: 100%;
+            height: 100%;
+        }
+    }
+
+    // The tutorial browser (Help > Tutorials..., the palette, the empty state) -- see
+    // `models/tutorials.slint`. Same wrapping-`FocusScope` convention as the glossary
+    // above: Escape closes it, every other key is swallowed, Tab moves between its own
+    // controls. Its search box takes the keyboard when it opens.
+    if TutorialsModel.browser_open: FocusScope {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        z: 410;
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                TutorialsModel.close_browser();
+            } else if event.text == Key.Tab || event.text == Key.Backtab {
+                return reject;
+            }
+            return accept;
+        }
+
+        TutorialBrowser {
+            width: 100%;
+            height: 100%;
+        }
+    }
+
+    // The welcome dialog: shown once to a new user and whenever Preferences > "Show the
+    // welcome tour again" asks for it (it waits until Preferences and the start-up
+    // restore question are out of the way). Escape means "Not now", Enter takes the tour.
+    if root.welcome_open: FocusScope {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        z: 430;
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                TutorialsModel.tour_dismiss();
+            } else if event.text == Key.Return {
+                TutorialsModel.tour_start();
+            } else if event.text == Key.Tab || event.text == Key.Backtab {
+                return reject;
+            }
+            return accept;
+        }
+
+        WelcomeDialog {
+            width: 100%;
+            height: 100%;
+        }
+    }
+
+    // The one-time "Check for New Versions?" question (`update_consent_open` above says when
+    // it may show). Closing it without an answer (Cancel, the close button, Escape) stores
+    // nothing: it is asked again on the next start.
+    if root.update_consent_open: ConfirmActionDialog {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        z: 420;
+        heading: "Check for New Versions?";
+        message: "Pleochroma can check GitHub once a day for a newer release and tell you about it. Nothing is downloaded or installed, and nothing but the request itself is sent.";
+        primary_label: "Check Daily";
+        primary_hint: "Check GitHub once a day for a newer release. You can turn this off in Preferences.";
+        secondary_label: "Don't Check";
+        secondary_hint: "Never check for new versions. You can turn it on later in Preferences.";
+        primary => { UpdateModel.consent_answered(true); }
+        secondary => { UpdateModel.consent_answered(false); }
+        cancel => { UpdateModel.consent_dismissed(); }
+    }
+
+    // The one-time "RADV Shader Workaround" question (`radv_prompt_open` above says when it may
+    // show): Mesa's AMD driver renders some stones wrongly, and turning off one optimization of
+    // its shader compiler fixes that after a restart. Closing it without an answer ("Not Now",
+    // the close button, Escape, a click outside) stores nothing: it is asked again on the next
+    // start. Enter takes the restart.
+    if root.radv_prompt_open: ConfirmActionDialog {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        z: 420;
+        heading: "RADV Shader Workaround";
+        message: "Your graphics driver is " + RadvWorkaroundModel.driver_text + ". With this driver, some stones with color zones, play-of-color structure or oriented inclusions render too bright or with errors on the graphics card. The workaround turns off one optimization of the AMD shader compiler; GPU rendering is about 10 % slower. The program restarts to apply it.";
+        primary_label: "Restart With Workaround";
+        primary_hint: "Turn the workaround on and restart the program now. You can change this later in Preferences.";
+        secondary_label: "Don't Use It";
+        secondary_hint: "Never use the workaround and never ask again. You can turn it on later in Preferences.";
+        cancel_label: "Not Now";
+        primary => { RadvWorkaroundModel.restart_with_workaround(); }
+        secondary => { RadvWorkaroundModel.dont_use(); }
+        cancel => { RadvWorkaroundModel.not_now(); }
+    }
+
+    // Window-close unsaved-changes guard -- see `close_confirm_open`'s own doc
+    // comment. Its own Save/Discard buttons call straight into `MainWindow`'s own
+    // callbacks (handled in Rust, `gui::mod::build_main_window`) rather than
+    // `EditorModel`'s, since closing the whole window is this file's own concern,
+    // not the Edit tab's.
+    if root.close_confirm_open: ConfirmActionDialog {
+        width: 100%;
+        height: 100%;
+        z: 500;
+        heading: "Unsaved Changes";
+        message: root.close_confirm_message;
+        // An empty label hides the button: nothing to save without a dirty design.
+        primary_label: root.close_confirm_can_save ? "Save" : "";
+        secondary_label: "Discard";
+        primary => { root.close_confirm_save(); }
+        secondary => { root.close_confirm_discard(); }
+        cancel => { root.close_confirm_open = false; }
+    }
+}

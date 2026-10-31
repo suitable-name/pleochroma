@@ -1,0 +1,72 @@
+import { Theme } from "../../theme.slint";
+
+// The crystal axis in the stone, from above (index 0 at the right) and from the side (table up):
+// the first page of cutting mode shows it beside the sentence that says how to orient the rough.
+//
+// The strokes are SVG path commands in a 380 x 190 box (`pleochroma_editor::cutting_mode::
+// axis_picture`, the same geometry as the cutting sheet's diagram); the picture is as wide as it
+// is given and keeps the box's proportions.
+export component CmAxisPicture inherits Rectangle {
+    // What the picture shows, in words, for a screen reader.
+    in property <string> description;
+    // The stone's outlines in both views and the index 0 mark.
+    in property <string> frame;
+    // The crystal axis in both views.
+    in property <string> axis;
+
+    accessible-role: AccessibleRole.image;
+    accessible-label: "Crystal Axis in the Stone";
+    accessible-description: root.description;
+
+    // The box's proportions: 380 wide, 190 high, with the two captions under it (34 px).
+    property <length> picture_w: Math.min(root.width, Math.max(0px, root.height - 34px) * 2);
+    property <length> picture_h: root.picture_w / 2;
+    property <length> origin_x: (root.width - root.picture_w) / 2;
+
+    Path {
+        x: root.origin_x;
+        y: 0px;
+        width: root.picture_w;
+        height: root.picture_h;
+        fit: fill;
+        viewbox-width: 380;
+        viewbox-height: 190;
+        commands: root.frame;
+        stroke: Theme.text-secondary;
+        stroke-width: 1.5px;
+        fill: transparent;
+    }
+    Path {
+        x: root.origin_x;
+        y: 0px;
+        width: root.picture_w;
+        height: root.picture_h;
+        fit: fill;
+        viewbox-width: 380;
+        viewbox-height: 190;
+        commands: root.axis;
+        stroke: Theme.accent-amber;
+        stroke-width: 3px;
+        fill: Theme.accent-amber;
+    }
+    Text {
+        x: root.origin_x;
+        y: root.picture_h + 2px;
+        width: root.picture_w / 2;
+        text: "From Above (Index 0 at the Right)";
+        font-size: 12px;
+        color: Theme.text-muted;
+        horizontal-alignment: center;
+        wrap: word-wrap;
+    }
+    Text {
+        x: root.origin_x + root.picture_w / 2;
+        y: root.picture_h + 2px;
+        width: root.picture_w / 2;
+        text: "From the Side (Table Up)";
+        font-size: 12px;
+        color: Theme.text-muted;
+        horizontal-alignment: center;
+        wrap: word-wrap;
+    }
+}

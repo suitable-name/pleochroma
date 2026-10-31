@@ -8,7 +8,9 @@ target
 /bin
 certs
 exports
-indicatrix*.log
+pleochroma*.log
 dist
 build
 videos
+*.rar
+.VSCodeCounter

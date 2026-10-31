@@ -1,0 +1,736 @@
+import { Theme } from "../theme.slint";
+import { ComboBox, Slider, LineEdit, ScrollView, CheckBox } from "std-widgets.slint";
+import { ViewportModel } from "../models/viewport.slint";
+import { PhysicscolorModel } from "../models/physics_color.slint";
+import { DispersionEditorModel } from "../models/dispersion_editor.slint";
+import { GuideModel } from "../models/guide.slint";
+import { HelpTopics } from "../models/help.slint";
+import { ConfirmActionDialog } from "confirm_action_dialog.slint";
+import { HelpButton } from "help_button.slint";
+import { IconButton } from "icon_button.slint";
+import { ActionButton } from "chip_toggle.slint";
+import { AdvancedNote } from "advanced_note.slint";
+// Split-out sections of this dialog -- see each component's own doc comment.
+import { MaterialTemplateSelector } from "material_editor/template_selector.slint";
+import { MaterialDispersionCoefficients } from "material_editor/dispersion_coefficients.slint";
+import { MaterialOpticsSliders } from "material_editor/optics_sliders.slint";
+import { MaterialCrystalClassification } from "material_editor/crystal_classification.slint";
+import { MaterialCrystalAxisRow, CrystalAxisEditorModel } from "material_editor/crystal_axis_row.slint";
+import { Zoning } from "../models/zoning.slint";
+import { ColorPatternSection } from "material_editor/color_pattern_section.slint";
+import { MaterialAxisCurves } from "material_editor/axis_curves.slint";
+import { MaterialInclusionFamilies } from "material_editor/inclusion_families.slint";
+import { MaterialStructureParams } from "material_editor/structure_params.slint";
+import { MaterialColorSection } from "material_editor/color_section.slint";
+import { MaterialColorVariantsSection } from "material_editor/color_variants_section.slint";
+
+// The Gem Material Editor.
+//
+// Simple and Advanced (`GuideModel.shows_advanced()`): the Simple interface keeps the template,
+// the name, the refractive index, dispersion and specific gravity sliders and the colour. It hides
+// the birefringence slider, the crystal system and optical character, and the Coefficients
+// mode of the refractive-index curve (a material that already has coefficients keeps showing
+// them). Their values stay and still apply; a line says so when one is off its default
+// (`advanced_in_use` below). The validity warning stays visible in both modes, because it is
+// the reason a Save can be disabled.
+//
+// Keyboard: Tab walks every control. Escape asks before it discards edits, Return saves, and
+// while the physics section shows Ctrl+Z / Ctrl+Y undo and redo its recipe.
+export component MaterialEditorDialog inherits Rectangle {
+    // Delete gates behind an explicit "Are you sure" step, the same modal idiom
+    // `ConfirmActionDialog` is already used for elsewhere -- a design referencing
+    // this custom material would otherwise silently fall back to a built-in of
+    // the same name, or Diamond.
+    property <bool> confirm_delete_open: false;
+    // A blank (or whitespace-only) name can never be saved or deleted -- the
+    // authoritative check still lives in Rust (`gui::optics::custom_materials`,
+    // which also refuses a name that collides with a built-in material), but the
+    // empty-string case is cheap to also reject right here so Save/Delete visibly
+    // disable instead of silently no-op-ing against the database.
+    property <bool> name_is_blank: root.mat_name == "";
+    // The authoritative built-in/existing-custom name checks live in Rust
+    // (`gui::optics::custom_materials`) -- a built-in collision is refused
+    // outright there, and an existing-custom collision's own success toast says
+    // "Overwrote" rather than "Saved". These two properties let THIS dialog also
+    // disable/prompt proactively instead of only reacting after the fact, but
+    // neither is wired yet: `gem_viewport.slint` still mounts
+    // `MaterialEditorDialog { ... }` with no property bindings at all, so both
+    // default to `[]` and every check below against them is vacuously
+    // permissive until that wiring lands.
+    // Both answers come from Rust (`gui::optics::custom_materials`), recomputed
+    // whenever the name field is edited, because Slint has no way to search a list
+    // from inside an expression: a `pure function` admits no loop construct, and
+    // there is no `contains` on an array or a string. Keeping the search on the
+    // Rust side also means these agree with the authoritative checks by
+    // construction rather than by a second implementation that could drift.
+    property <bool> name_is_existing_custom: ViewportModel.material_name_is_existing_custom;
+    property <bool> name_collides_with_builtin: ViewportModel.material_name_collides_with_builtin;
+
+    // Delete must only ever be enabled for a name that actually names an
+    // existing custom material -- gating on "non-blank" alone would let typing
+    // an arbitrary new name and pressing Delete look like a legitimate action
+    // right up until the DB layer reported it removed zero rows.
+    // A name that already names a BUILT-IN material can never be saved (the
+    // Rust layer refuses it outright) -- disabling Save proactively means the
+    // cutter sees why immediately instead of getting an error toast only after
+    // clicking.
+    // `disp_section.save_ok` is false while the Dispersion section holds coefficients the
+    // engine cannot use (an unreadable field, a resonance inside the visible range, an index
+    // below 1); the section itself says why.
+    property <bool> can_save: root.optics_valid && !root.name_is_blank && !root.name_collides_with_builtin
+        && disp_section.save_ok && curves_section.save_ok && structure_section.save_ok
+        && !Zoning.pattern_editor_open;
+
+    // Why Save is not available, in plain words (the tooltip of the dimmed Save buttons).
+    property <string> save_blocked_reason: Zoning.pattern_editor_open ? "Close the Color Pattern window first."
+        : root.name_is_blank ? "Give the material a name first."
+        : (root.name_collides_with_builtin ? "This is the name of a built-in material. Pick another name."
+        : (!root.optics_valid ? root.optics_validation_message
+        : (!curves_section.save_ok ? "The per-axis curves cannot be used yet. The Per-Axis Curves section says why."
+        : (!structure_section.save_ok ? "The Play-of-Color section needs its longest color to be at least its shortest."
+        : "The refractive-index coefficients cannot be used yet. The section above says why."))));
+
+    // Saving over an EXISTING custom name silently overwrites it (the Rust layer
+    // allows it, only distinguishing "Saved" from "Overwrote" in its own success
+    // toast afterward) -- this intercepts both Save buttons with an explicit
+    // "Overwrite?" step first, the same modal idiom already used for
+    // Delete/discard below. `pending_apply` remembers which of the two Save
+    // buttons was pressed (plain Save vs. Save & Apply) so the confirmation's
+    // own `primary` handler can forward the right `apply` flag.
+    property <bool> confirm_overwrite_open: false;
+    property <bool> pending_apply: false;
+
+    function request_save(apply: bool) {
+        if (!root.can_save) {
+            return;
+        }
+        if (root.name_is_existing_custom) {
+            root.pending_apply = apply;
+            root.confirm_overwrite_open = true;
+        } else {
+            root.save_material(
+                root.mat_name,
+                root.ri_val,
+                root.disp_val,
+                root.biref_val,
+                root.selected_color_preset,
+                root.selected_crystal_system_idx,
+                root.selected_optical_character_idx,
+                root.biaxial_delta_beta_alpha_val,
+                root.sg_val,
+                apply
+            );
+        }
+    }
+
+    // A stray click on the backdrop must not silently discard adjustments to all
+    // five sliders/combos. This dialog is recreated fresh every time `if
+    // ViewportModel.material_editor_open: MaterialEditorDialog { ... }`
+    // (`gem_viewport.slint`) turns the condition true again, so "the state the
+    // dialog opened with" is either the literal defaults below, or a pre-filled
+    // custom material's own saved values -- `init` below snapshots whichever one
+    // actually applies into these `baseline_*`
+    // properties, and `is_dirty` compares against THOSE rather than the literal
+    // defaults directly, so opening the editor on an existing custom material and
+    // immediately cancelling never misreports it as dirty.
+    property <string> baseline_mat_name: "Custom Diamond";
+    property <float> baseline_ri_val: 2.417;
+    property <float> baseline_disp_val: 0.0256;
+    property <float> baseline_sg_val: 0.0;
+    property <float> baseline_biref_val: 0.000;
+    property <int> baseline_color_preset: 0;
+    property <int> baseline_template_idx: 0;
+    property <int> baseline_crystal_system_idx: 0;
+    property <int> baseline_optical_character_idx: 0;
+    property <float> baseline_biaxial_delta_beta_alpha_val: 0.0;
+    property <bool> is_dirty: root.mat_name != root.baseline_mat_name
+        || Math.abs(root.ri_val - root.baseline_ri_val) > 0.0001
+        || Math.abs(root.disp_val - root.baseline_disp_val) > 0.0001
+        || Math.abs(root.sg_val - root.baseline_sg_val) > 0.0001
+        || Math.abs(root.biref_val - root.baseline_biref_val) > 0.0001
+        || root.selected_color_preset != root.baseline_color_preset
+        || root.selected_template_idx != root.baseline_template_idx
+        || root.selected_crystal_system_idx != root.baseline_crystal_system_idx
+        || root.selected_optical_character_idx != root.baseline_optical_character_idx
+        || Math.abs(root.biaxial_delta_beta_alpha_val - root.baseline_biaxial_delta_beta_alpha_val) > 0.0001
+        // The physics color mode and recipe (kept in Rust, rebuilt on every open): a recipe
+        // edit or a mode switch dirties the dialog, so closing it asks before discarding.
+        || PhysicscolorModel.dirty
+        // The Dispersion section's mode, model kind and typed coefficients.
+        || disp_section.dirty
+        // The Crystal Axis row's default direction (its state lives in `CrystalAxisEditorModel`).
+        || CrystalAxisEditorModel.dirty
+        // The per-axis curves, the inclusion families and the play-of-color structure.
+        || curves_section.dirty || families_section.dirty || structure_section.dirty;
+    property <bool> discard_confirm_open: false;
+
+    // Pre-fills every optics field from the currently selected
+    // CUSTOM material's own saved values the moment this dialog is created for that
+    // selection -- `ViewportModel.selected_custom_material_*`, kept fresh by
+    // `gui::optics::custom_materials::push_selected_custom_material_fields`
+    // (reading the ORIGINAL database row, not the lossy converted `GemMaterial` --
+    // see that function's own doc comment for why) every time the render-material
+    // selection changes, and once more right before `gem_viewport.slint` opens this
+    // dialog. `selected_custom_material_valid` false (a built-in selection, or a
+    // custom material deleted out from under an open combo) leaves every property at
+    // its literal default above instead -- deliberately never a name-only partial
+    // pre-fill: leaving the optics fields at those defaults while only the name
+    // changed would let Save silently overwrite a real custom material's optics with
+    // wrong values, which two earlier lanes already rejected for the same reason.
+    // `mat_name` reads the render-material combo's own current entry rather than a
+    // ninth `ViewportModel` property, since that combo already names exactly what is
+    // selected.
+    init => {
+        if (ViewportModel.selected_custom_material_valid) {
+            root.mat_name = ViewportModel.material_options[ViewportModel.selected_material_index];
+            root.ri_val = ViewportModel.selected_custom_material_ri;
+            root.disp_val = ViewportModel.selected_custom_material_dispersion;
+            root.sg_val = ViewportModel.selected_custom_material_specific_gravity;
+            root.biref_val = ViewportModel.selected_custom_material_birefringence;
+            root.selected_crystal_system_idx = ViewportModel.selected_custom_material_crystal_system_idx;
+            root.selected_optical_character_idx = ViewportModel.selected_custom_material_optical_character_idx;
+            root.biaxial_delta_beta_alpha_val = ViewportModel.selected_custom_material_biaxial_delta_beta_alpha;
+            // Pre-fills the swatch row from the row's own saved color (0-8 for one
+            // of the nine fixed presets, 9 = "Custom (keep)" when it matches none --
+            // see `ViewportModel.selected_custom_material_color_idx`'s own doc
+            // comment). Without this, `selected_color_preset`'s literal default (0,
+            // "Clear") stayed selected on every reopen regardless of the material's
+            // real saved color, so a plain re-save silently flattened it to
+            // colorless -- the bug this whole property exists to fix.
+            root.selected_color_preset = ViewportModel.selected_custom_material_color_idx;
+            root.baseline_mat_name = root.mat_name;
+            root.baseline_ri_val = root.ri_val;
+            root.baseline_disp_val = root.disp_val;
+            root.baseline_sg_val = root.sg_val;
+            root.baseline_biref_val = root.biref_val;
+            root.baseline_crystal_system_idx = root.selected_crystal_system_idx;
+            root.baseline_optical_character_idx = root.selected_optical_character_idx;
+            root.baseline_biaxial_delta_beta_alpha_val = root.biaxial_delta_beta_alpha_val;
+            root.baseline_color_preset = root.selected_color_preset;
+        }
+        // Every open rebuilds the physics state from the selected material (nothing leaks
+        // from a previous open): mode, recipe, undo stack, locks and picked color.
+        PhysicscolorModel.dialog_opened();
+    }
+
+    // A host choice (or a garnet's end-member mix) proposes RI, dispersion, birefringence, SG
+    // and the crystal classification; the physics state pushes them here as one proposal.
+    property <int> prefill_serial: PhysicscolorModel.prefill_serial;
+    changed prefill_serial => {
+        // The proposal is a refractive index and a dispersion number: the Simple mode.
+        disp_section.reset_to_simple();
+        curves_section.reset_to_simple();
+        root.ri_val = PhysicscolorModel.prefill_ri;
+        root.disp_val = PhysicscolorModel.prefill_dispersion;
+        root.biref_val = PhysicscolorModel.prefill_birefringence;
+        root.sg_val = PhysicscolorModel.prefill_sg;
+        root.selected_crystal_system_idx = PhysicscolorModel.prefill_crystal_system_idx;
+        root.selected_optical_character_idx = PhysicscolorModel.prefill_optical_character_idx;
+        root.biaxial_delta_beta_alpha_val = PhysicscolorModel.prefill_biaxial_delta;
+    }
+    // Picking a template likewise proposes a refractive index and a dispersion number (the
+    // template selector assigns them itself): back to the Simple mode, so they take effect.
+    changed selected_template_idx => {
+        disp_section.reset_to_simple();
+        curves_section.reset_to_simple();
+    }
+    // The fantasy picker's fit selects the matching preset (or "Custom (keep)").
+    property <int> fantasy_serial: PhysicscolorModel.fantasy_serial;
+    changed fantasy_serial => {
+        root.selected_color_preset = PhysicscolorModel.fantasy_idx;
+    }
+
+    function request_close() {
+        if Zoning.pattern_editor_open {
+            return;
+        }
+        if root.is_dirty {
+            root.discard_confirm_open = true;
+        } else {
+            root.close();
+        }
+    }
+
+    in property <[string]> base_templates: [
+        "Custom", "Cubic Zirconia", "Diamond", "Emerald", "Quartz", "Ruby", "Sapphire",
+        "Spinel", "Synthetic Moissanite", "Tanzanite", "Topaz", "Zircon"
+    ];
+    
+    // Every write to this reports the new name to Rust, which answers the two
+    // collision questions above. `changed` rather than the `LineEdit`'s own
+    // `edited` callback so the preset buttons further down, which assign this
+    // directly, are covered too.
+    in-out property <string> mat_name: "Custom Diamond";
+    changed mat_name => { ViewportModel.material_name_edited(self.mat_name); }
+    in-out property <float> ri_val: 2.417;        // Refractive Index (1.30 - 3.20)
+    in-out property <float> disp_val: 0.0256;     // Dispersion, F-C (0.000 - 0.210)
+    // Specific gravity, needed for Est. Carat Weight -- `0.0`
+    // means "not recorded" (this dialog has no preset SG data to seed the "Load
+    // Preset Template" combo above with, so every preset still leaves this blank
+    // rather than guessing a number). Saved through to the `specific_gravity` column
+    // (`crates/pleochroma-vault`) via `ViewportModel.save_custom_material`'s tenth
+    // argument and `gui::optics::custom_materials`, and read back for the carat
+    // estimate via `crates/pleochroma-cut-core`'s `MaterialLookup::specific_gravity`.
+    in-out property <float> sg_val: 0.0;          // Specific Gravity (0 = not recorded)
+    in-out property <float> biref_val: 0.000;     // Birefringence (-0.050 - +0.100)
+    in-out property <int> selected_color_preset: 0; // 0=Clear, 1=Blue, 2=Red, 3=Green, 4=Violet, 5=Yellow, 6=Pink, 7=Teal, 8=Amber, 9=Custom (keep)
+    in-out property <int> selected_template_idx: 0;
+
+    // Crystal-optically complete custom materials: these three mirror
+    // `pleochroma::optics::materials::CrystalSystem`/`OpticalCharacter`/
+    // `GemMaterial::biaxial_delta_beta_alpha` -- see `gui::crystal_optics` (the Rust
+    // side of this boundary) for the index<->enum mapping these combo indices feed.
+    // Defaults (0, 0) are Cubic/Isotropic, matching what `GemMaterial::new_custom`
+    // itself infers for the dialog's own default (birefringence 0.000, "Custom
+    // Diamond") -- so a user who never touches either combo gets exactly today's
+    // inferred behaviour, unchanged.
+    in-out property <int> selected_crystal_system_idx: 0;
+    in-out property <int> selected_optical_character_idx: 0;
+    // n_beta - n_alpha at the sodium D line -- only meaningful (and only shown) when
+    // `selected_optical_character_idx` is one of the two biaxial options (index 3/4).
+    // Bounds (0.0..birefringence) below keep it physically valid (n_alpha <= n_beta
+    // <= n_gamma) by construction rather than by a separate rejected-on-save check.
+    in-out property <float> biaxial_delta_beta_alpha_val: 0.0;
+
+    property <bool> is_biaxial: root.selected_optical_character_idx >= 3;
+
+    // A setting that Simple mode hides is off its default: a birefringence, a crystal system or
+    // an optical character other than the Cubic / Isotropic the dialog opens with. (The
+    // coefficients mode is not counted: while it is in use it stays visible.)
+    property <bool> advanced_in_use: Math.abs(root.biref_val) > 0.0001
+        || root.selected_crystal_system_idx != 0
+        || root.selected_optical_character_idx != 0;
+
+    // Physical validity of the character/birefringence combination: this dialog
+    // REJECTS a contradictory combination by disabling Save rather than silently
+    // deriving a sign or silently saving it.
+    // Isotropic needs zero birefringence; a uniaxial character's sign must match
+    // `biref_val`'s own sign exactly the way `GemMaterial::new_custom`'s own inference
+    // already ties them together; a biaxial character needs a positive birefringence
+    // (this crate's convention: `birefringence_delta` = n_gamma - n_alpha, which is
+    // never negative by definition -- see the built-in Alexandrite/Topaz/Tanzanite
+    // entries in `materials.rs`, all positive) with `biaxial_delta_beta_alpha_val`
+    // between 0 and it (n_alpha <= n_beta <= n_gamma). Note there is no further
+    // constraint distinguishing Biaxial(+) from Biaxial(-): unlike the uniaxial case,
+    // that sign is a genuinely independent mineralogical property (the acute
+    // bisectrix), not derivable from birefringence and delta-beta-alpha alone -- the
+    // three real biaxial built-ins (Alexandrite/Topaz/Tanzanite) are all
+    // BiaxialPositive despite differing delta-beta-alpha/birefringence ratios, which
+    // is exactly what rules out deriving the sign from those two numbers.
+    property <bool> optics_valid:
+        root.selected_optical_character_idx == 0 ? Math.abs(root.biref_val) < 0.0001 :
+        root.selected_optical_character_idx == 1 ? root.biref_val > 0.0001 :
+        root.selected_optical_character_idx == 2 ? root.biref_val < -0.0001 :
+        (root.biref_val > 0.0001
+            && root.biaxial_delta_beta_alpha_val >= 0.0
+            && root.biaxial_delta_beta_alpha_val <= root.biref_val);
+
+    property <string> optics_validation_message:
+        root.optics_valid ? "" :
+        root.selected_optical_character_idx == 0 ? "Isotropic requires zero birefringence (\u{394}n = 0)." :
+        root.selected_optical_character_idx == 1 ? "Uniaxial (+) requires positive birefringence (\u{394}n > 0)." :
+        root.selected_optical_character_idx == 2 ? "Uniaxial (\u{2212}) requires negative birefringence (\u{394}n < 0)." :
+        root.biref_val <= 0.0001 ? "Biaxial requires positive birefringence (\u{394}n > 0)." :
+        "n\u{03b2} \u{2212} n\u{03b1} must be between 0 and the birefringence.";
+
+    callback close();
+    close => { ViewportModel.material_editor_open = false; }
+    // name, ri, dispersion, birefringence, color_idx, crystal_system_idx,
+    // optical_character_idx, biaxial_delta_beta_alpha, apply_to_live_render --
+    // The last argument gates whether the save also switches the live
+    // render's material (`custom_materials.rs`'s `ctx.material_name`/`ctx.dirty`),
+    // so a cutter preparing several custom materials in a row can save each one
+    // without re-rendering the viewport with it.
+    // `sg` (specific gravity from the slider above, `0.0` = not recorded) is
+    // collected here and threaded straight through to `ViewportModel.
+    // save_custom_material`, which carries it as its own tenth argument --
+    // `gui::optics::custom_materials`'s handler persists it via `crystal_optics::
+    // save_gem_material`, so a typed SG is never silently dropped.
+    callback save_material(string, float, float, float, int, int, int, float, float, bool);
+    save_material(name, ri, disp, biref, color_idx, crystal_system_idx, optical_character_idx, biaxial_delta_beta_alpha, sg, apply) => {
+        // The Dispersion section's coefficient model ("" in the Simple mode) rides beside the
+        // call (`ViewportModel.save_custom_material` keeps its signature); Rust reads and clears
+        // it, and a model replaces `ri` and `disp` with its own n_d and n_F - n_C.
+        DispersionEditorModel.save_json = disp_section.model_json;
+        ViewportModel.save_custom_material(
+            name, ri, disp, biref, color_idx, crystal_system_idx, optical_character_idx, biaxial_delta_beta_alpha, sg, apply,
+            PhysicscolorModel.mode_json
+        );
+        ViewportModel.material_editor_open = false;
+    }
+    callback delete_material(string);
+    delete_material(name) => {
+        ViewportModel.delete_custom_material(name);
+        ViewportModel.material_editor_open = false;
+    }
+
+    // Full viewport modal backdrop
+    background: Theme.overlay-backdrop;
+
+    TouchArea {
+        clicked => { root.request_close(); }
+    }
+
+    // Escape = ask-then-cancel, same `init => { self.focus(); }` + `key-pressed`
+    // idiom `new_design_dialog.slint`/`ui/app.slint`'s `global_shortcuts` use.
+    // Return = the primary action
+    // (plain Save, `request_save(false)` -- already a no-op via `can_save`'s own
+    // guard when the form is invalid, so this needs no separate check here). Safe
+    // to bind unconditionally regardless of which field has focus: every field in
+    // this dialog is a single-line numeric/text input or a combo/slider, never a
+    // multi-line `TextEdit` that would want Return to insert a newline instead.
+    //
+    // `accept` (not `reject`) for every other key -- otherwise
+    // an unhandled key bubbles past this dialog to `global_shortcuts` and fires a
+    // shortcut (Ctrl+S, etc.) on the design underneath it.
+    key_scope := FocusScope {
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.request_close();
+                return accept;
+            }
+            if event.text == Key.Return {
+                root.request_save(false);
+                return accept;
+            }
+            // Ctrl-Z / Ctrl-Y (Ctrl-Shift-Z): the dialog's own recipe undo stack (50 entries),
+            // active only while the physics section is shown; the design's undo underneath is
+            // not reachable here.
+            if (event.modifiers.control || event.modifiers.meta) && PhysicscolorModel.show_physics_section {
+                if event.text == "z" && !event.modifiers.shift {
+                    PhysicscolorModel.undo();
+                    return accept;
+                }
+                if event.text == "y" || (event.text == "z" && event.modifiers.shift) {
+                    PhysicscolorModel.redo();
+                    return accept;
+                }
+            }
+            // Tab and Shift+Tab keep walking the controls.
+            if event.text == Key.Tab || event.text == Key.Backtab {
+                return reject;
+            }
+            accept
+        }
+
+        // Modal Card Container
+        Rectangle {
+            width: 440px;
+            // Content-driven height: without this, `Rectangle`'s default sizing ("expand to
+            // fill the parent" when width/height aren't both set explicitly) makes this card
+            // inherit the full-viewport backdrop's height -- i.e. it stretches to the bottom
+            // of the window instead of sizing to its content. Same idiom, and same reason, as
+            // `import_dialog.slint` and the export dialog. Capped at the backdrop's
+            // height less a 20px margin top and bottom; the body ScrollView takes the
+            // overflow so the header and the action buttons stay reachable.
+            height: min(content.preferred-height, root.height - 40px);
+            background: Theme.surface-dialog;
+            border-radius: Theme.radius-md;
+            border-width: 1px;
+            border-color: Theme.border-dialog;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: Theme.modal-shadow;
+            clip: true;
+
+            // Isolate clicks inside modal
+            TouchArea {}
+
+            content := VerticalLayout {
+                padding: 16px;
+                spacing: 14px;
+
+                // 1. Header Bar
+                HorizontalLayout {
+                    alignment: space-between;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        // Centred by a layout of its own: a fixed-size Image in the row sits at
+                        // the top of its cell.
+                        VerticalLayout {
+                            alignment: center;
+                            Image { source: @image-url("../icons/gem.svg"); colorize: Theme.text-primary; width: 16px; height: 16px; }
+                        }
+                        Text {
+                            text: "Gem Material Editor";
+                            font-size: 14px;
+                            font-weight: 700;
+                            color: Theme.text-primary;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 6px;
+                        VerticalLayout {
+                            alignment: center;
+                            HelpButton { topic: HelpTopics.material-editor; hint: "Open the manual page on custom materials"; }
+                        }
+                        IconButton {
+                            icon: @image-url("../icons/close.svg");
+                            hint: "Close the material editor. It asks first if there are unsaved edits.";
+                            tint: Theme.text-muted;
+                            hover_fill: Theme.surface-control-hover;
+                            clicked => { root.request_close(); }
+                        }
+                    }
+                }
+
+                Rectangle { height: 1px; background: Theme.surface-raised; }
+
+                // Scrollable body between the fixed header and the fixed action
+                // buttons: the card's `height` is capped at the backdrop's, and whatever
+                // does not fit scrolls here so Save / Cancel / Delete stay reachable on
+                // a short viewport. `preferred-height` is stated from the inner layout so
+                // the card still sizes to its content when there is room.
+                body := ScrollView {
+                    vertical-stretch: 1;
+                    content-width: self.visible-width;
+                    preferred-height: body_col.preferred-height;
+
+                    body_col := VerticalLayout {
+                        spacing: 14px;
+                        padding-right: 12px;
+
+                // 2. Base Template Selector & Name Input -- see
+                // `MaterialTemplateSelector`'s own doc comment
+                // (`material_editor/template_selector.slint`) for why this is split
+                // out.
+                MaterialTemplateSelector {
+                    base_templates: root.base_templates;
+                    selected_template_idx <=> root.selected_template_idx;
+                    mat_name <=> root.mat_name;
+                    ri_val <=> root.ri_val;
+                    disp_val <=> root.disp_val;
+                    biref_val <=> root.biref_val;
+                    selected_color_preset <=> root.selected_color_preset;
+                    selected_crystal_system_idx <=> root.selected_crystal_system_idx;
+                    selected_optical_character_idx <=> root.selected_optical_character_idx;
+                    biaxial_delta_beta_alpha_val <=> root.biaxial_delta_beta_alpha_val;
+                }
+
+                // 3/4/SG/5. Refractive Index, Dispersion, Specific Gravity and
+                // Birefringence sliders -- see `MaterialOpticsSliders`'s own doc
+                // comment (`material_editor/optics_sliders.slint`) for why this is
+                // split out.
+                // 3a. The refractive-index curve: the sliders below (Simple) or Sellmeier/Cauchy
+                // coefficients with a live readout and plot -- see `MaterialDispersionCoefficients`'s
+                // own doc comment (`material_editor/dispersion_coefficients.slint`). Its Simple
+                // mode shares `ri_val` / `disp_val` with the sliders; its Coefficients mode hides
+                // those two sliders.
+                disp_section := MaterialDispersionCoefficients {
+                    ri_val <=> root.ri_val;
+                    disp_val <=> root.disp_val;
+                }
+
+                MaterialOpticsSliders {
+                    ri_val <=> root.ri_val;
+                    disp_val <=> root.disp_val;
+                    sg_val <=> root.sg_val;
+                    biref_val <=> root.biref_val;
+                    show_dispersion_sliders: disp_section.mode == 0;
+                }
+
+                // 5b. Crystal Classification, biaxial n-beta-n-alpha, and the
+                // optics-validity/built-in-collision warnings -- see
+                // `MaterialCrystalClassification`'s own doc comment
+                // (`material_editor/crystal_classification.slint`) for why this is
+                // split out.
+                MaterialCrystalClassification {
+                    selected_crystal_system_idx <=> root.selected_crystal_system_idx;
+                    selected_optical_character_idx <=> root.selected_optical_character_idx;
+                    biaxial_delta_beta_alpha_val <=> root.biaxial_delta_beta_alpha_val;
+                    biref_val: root.biref_val;
+                    is_biaxial: root.is_biaxial;
+                    optics_valid: root.optics_valid;
+                    optics_validation_message: root.optics_validation_message;
+                    name_collides_with_builtin: root.name_collides_with_builtin;
+                    mat_name: root.mat_name;
+                    locked_by_host: PhysicscolorModel.optics_locked;
+                }
+
+                // 5b2. The default Crystal Axis of the material (and the Second Axis of a biaxial
+                // one); an isotropic material has none -- see `MaterialCrystalAxisRow`.
+                if root.selected_optical_character_idx != 0: MaterialCrystalAxisRow {
+                    is_biaxial: root.is_biaxial;
+                }
+
+                // 5b3. Render physics of a custom material: the curve of each ray, the families of
+                // oriented inclusions and the play-of-color structure. Their state lives in
+                // `AxisCurvesModel`, `InclusionFamiliesModel` and `StructureParamsModel`, which Rust
+                // reads when Save runs.
+                curves_section := MaterialAxisCurves {
+                    character_idx: root.selected_optical_character_idx;
+                    ri_val: root.ri_val;
+                    disp_val: root.disp_val;
+                    biref_val: root.biref_val;
+                    delta_val: root.biaxial_delta_beta_alpha_val;
+                }
+                families_section := MaterialInclusionFamilies {
+                    character_idx: root.selected_optical_character_idx;
+                }
+                structure_section := MaterialStructureParams {}
+
+                // Simple mode hides the birefringence, crystal system and optical character; say
+                // so when one of them holds something other than the default.
+                if !GuideModel.shows_advanced() && root.advanced_in_use: AdvancedNote {}
+
+                // 5c. The Color Pattern section: the pattern of a zoned material (or the zones of
+                // an adopted rough color) and the buttons that open the pattern editor. Editing
+                // the body color below changes the BASE zone and nothing else.
+                if Zoning.pattern_state != 4: ColorPatternSection {}
+
+                // 6. Color area: Fantasy or Physics -- see `MaterialColorSection`
+                // (`material_editor/color_section.slint`).
+                MaterialColorSection {
+                    selected_color_preset <=> root.selected_color_preset;
+                    optical_character_idx: root.selected_optical_character_idx;
+                }
+
+                // 7. Color Variants: the named colors of a material (built in and saved) --
+                // see `MaterialColorVariantsSection` (`material_editor/color_variants_section.slint`).
+                MaterialColorVariantsSection {}
+                    } // end body_col
+                } // end body := ScrollView
+
+                Rectangle { height: 1px; background: Theme.surface-raised; }
+
+                // 7. Action Buttons Bar
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    // Delete Button -- opens the confirmation overlay below rather than
+                    // deleting immediately (see `confirm_delete_open`'s own doc comment). Only
+                    // enabled for a name that actually names an existing custom material --
+                    // see `name_is_existing_custom`'s own doc comment.
+                    ActionButton {
+                        width: 84px;
+                        height: 32px;
+                        text: "Delete";
+                        hint: root.name_is_existing_custom ? "Delete this custom material for good. You are asked to confirm first." : "Only a saved custom material can be deleted. This name is not one.";
+                        icon: @image-url("../icons/trash.svg");
+                        fill: Theme.danger-surface;
+                        hover_fill: Theme.danger-surface-hover;
+                        ink: Theme.danger;
+                        edge: Theme.danger-border;
+                        enabled: root.name_is_existing_custom && !Zoning.pattern_editor_open;
+                        clicked => { root.confirm_delete_open = true; }
+                    }
+
+                    // Cancel Button
+                    ActionButton {
+                        width: 76px;
+                        height: 32px;
+                        text: "Cancel";
+                        hint: "Close the editor. It asks first if there are unsaved edits.";
+                        ink: Theme.text-secondary;
+                        enabled: !Zoning.pattern_editor_open;
+                        clicked => { root.request_close(); }
+                    }
+
+                    // Save Button: saves/overwrites the custom material in the
+                    // database and the in-memory material list WITHOUT touching the live
+                    // render's selected material -- lets a cutter prepare several custom
+                    // materials in a row without re-rendering the viewport with each one.
+                    // Disabled (and visibly dimmed) while `!root.can_save`: either a
+                    // contradictory optical-character/birefringence combination (see
+                    // `optics_valid`'s own doc comment) or a blank name.
+                    ActionButton {
+                        horizontal-stretch: 1;
+                        height: 32px;
+                        text: "Save";
+                        hint: root.can_save ? "Save this material without changing the material in the live render." : root.save_blocked_reason;
+                        font_size: 12px;
+                        weight: 700;
+                        enabled: root.can_save;
+                        clicked => { root.request_save(false); }
+                    }
+
+                    // Save & Apply Button: saves, then also switches the live render's
+                    // material (see `save_material`'s own doc comment above). Same
+                    // enablement rule as the plain Save button. Routed through
+                    // `request_save`, which interposes an "Overwrite?" confirmation when
+                    // `mat_name` already names an existing custom material.
+                    ActionButton {
+                        horizontal-stretch: 1;
+                        height: 32px;
+                        text: "Save & Apply";
+                        hint: root.can_save ? "Save this material and use it in the live render." : root.save_blocked_reason;
+                        icon: @image-url("../icons/check.svg");
+                        fill: Theme.accent-cyan;
+                        hover_fill: Theme.accent-cyan-hover;
+                        ink: Theme.text-on-accent;
+                        edge: Theme.accent-cyan;
+                        font_size: 12px;
+                        weight: 700;
+                        enabled: root.can_save;
+                        clicked => { root.request_save(true); }
+                    }
+                }
+            }
+        }
+    }
+
+    // Delete confirmation -- a full-viewport overlay ON TOP of the card above (same
+    // stacking idiom as the modal card itself), since one click here permanently
+    // removes the row from the database.
+    if root.confirm_delete_open: ConfirmActionDialog {
+        heading: "Delete Material";
+        message: "Permanently delete the custom material \"" + root.mat_name
+            + "\"? This cannot be undone. Any design currently selecting it will fall back to a built-in material of the same name, or Diamond.";
+        primary_label: "Delete";
+        secondary_label: "";
+        primary_hint: "Delete the custom material for good.";
+        primary => {
+            // `delete_material`'s own handler (above) already sets
+            // `ViewportModel.material_editor_open = false` -- see the matching
+            // comment on the Save button's handler for why the extra `root.close()`
+            // this replaced was redundant, not merely harmless.
+            root.delete_material(root.mat_name);
+            root.confirm_delete_open = false;
+        }
+        cancel => { root.confirm_delete_open = false; }
+    }
+
+    // Confirms before overwriting an EXISTING custom material -- see
+    // `request_save`'s own doc comment for when this opens instead of saving
+    // straight away.
+    if root.confirm_overwrite_open: ConfirmActionDialog {
+        heading: "Overwrite Material";
+        message: "A custom material named \"" + root.mat_name
+            + "\" already exists. Overwrite it with these values? Any design currently using it will pick up the change.";
+        primary_label: "Overwrite";
+        secondary_label: "";
+        primary_hint: "Replace the saved material with these values.";
+        primary => {
+            root.confirm_overwrite_open = false;
+            root.save_material(
+                root.mat_name,
+                root.ri_val,
+                root.disp_val,
+                root.biref_val,
+                root.selected_color_preset,
+                root.selected_crystal_system_idx,
+                root.selected_optical_character_idx,
+                root.biaxial_delta_beta_alpha_val,
+                root.sg_val,
+                root.pending_apply
+            );
+        }
+        cancel => { root.confirm_overwrite_open = false; }
+    }
+
+    if root.discard_confirm_open: ConfirmActionDialog {
+        heading: "Discard Changes?";
+        message: "This custom material has unsaved edits. Discard them?";
+        primary_label: "";
+        secondary_label: "Discard";
+        secondary_hint: "Close the editor and throw the edits away.";
+        cancel => { root.discard_confirm_open = false; }
+        secondary => {
+            root.discard_confirm_open = false;
+            root.close();
+        }
+    }
+}

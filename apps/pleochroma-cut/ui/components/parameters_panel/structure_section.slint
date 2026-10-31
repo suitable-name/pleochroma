@@ -1,0 +1,198 @@
+import { Theme } from "../../theme.slint";
+import { RenderEffectsModel } from "../../models/render_effects.slint";
+import { PillButton, SegmentPill } from "../pill_button.slint";
+import { SettingLabel } from "../settings_dialog/setting_label.slint";
+import { ToggleRow } from "../toggle_switch.slint";
+import { GroupHeader, SliderRow } from "parts.slint";
+
+// The Stone tab's Play-of-Color group (named Schiller for labradorite): the flashes of color that
+// precious opal and labradorite show as the stone or the light moves. It appears only for a
+// material that has this structure. The Pattern sets how big the patches of color are (Pinfire,
+// Harlequin, Broad Flash), Size overrides the patch size, Color Range is the span of colors the
+// patches reflect, Purity how pure each color is and Coverage how much of the stone flashes. The
+// Seed fixes which patches flash; Reseed draws a new arrangement. Every choice is saved in the
+// design as one undoable step.
+//
+// `saved_note` is the closing sentence of the tooltips (where the value lives); `ray_traced` is
+// true while the view is the Ray-Traced one, which does not draw it.
+export component StructureSection inherits VerticalLayout {
+    in property <string> saved_note;
+    in property <bool> ray_traced: false;
+
+    spacing: 10px;
+
+    if RenderEffectsModel.structure_available: VerticalLayout {
+        spacing: 8px;
+
+        GroupHeader { text: RenderEffectsModel.structure_title; }
+
+        ToggleRow {
+            text: "Show " + RenderEffectsModel.structure_title;
+            hint: "Draw the flashes of color this stone shows as it\nor the light moves. Off keeps the plain stone." + root.saved_note;
+            checked: RenderEffectsModel.structure_on;
+            toggled => {
+                RenderEffectsModel.structure_on = !RenderEffectsModel.structure_on;
+                RenderEffectsModel.structure_edited();
+            }
+        }
+
+        if RenderEffectsModel.structure_on: VerticalLayout {
+            spacing: 8px;
+
+            VerticalLayout {
+                spacing: 3px;
+                SettingLabel {
+                    text: "Pattern";
+                    hint: "Pattern: how big the patches of color are. Pinfire is many tiny\npoints, Harlequin medium patches, Broad Flash a few large flashes." + root.saved_note;
+                }
+                HorizontalLayout {
+                    spacing: 4px;
+                    SegmentPill {
+                        text: "Pinfire";
+                        hint: "Many tiny points of color.";
+                        selected: RenderEffectsModel.structure_pattern == 0;
+                        picked => {
+                            RenderEffectsModel.structure_pattern = 0;
+                            RenderEffectsModel.structure_edited();
+                        }
+                    }
+                    SegmentPill {
+                        text: "Harlequin";
+                        hint: "Medium patches of color.";
+                        selected: RenderEffectsModel.structure_pattern == 1;
+                        picked => {
+                            RenderEffectsModel.structure_pattern = 1;
+                            RenderEffectsModel.structure_edited();
+                        }
+                    }
+                    SegmentPill {
+                        text: "Broad Flash";
+                        hint: "A few large flashes of color.";
+                        selected: RenderEffectsModel.structure_pattern == 2;
+                        picked => {
+                            RenderEffectsModel.structure_pattern = 2;
+                            RenderEffectsModel.structure_edited();
+                        }
+                    }
+                }
+            }
+
+            ToggleRow {
+                text: "Set Patch Size";
+                hint: "Size: set the width of one patch yourself instead of the pattern's own." + root.saved_note;
+                checked: !RenderEffectsModel.structure_size_auto;
+                toggled => {
+                    RenderEffectsModel.structure_size_auto = !RenderEffectsModel.structure_size_auto;
+                    RenderEffectsModel.structure_edited();
+                }
+            }
+
+            if !RenderEffectsModel.structure_size_auto: SliderRow {
+                text: "Size";
+                hint: "Size: the width of one patch of color, in\nmodel units (the stone is about 1 across)." + root.saved_note;
+                value_text: Math.round(RenderEffectsModel.structure_size * 100.0) / 100.0 + "";
+                minimum: 0.01;
+                maximum: 1.0;
+                value <=> RenderEffectsModel.structure_size;
+                edited(val) => { RenderEffectsModel.structure_edited(); }
+            }
+
+            SliderRow {
+                text: "Color Range, Low End";
+                hint: "Color Range: the shortest wavelength the patches reflect when seen\nstraight on, in nanometres. Around 450 is blue, 550 green, 650 red." + root.saved_note;
+                value_text: Math.round(RenderEffectsModel.structure_low_nm) + " nm";
+                minimum: 350.0;
+                maximum: 900.0;
+                step: 5.0;
+                value <=> RenderEffectsModel.structure_low_nm;
+                edited(val) => { RenderEffectsModel.structure_edited(); }
+            }
+
+            SliderRow {
+                text: "Color Range, High End";
+                hint: "Color Range: the longest wavelength the patches reflect when seen\nstraight on, in nanometres. The low end is never above this one." + root.saved_note;
+                value_text: Math.round(RenderEffectsModel.structure_high_nm) + " nm";
+                minimum: 350.0;
+                maximum: 900.0;
+                step: 5.0;
+                value <=> RenderEffectsModel.structure_high_nm;
+                edited(val) => { RenderEffectsModel.structure_edited(); }
+            }
+
+            SliderRow {
+                text: "Purity";
+                hint: "Purity: how pure each flash of color is. Low is a\nbroad, washed color; high is a narrow, saturated\none (here a small number is the purer color)." + root.saved_note;
+                value_text: Math.round(RenderEffectsModel.structure_purity * 1000.0) / 1000.0 + "";
+                minimum: 0.01;
+                maximum: 0.3;
+                value <=> RenderEffectsModel.structure_purity;
+                edited(val) => { RenderEffectsModel.structure_edited(); }
+            }
+
+            SliderRow {
+                text: "Coverage";
+                hint: "Coverage: the share of the stone that flashes, from 0 (none) to 1 (everywhere)." + root.saved_note;
+                value_text: Math.round(RenderEffectsModel.structure_coverage * 100.0) + "%";
+                minimum: 0.0;
+                maximum: 1.0;
+                value <=> RenderEffectsModel.structure_coverage;
+                edited(val) => { RenderEffectsModel.structure_edited(); }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: "Seed " + RenderEffectsModel.structure_seed;
+                    font-size: 11px;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                    accessible-role: AccessibleRole.text;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                PillButton {
+                    width: 90px;
+                    text: "Reseed";
+                    hint: "Draw a new arrangement of the patches. Same\nsettings, different places. One step you can undo." + root.saved_note;
+                    clicked => { RenderEffectsModel.structure_reseed(); }
+                }
+            }
+
+            if root.ray_traced: Text {
+                text: "Ray-Traced ignores " + RenderEffectsModel.structure_title + ". Switch to Path-Traced to see it.";
+                font-size: 10px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+                accessible-role: AccessibleRole.text;
+            }
+        }
+    }
+
+    // A custom material's own play-of-color: shown, never edited here.
+    if RenderEffectsModel.structure_own && !RenderEffectsModel.structure_available: VerticalLayout {
+        spacing: 3px;
+
+        GroupHeader { text: "Play-of-Color"; }
+        Text {
+            text: RenderEffectsModel.structure_own_text;
+            font-size: 11px;
+            font-weight: 600;
+            color: Theme.text-secondary;
+            wrap: word-wrap;
+            accessible-role: AccessibleRole.text;
+        }
+        Text {
+            text: "It is part of the material and is edited in the Material Editor.";
+            font-size: 10px;
+            color: Theme.text-muted;
+            wrap: word-wrap;
+            accessible-role: AccessibleRole.text;
+        }
+        if root.ray_traced: Text {
+            text: "Ray-Traced ignores Play-of-Color. Switch to Path-Traced to see it.";
+            font-size: 10px;
+            color: Theme.text-muted;
+            wrap: word-wrap;
+            accessible-role: AccessibleRole.text;
+        }
+    }
+}

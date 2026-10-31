@@ -1,0 +1,133 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { CompareModel } from "../../models/compare.slint";
+import { RetargetModel } from "../../models/retarget.slint";
+import { HelpTopics } from "../../models/help.slint";
+import { HelpButton } from "../help_button.slint";
+import { IconButton } from "../icon_button.slint";
+import { ActionButton } from "../chip_toggle.slint";
+import { ColumnHeading } from "parts.slint";
+
+// "Compare to Baseline" -- reuses the Retarget dialog's modal shell rather than a second
+// dialog component, and the proposal table's row shape rather than a new struct:
+// `compare_rows` is a `[RetargetRowItem]` like `rows`, with
+// `block` blank, `margin` repurposed to the signed mast delta, and
+// `risk_label`/`risk_color` repurposed as a plain Same/Changed/Added/
+// Removed status badge instead of a windowing risk (see
+// `callbacks::retarget_actions::diff_rows_from_deltas`'s own doc
+// comment for exactly why each field means what it does here).
+export component BaselineComparePanel inherits VerticalLayout {
+    padding: 16px;
+    spacing: 12px;
+
+    HorizontalLayout {
+        alignment: space-between;
+        HorizontalLayout {
+            spacing: 8px;
+            // Centred by a layout of its own: a fixed-size Image in the row sits at
+            // the top of its cell.
+            VerticalLayout {
+                alignment: center;
+                Image { source: @image-url("../../icons/gem.svg"); colorize: Theme.text-primary; width: 15px; height: 15px; }
+            }
+            Text { text: "Compare to Baseline"; font-size: 14px; font-weight: 700; color: Theme.text-primary; vertical-alignment: center; }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            VerticalLayout {
+                alignment: center;
+                HelpButton { topic: HelpTopics.compare; hint: "Open the manual page on comparing a design with its Baseline"; }
+            }
+            IconButton {
+                icon: @image-url("../../icons/close.svg");
+                hint: "Close the Baseline comparison";
+                tint: Theme.text-muted;
+                hover_fill: Theme.surface-control-hover;
+                clicked => { RetargetModel.compare_close(); }
+            }
+        }
+    }
+
+    Rectangle { height: 1px; background: Theme.surface-raised; }
+
+    Text {
+        text: RetargetModel.compare_label;
+        font-size: 11px;
+        color: Theme.text-secondary;
+        wrap: word-wrap;
+    }
+
+    // The number columns are wide enough for the longest values with a gutter on the
+    // right, so "Mast \u{394}" and "Status" no longer sit against the card's edge while the
+    // Tier column holds 120 px of slack; the row layout below uses the same widths.
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 16px;
+        spacing: 8px;
+        ColumnHeading { horizontal-stretch: 1; text: "Tier"; align: TextHorizontalAlignment.left; hint: "The facet, named as on the cutting diagram."; }
+        ColumnHeading { width: 72px; text: "Before"; hint: "The facet's angle in the Baseline."; }
+        ColumnHeading { width: 72px; text: "After"; hint: "The facet's angle in the design now."; }
+        ColumnHeading { width: 84px; text: "Mast \u{394}"; hint: "How much the mast reading changed. The mast is the distance of this facet from the stone's centre; it sets the depth."; }
+        ColumnHeading { width: 84px; text: "Status"; hint: "Same, Changed, Added or Removed since the Baseline."; }
+    }
+
+    ScrollView {
+        vertical-stretch: 1;
+        VerticalLayout {
+            spacing: 2px;
+            for row in RetargetModel.compare_rows: Rectangle {
+                height: 24px;
+                border-radius: Theme.radius-sm;
+                background: Theme.surface-sunken;
+
+                accessible-role: AccessibleRole.list-item;
+                accessible-label: row.name + ": " + row.old_angle + " before, " + row.new_angle + " after, mast change " + row.margin + ", " + row.risk_label;
+
+                Tooltip { text: @markdown("Tier #\{row.tier_index} \"\{row.name}\""); }
+
+                HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 16px;
+                    spacing: 8px;
+                    Text { text: row.name; font-size: 11px; color: Theme.text-primary; horizontal-stretch: 1; vertical-alignment: center; overflow: elide; }
+                    Text { text: row.old_angle; font-size: 11px; color: Theme.text-secondary; width: 72px; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: row.new_angle; font-size: 11px; font-weight: 700; color: Theme.accent-cyan; width: 72px; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: row.margin; font-size: 11px; color: Theme.text-secondary; width: 84px; horizontal-alignment: right; vertical-alignment: center; }
+                    Text { text: row.risk_label; font-size: 11px; font-weight: 700; color: row.risk_color; width: 84px; horizontal-alignment: right; vertical-alignment: center; }
+                }
+            }
+        }
+    }
+
+    Rectangle { height: 1px; background: Theme.surface-raised; }
+
+    HorizontalLayout {
+        spacing: 8px;
+
+        // The same snapshot-vs-current comparison, but as rendered stones
+        // in the visual compare window (`gui::editor::compare`) -- view only.
+        ActionButton {
+            horizontal-stretch: 1;
+            height: 32px;
+            text: "Compare Visually…";
+            hint: "Open the Baseline and the design as two rendered stones, side by side. This only looks; nothing changes.";
+            fill: Theme.surface-control;
+            hover_fill: Theme.surface-control-hover;
+            font_size: 12px;
+            weight: 700;
+            clicked => { CompareModel.open_snapshot(); }
+        }
+
+        ActionButton {
+            horizontal-stretch: 1;
+            height: 32px;
+            text: "Close";
+            hint: "Close the Baseline comparison.";
+            fill: Theme.surface-control;
+            hover_fill: Theme.surface-control-hover;
+            font_size: 12px;
+            weight: 700;
+            clicked => { RetargetModel.compare_close(); }
+        }
+    }
+}

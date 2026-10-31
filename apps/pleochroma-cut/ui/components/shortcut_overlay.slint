@@ -1,0 +1,139 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { ShortcutsModel } from "../models/shortcuts.slint";
+import { HelpTopics } from "../models/help.slint";
+import { HelpButton } from "help_button.slint";
+import { IconButton } from "icon_button.slint";
+import { CompactButton } from "compact_controls.slint";
+
+// The in-app "Keyboard
+// Shortcuts" overlay -- opened from Help > Keyboard Shortcuts and from `?`
+// (`ui/app.slint`'s `global_shortcuts`, guarded there the same way every other
+// letter shortcut is: only while no text field has focus). Renders
+// `ShortcutsModel.shortcuts`, the exact same `gui::editor::shortcuts::SHORTCUTS`
+// table `docs/manual/appendix-b-keyboard-shortcuts.md`'s generated blocks come
+// from -- see that module's own doc comment. Rows of one group are adjacent in the
+// model, and a heading is drawn wherever the group changes, so a new group in the
+// table needs no change here.
+export component ShortcutOverlay inherits Rectangle {
+    background: Theme.overlay-backdrop;
+
+    TouchArea {
+        clicked => { ShortcutsModel.close(); }
+    }
+
+    Rectangle {
+        // Sized from, and centred in, the overlay's own area (the whole window, or the window
+        // less the guide gutters): no fixed position.
+        width: min(480px, parent.width - 40px);
+        height: min(560px, parent.height - 40px);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: Theme.surface-dialog;
+        border-radius: Theme.radius-md;
+        border-width: 1px;
+        border-color: Theme.border-dialog;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: Theme.modal-shadow;
+        clip: true;
+
+        TouchArea {} // Isolates clicks inside the dialog from the backdrop above.
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 8px;
+
+            HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    horizontal-stretch: 1;
+                    text: "Keyboard Shortcuts";
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    CompactButton {
+                        width: 110px;
+                        text: "Copy as Markdown";
+                        hint: "Copy the full shortcut table (every section) to the clipboard as Markdown tables.";
+                        ink: Theme.text-secondary;
+                        clicked => { ShortcutsModel.copy_markdown(); }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    HelpButton { topic: HelpTopics.shortcuts; hint: "Open the manual page on the keyboard shortcuts"; }
+                }
+                IconButton {
+                    icon: @image-url("../icons/close.svg");
+                    hint: "Close the keyboard shortcuts";
+                    tint: Theme.text-muted;
+                    clicked => { ShortcutsModel.close(); }
+                }
+            }
+
+            ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    spacing: 12px;
+                    // Scrollbar gutter: the bar must not sit over the descriptions.
+                    padding-right: 16px;
+
+                    for item[i] in ShortcutsModel.shortcuts: VerticalLayout {
+                        spacing: 10px;
+
+                        // A new group starts here: a divider (except above the first group)
+                        // and the group's heading.
+                        if i == 0 || ShortcutsModel.shortcuts[i - 1].context != item.context: VerticalLayout {
+                            spacing: 10px;
+                            if i > 0: Rectangle { height: 1px; background: Theme.border-subtle; }
+                            Text {
+                                text: item.context_note == "" ? item.context : item.context + " (" + item.context_note + ")";
+                                font-size: 11px;
+                                font-weight: 700;
+                                color: Theme.accent-cyan;
+                                accessible-role: AccessibleRole.text;
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 8px;
+                            // Key chip: the Text is width-bound to the chip (minus 8 px
+                            // padding each side) so long chords wrap instead of
+                            // overflowing the chip symmetrically ("trl+Alt+1").
+                            Rectangle {
+                                width: 150px;
+                                min-height: 22px;
+                                background: Theme.bg-input;
+                                border-radius: Theme.radius-sm;
+                                border-width: 1px;
+                                border-color: Theme.border-subtle;
+                                Text {
+                                    width: parent.width - 16px;
+                                    text: item.keys;
+                                    font-size: 10px;
+                                    font-weight: 600;
+                                    color: Theme.accent-amber;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                    wrap: word-wrap;
+                                }
+                            }
+                            Text {
+                                horizontal-stretch: 1;
+                                text: item.action;
+                                font-size: 10px;
+                                color: Theme.text-secondary;
+                                wrap: word-wrap;
+                                vertical-alignment: center;
+                                accessible-label: item.keys + ": " + item.action;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

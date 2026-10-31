@@ -1,0 +1,14 @@
+//! Unit tests for the `materials` module tree, split by topic: name lookup, the
+//! builder-style opt-in constructors, dispersion/Abbe-number regressions, the biaxial
+//! indicatrix, the GPU-routing predicate, and the zoned Ametrine.
+
+mod ametrine;
+mod band_rows;
+mod biaxial;
+mod built_in_hues;
+mod color_change_garnet;
+mod custom;
+mod dispersion;
+mod gpu;
+mod lookup;
+mod wavelength_birefringence;

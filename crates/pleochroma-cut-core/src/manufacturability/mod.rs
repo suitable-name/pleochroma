@@ -1,0 +1,118 @@
+//! manufacturability checks -- the point where the editor starts
+//! protecting the user from a design that solves geometrically but cannot
+//! actually be cut.
+//!
+//! Five checks, every one reported as a warning **on** the design, never as
+//! an edit that silently "fixes" anything:
+//!
+//! 1. [`mesh_checks::check_vanishing_facets`]: a later cut erased an earlier facet entirely.
+//! 2. [`mesh_checks::check_undersized_facets`]: a facet survives but is too small to
+//!    reliably cut and polish.
+//! 3. [`authored_checks::check_gear_quantization`]: an authored index-wheel position does not
+//!    land on a real gear tooth.
+//! 4. [`authored_checks::check_cut_order`]: a tier's stated meet target comes later in the
+//!    schedule than the tier itself -- geometrically solvable (the solver can
+//!    resolve a forward reference numerically, without the referenced facet
+//!    physically existing yet -- but its OWN result is still file-order
+//!    dependent: phase 1 runs in strict file order, so this is "does not need a
+//!    cutting sequence", never "order doesn't matter", see
+//!    `pleochroma::geometry::meet_solver`'s module docs and
+//!    `crate::resolve`'s own doc comment) but physically uncuttable in that order.
+//! 5. [`authored_checks::check_meet_name_asc_safety`]: a tier's stated meet target
+//!    NAME would not survive a plain `.asc` export/re-import --
+//!    geometrically fine today, but silently loses or mis-targets the reference
+//!    the moment the design round-trips through `.asc` text.
+//! 6. [`mesh_checks::check_concave_tools`]: only for a design with concave tiers, the
+//!    tool warnings of plan §9.1 (a tool that misses the stone, sits wholly inside it,
+//!    breaks through it, removes a meet or hull vertex, overlaps another, or leaves a
+//!    sliver). Absent for a planar design, so its output is unchanged. It is the one
+//!    costly check (dozens of plane-arrangement meshes), so callers that run on a UI
+//!    thread take it from a worker instead of calling it inline.
+//!
+//! [`check_manufacturability`] runs all five together over an
+//! **already-solved** [`crate::design::Design`] (see its own doc comment for why that
+//! matters) and returns every [`ManufacturabilityWarning`] found, in a fixed,
+//! deterministic order (checks 1-5, tier order within each) -- never a
+//! `HashMap`/`HashSet` in the decision path, matching this crate's
+//! determinism contract.
+//!
+//! # Why these checks don't need a second solve
+//!
+//! `Design::planes`/`Design::status` each call `Design::solve` internally, and a
+//! design with real meet-derived structure costs 5-6 seconds to solve. An editor
+//! that just ran "Solve" already has a `Vec<SolvedTier>` in hand;
+//! [`check_manufacturability`] takes that directly and builds the plane arrangement
+//! via `Design::planes_from_solved` (no second solve), then meshes it via
+//! [`pleochroma::geometry::stone_metrics::build_solid_mesh`] -- measured at 0.616ms
+//! for a 103-tier design, negligible next to the solve that already happened.
+//! Checks 3, 4 and 5 need no mast at all (they read authored angle/index/name/
+//! constraint state directly), so they run even when the design has never been
+//! solved.
+//!
+//! # Module layout
+//!
+//! [`warning`] is the one [`ManufacturabilityWarning`] type every check reports
+//! through; [`mesh_checks`] is [`check_manufacturability`] itself plus checks 1-2
+//! (the mesh-dependent pair); [`authored_checks`] is checks 3-5 (the mast-free
+//! trio).
+
+mod authored_checks;
+mod mesh_checks;
+#[cfg(test)]
+mod tests;
+mod tool_cull;
+mod warning;
+
+use crate::design::Design;
+use pleochroma::geometry::meet_solver::SolvedTier;
+
+pub use authored_checks::{check_cut_order, check_gear_quantization, check_meet_name_asc_safety};
+pub use mesh_checks::{
+    DEFAULT_MIN_FACET_AREA_FRACTION_OF_W2, check_concave_tools, check_manufacturability,
+    check_manufacturability_with_geometry, concave_tool_warnings, degenerate_suspects,
+};
+pub use warning::ManufacturabilityWarning;
+
+/// Cumulative facet-plane count per tier prefix -- see
+/// [`mesh_checks::facet_plane_boundaries`]'s own doc comment. `pub(crate)`
+/// only: [`crate::design::Design::tier_for_plane_index`] is the public way to
+/// use this (turning a combined-arrangement plane index into a tier index),
+/// so the raw boundaries never need to leave this crate.
+pub(crate) use mesh_checks::facet_plane_boundaries;
+
+/// Runs every check this crate can given whatever solve state is actually
+/// available, rather than requiring a full solve up front the way
+/// [`check_manufacturability`] itself does.
+///
+/// The three mast-free checks
+/// ([`check_gear_quantization`]/[`check_cut_order`]/[`check_meet_name_asc_safety`])
+/// need no mast at all and always run; the two mesh-based checks (reached through
+/// [`check_manufacturability`]) run only when `solved` is `Some`.
+///
+/// Exists for a caller like the editor's own manufacturability panel that must
+/// still report the mast-free checks (a fractional index, an out-of-order meet) on
+/// a design that has not solved yet -- e.g. one with a
+/// [`crate::design::MissingAnchor`], where calling
+/// [`Design::solve`](crate::design::Design::solve) itself fails. A caller that
+/// early-returns an empty list on that failure drops every check, mast-free ones
+/// included, rather than only the two that actually need a mast -- see the
+/// "mast-free manufacturability checks are dropped entirely on `MissingAnchor`"
+/// finding, whose fix this is the core-side half of (the editor's own
+/// `manufacturability_warning_lines` should call this instead of returning
+/// `Vec::new()` on a solve error).
+#[must_use]
+pub fn check_manufacturability_available(
+    design: &Design,
+    solved: Option<&[SolvedTier]>,
+    min_facet_area_fraction_of_w2: f64,
+) -> Vec<ManufacturabilityWarning> {
+    solved.map_or_else(
+        || {
+            let mut warnings = check_gear_quantization(design);
+            warnings.extend(check_cut_order(design));
+            warnings.extend(check_meet_name_asc_safety(design));
+            warnings
+        },
+        |solved| check_manufacturability(design, solved, min_facet_area_fraction_of_w2),
+    )
+}

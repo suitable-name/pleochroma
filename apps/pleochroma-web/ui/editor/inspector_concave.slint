@@ -1,0 +1,319 @@
+import { Button, CheckBox, ComboBox, LineEdit } from "std-widgets.slint";
+import { Theme } from "../components/theme.slint";
+import { AppModel } from "../models/app_model.slint";
+import { GuideModel } from "../models/guide_model.slint";
+import { InspectorModel } from "inspector_model.slint";
+import { FieldLabel, InfoLine, Divider } from "inspector_widgets.slint";
+
+// One labelled field of the concave form: the label above, the control below, with a red
+// border around the control when the last save's error names it.
+component ConcaveRow inherits VerticalLayout {
+    in property <string> label;
+    in property <bool> invalid: false;
+    spacing: 2px;
+    FieldLabel { text: root.label; wrap: word-wrap; }
+    Rectangle {
+        border-width: root.invalid ? 1px : 0px;
+        border-color: Theme.danger;
+        border-radius: Theme.radius-sm;
+        @children
+    }
+}
+
+// The Tier tab's form for a CONCAVE tier (modelled on the desktop's
+// `editor_inspector/concave_form_tab.slint`). A concave tier is authored as two lines, so
+// the form has both: name, angle, indices and instructions for the facet, then tool,
+// theta, X / Y / Z, D/W, tool angle and motion for the tool. The scratch fields and the
+// dirty tracking live in `InspectorModel` (`c-*`, `loaded-c-*`); nothing commits until
+// Add / Save Concave Tier, which `Inspector` pins below the scroll view.
+export component ConcaveFormTab inherits VerticalLayout {
+    // Retyping a field clears its stale error marker (never a `changed` handler: that
+    // would also fire for Rust seeding the field).
+    function clear-field-error(field: string) {
+        if InspectorModel.concave-error-field == field {
+            InspectorModel.concave-error-field = "";
+            InspectorModel.concave-error = "";
+        }
+    }
+
+    // False while the guided walkthrough locks the tier form: every field and button of
+    // the tab dims and ignores input.
+    property <bool> unlocked: GuideModel.allows-concave-tier();
+    // Only a cone and a disc have an included angle.
+    property <bool> has-tool-angle: InspectorModel.c-tool == 1 || InspectorModel.c-tool == 3;
+    property <string> field-error: InspectorModel.concave-error-field;
+    property <bool> has-loaded: InspectorModel.loaded-concave-index >= 0;
+    // A request from Rust to put the cursor in the Name field ("New Concave Tier").
+    property <int> focus-tick: InspectorModel.focus-serial;
+
+    changed focus-tick => {
+        if InspectorModel.focus-pending && InspectorModel.focus-target == "concave-name" {
+            InspectorModel.focus-pending = false;
+            name-edit.focus();
+        }
+    }
+    init => {
+        if InspectorModel.focus-pending && InspectorModel.focus-target == "concave-name" {
+            InspectorModel.focus-pending = false;
+            name-edit.focus();
+        }
+    }
+
+    spacing: 8px;
+
+    Text {
+        text: root.has-loaded
+            ? "Edit Concave Tier #" + (InspectorModel.loaded-concave-index + 1) + (InspectorModel.c-name == "" ? "" : " -- " + InspectorModel.c-name)
+            : "Add Concave Tier";
+        font-size: 12px;
+        font-weight: 700;
+        color: Theme.text-primary;
+        wrap: word-wrap;
+    }
+
+    // The selection moved on while the form held an unsaved draft: say so for as long as
+    // the mismatch lasts.
+    if InspectorModel.concave-show-dirty-warning: Rectangle {
+        background: Theme.bg-input;
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: Theme.accent-amber;
+        VerticalLayout {
+            padding: 6px;
+            spacing: 4px;
+            Text {
+                text: "\u{26A0} You have unsaved changes to "
+                    + (root.has-loaded ? "Concave Tier #" + (InspectorModel.loaded-concave-index + 1) : "the new concave tier draft")
+                    + ". The selection has moved on, but this form still shows your draft.";
+                font-size: 10px;
+                font-weight: 700;
+                color: Theme.accent-amber;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                Button {
+                    text: "Keep Draft";
+                    clicked => { InspectorModel.concave-keep-draft(); }
+                }
+                Button {
+                    text: InspectorModel.concave-pending-label;
+                    clicked => { InspectorModel.concave-discard-draft(); }
+                }
+            }
+        }
+    }
+
+    // The tier changed in the design after the draft started (undo, redo, another edit).
+    if InspectorModel.concave-external-change && !InspectorModel.concave-show-dirty-warning: Rectangle {
+        background: Theme.bg-input;
+        border-radius: Theme.radius-sm;
+        border-width: 1px;
+        border-color: Theme.accent-amber;
+        VerticalLayout {
+            padding: 6px;
+            spacing: 4px;
+            Text {
+                text: "\u{26A0} Concave Tier #" + (InspectorModel.loaded-concave-index + 1)
+                    + " changed in the design after you started this draft. Saving writes your draft over that change.";
+                font-size: 10px;
+                font-weight: 700;
+                color: Theme.accent-amber;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                Button {
+                    text: "Reload From Design";
+                    clicked => { InspectorModel.concave-reload(); }
+                }
+                Button {
+                    text: "Keep Draft";
+                    clicked => { InspectorModel.concave-dismiss-external(); }
+                }
+            }
+        }
+    }
+
+    // -- The facet line: what the tier is called and where it sits on the gear.
+    Text { text: "Facet Line"; font-size: 11px; font-weight: 700; color: Theme.text-secondary; }
+    ConcaveRow {
+        label: "Name  (not a flat tier's name; nothing meets it by name)";
+        invalid: root.field-error == "name";
+        name-edit := LineEdit {
+            enabled: root.unlocked;
+            text <=> InspectorModel.c-name;
+            accepted => { InspectorModel.save-concave(); }
+            changed has-focus => { AppModel.text-focus = self.has-focus; }
+            edited => { root.clear-field-error("name"); }
+        }
+    }
+    ConcaveRow {
+        label: "Angle (deg)" + (InspectorModel.c-angle.to-float() < 0
+            ? "  -- pavilion"
+            : (InspectorModel.c-angle.to-float() > 0 ? "  -- crown" : ""));
+        invalid: root.field-error == "angle" || Math.abs(InspectorModel.c-angle.to-float()) > 90;
+        LineEdit {
+            enabled: root.unlocked;
+            text <=> InspectorModel.c-angle;
+            placeholder-text: "e.g. -42";
+            accepted => { InspectorModel.save-concave(); }
+            changed has-focus => { AppModel.text-focus = self.has-focus; }
+            edited => { root.clear-field-error("angle"); }
+        }
+    }
+    ConcaveRow {
+        label: "Indices (gear positions the tool is placed at, comma-separated)";
+        invalid: root.field-error == "indices";
+        LineEdit {
+            enabled: root.unlocked;
+            text <=> InspectorModel.c-indices;
+            placeholder-text: "e.g. 0, 24, 48, 72";
+            accepted => { InspectorModel.save-concave(); }
+            changed has-focus => { AppModel.text-focus = self.has-focus; }
+            edited => { root.clear-field-error("indices"); }
+        }
+    }
+    ConcaveRow {
+        label: "Instructions (printed on the facet line of the cutting sheet)";
+        LineEdit {
+            enabled: root.unlocked;
+            text <=> InspectorModel.c-instructions;
+            placeholder-text: "optional";
+            accepted => { InspectorModel.save-concave(); }
+            changed has-focus => { AppModel.text-focus = self.has-focus; }
+        }
+    }
+
+    // -- The tool line: which tool, where it sits and how it moves.
+    Text { text: "Tool Line"; font-size: 11px; font-weight: 700; color: Theme.text-secondary; }
+    ConcaveRow {
+        label: "Tool";
+        invalid: root.field-error == "tool";
+        ComboBox {
+            enabled: root.unlocked;
+            model: [
+                "Cylinder (CYL)",
+                "Cone (CON)",
+                "Circle (CIR)",
+                "Disc (DSC)",
+                "Sphere (SPH)",
+            ];
+            current-index <=> InspectorModel.c-tool;
+            selected => {
+                root.clear-field-error("tool");
+                root.clear-field-error("tool_angle");
+            }
+        }
+    }
+    ConcaveRow {
+        label: "Theta (deg) -- azimuth of the tool's axis; blank is 0";
+        invalid: root.field-error == "theta";
+        LineEdit {
+            enabled: root.unlocked;
+            text <=> InspectorModel.c-theta;
+            placeholder-text: "0";
+            accepted => { InspectorModel.save-concave(); }
+            changed has-focus => { AppModel.text-focus = self.has-focus; }
+            edited => { root.clear-field-error("theta"); }
+        }
+    }
+    ConcaveRow {
+        label: "X / Y / Z -- tool displacement as ratios of the stone width; blank is 0";
+        invalid: root.field-error == "x" || root.field-error == "y" || root.field-error == "z";
+        HorizontalLayout {
+            spacing: 4px;
+            LineEdit {
+                enabled: root.unlocked;
+                text <=> InspectorModel.c-x;
+                placeholder-text: "X";
+                accepted => { InspectorModel.save-concave(); }
+                changed has-focus => { AppModel.text-focus = self.has-focus; }
+                edited => { root.clear-field-error("x"); }
+            }
+            LineEdit {
+                enabled: root.unlocked;
+                text <=> InspectorModel.c-y;
+                placeholder-text: "Y";
+                accepted => { InspectorModel.save-concave(); }
+                changed has-focus => { AppModel.text-focus = self.has-focus; }
+                edited => { root.clear-field-error("y"); }
+            }
+            LineEdit {
+                enabled: root.unlocked;
+                text <=> InspectorModel.c-z;
+                placeholder-text: "Z";
+                accepted => { InspectorModel.save-concave(); }
+                changed has-focus => { AppModel.text-focus = self.has-focus; }
+                edited => { root.clear-field-error("z"); }
+            }
+        }
+    }
+    ConcaveRow {
+        label: "D/W -- tool diameter over stone width; must be positive";
+        invalid: root.field-error == "diameter";
+        LineEdit {
+            enabled: root.unlocked;
+            text <=> InspectorModel.c-diameter;
+            placeholder-text: "e.g. 0.25";
+            accepted => { InspectorModel.save-concave(); }
+            changed has-focus => { AppModel.text-focus = self.has-focus; }
+            edited => { root.clear-field-error("diameter"); }
+        }
+    }
+    ConcaveRow {
+        label: "Tool Angle (deg) -- included angle of a cone or disc only";
+        invalid: root.field-error == "tool_angle";
+        LineEdit {
+            enabled: root.unlocked && root.has-tool-angle;
+            text <=> InspectorModel.c-tool-angle;
+            placeholder-text: root.has-tool-angle ? "e.g. 60" : "n/a";
+            accepted => { InspectorModel.save-concave(); }
+            changed has-focus => { AppModel.text-focus = self.has-focus; }
+            edited => { root.clear-field-error("tool_angle"); }
+        }
+    }
+    CheckBox {
+        enabled: root.unlocked;
+        text: "Reciprocating (Stroked Back and Forth)";
+        checked <=> InspectorModel.c-reciprocating;
+    }
+
+    if InspectorModel.concave-error != "": Text {
+        text: InspectorModel.concave-error;
+        font-size: 10px;
+        font-weight: 700;
+        color: Theme.danger;
+        wrap: word-wrap;
+    }
+
+    // The read-only sheet line (and any warning) of a saved tier; an "Add" draft has
+    // nothing resolved yet.
+    if InspectorModel.concave-sheet-visible: VerticalLayout {
+        spacing: 4px;
+        Divider {}
+        Text { text: "Sheet Line"; font-size: 11px; font-weight: 700; color: Theme.text-primary; }
+        InfoLine { text: InspectorModel.concave-sheet-line; }
+        if InspectorModel.concave-orbit-status != "": Text {
+            text: "Orbit: " + InspectorModel.concave-orbit-status;
+            font-size: 10px;
+            color: InspectorModel.concave-orbit-incomplete ? Theme.accent-amber : Theme.accent-emerald;
+            wrap: word-wrap;
+        }
+        if InspectorModel.concave-warning != "": Text {
+            text: "\u{26A0} " + InspectorModel.concave-warning;
+            font-size: 10px;
+            font-weight: 700;
+            color: Theme.accent-amber;
+            wrap: word-wrap;
+        }
+    }
+
+    // The way back to the flat form when nothing is selected to go there.
+    Divider {}
+    Button {
+        text: "New Flat Tier Instead";
+        enabled: root.unlocked;
+        clicked => { InspectorModel.new-tier(); }
+    }
+}

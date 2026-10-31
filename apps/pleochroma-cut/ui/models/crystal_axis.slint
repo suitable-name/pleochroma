@@ -1,0 +1,106 @@
+// State of the Crystal Axis in the editor: the Stone tab's section (the Second Axis, the presets),
+// the "Crystal Axis" toggle of the Solid viewport's toolbar, the axis drawn over the stone (and
+// its drag handles), and the two readouts of the metrics strip. Rust reaches this via
+// `ui.global::<CrystalAxisModel>()` (`gui::render::crystal_axis_ui` for the Stone tab,
+// `gui::editor::manipulate::crystal_axis_overlay` for the overlay).
+//
+// The tilt, the azimuth and the "set for this stone" switch stay in `SettingsModel`
+// (`c_axis_*`): they are the design's render effects (`gui::render::stone_effects`). The Second
+// Axis is the same kind of value and is carried by `second_set` / `second_deg` below, because a
+// biaxial stone needs a third number and `SettingsModel` is shared with the legacy settings.
+//
+// Every position is in the viewport's LOGICAL coordinates (the same space the pointer events
+// use), like `ManipulateModel`; in the Diagram view they are UNZOOMED and `CrystalAxisOverlay`
+// maps them through the view's zoom and pan.
+export global CrystalAxisModel {
+    // --- The Stone tab ---------------------------------------------------------------------
+    // Whether the material is biaxial: the section then offers the Second Axis.
+    in property <bool> biaxial: false;
+    // The Second Axis of the design's own setting: `second_set` is the "set" switch (off keeps
+    // the material's own second direction) and `second_deg` its turn, 0 to 180 degrees.
+    in-out property <bool> second_set: false;
+    in-out property <float> second_deg: 0.0;
+    // The color-named presets of the material ("Best Blue Face-Up"), by name, with the face-up
+    // color each gives. Empty for a material without any.
+    in property <[string]> color_preset_names: [];
+    in property <[color]> color_preset_swatches: [];
+    // Whether "Along the Width" can be offered (a solved design is on the viewport).
+    in property <bool> width_preset_available: false;
+    // The preset the current values equal: 0 to 2 the geometry presets (Through the Table, In the
+    // Table Plane, Along the Width), 3 and up the color presets in order, -1 none.
+    in property <int> active_preset: -1;
+    // One plain sentence under the controls (the Second Axis note), "" for none.
+    in property <string> note: "";
+    // Rust refreshes everything above (and the readouts) from the material and the design;
+    // Slint calls it when the section is shown and when an input changed.
+    callback refresh();
+    // A geometry preset (0 Through the Table, 1 In the Table Plane, 2 Along the Width) or a color
+    // preset (the index into `color_preset_names`) was chosen.
+    callback geometry_preset_chosen(int);
+    callback color_preset_chosen(int);
+    // The Second Axis switch or turn changed (`second_set` / `second_deg` already hold the new
+    // values; the callback carries them for the live render).
+    callback second_axis_changed(bool, float);
+
+    // --- The overlay -----------------------------------------------------------------------
+    // The toolbar's "Crystal Axis" toggle. The remembered preference (`AppSettings::
+    // show_crystal_axis`, seeded at start-up and saved by `show_axis_toggled`); Rust also
+    // switches it on for the session, without saving, the first time the axis is edited.
+    in-out property <bool> show_axis: false;
+    callback show_axis_toggled(bool);
+    // Whether the axis is drawn: the toggle is on, the material has an axis and a frame is shown.
+    in property <bool> overlay_visible: false;
+    // Live Render has its own viewport/letterbox, independent of the editor's pick frame.
+    in property <bool> live_overlay_visible: false;
+    in property <length> live_axis_x0;
+    in property <length> live_axis_y0;
+    in property <length> live_axis_x1;
+    in property <length> live_axis_y1;
+    in property <bool> live_second_visible: false;
+    in property <length> live_second_x0;
+    in property <length> live_second_y0;
+    in property <length> live_second_x1;
+    in property <length> live_second_y1;
+    // The Crystal Axis as a line across the stone, and its drag handle at the upper end.
+    in property <length> axis_x0;
+    in property <length> axis_y0;
+    in property <length> axis_x1;
+    in property <length> axis_y1;
+    in property <length> axis_tip_x;
+    in property <length> axis_tip_y;
+    // The Second Axis of a biaxial stone, the same way.
+    in property <bool> second_visible: false;
+    in property <length> second_x0;
+    in property <length> second_y0;
+    in property <length> second_x1;
+    in property <length> second_y1;
+    in property <length> second_tip_x;
+    in property <length> second_tip_y;
+    // The handle under the pointer or being dragged: -1 none, 0 the Crystal Axis, 1 the Second Axis.
+    in property <int> hovered: -1;
+    // `true` from a granted `drag_begin` until `drag_end` / `drag_cancel`.
+    in-out property <bool> dragging: false;
+    // Rust recomputes the overlay (a frame landed, or an input changed).
+    callback overlay_changed();
+    // Live image size/letterbox updates only; avoids rebuilding the Stone section per frame.
+    callback live_overlay_changed();
+    // Which handle tip lies under the pointer: -1 none, 0 the Crystal Axis, 1 the Second Axis.
+    callback hit_test(length, length) -> int;
+    // The pointer moved with no drag in progress.
+    callback hover(length, length);
+    // A left press landed on handle `kind`; Rust sets `dragging` when it grants the drag.
+    callback drag_begin(int, length, length);
+    // The pointer moved during a drag.
+    callback drag_move(length, length);
+    // The button was released: keep the drag.
+    callback drag_end();
+    // Escape (or a cancelled pointer): put the axis back as it was at `drag_begin`.
+    callback drag_cancel();
+
+    // --- The readouts of the metrics strip --------------------------------------------------
+    // The angle of the axis to the table normal ("12°"), "" while the material has no axis.
+    in property <string> axis_angle_text: "";
+    // The Doubling figure ("3.2 arcmin"), "" for an isotropic material or before the first
+    // measurement.
+    in property <string> doubling_text: "";
+}

@@ -1,0 +1,266 @@
+# Built-in color variants: diamond (cubic, isotropic: o_ray = e_ray, pleochroic = false).
+# Schema: see ../color_variants.toml. Research: docs/color_variants/R5_diamond.md (measured parameters)
+# and R4 section 4 (band models). Fit records: docs/color_variants/fit_records/diamond.md.
+#
+# Every entry is estimated = true: no numeric diamond spectrum is published, so the band positions and
+# widths are the measured parameters and the strengths are scaled to the face-up color of the named
+# grade. Unit per_mm (peak = absorption coefficient in mm^-1 = cm^-1 / 10). The colors were fitted over
+# the face-up path of a 7 mm stone, 2.83 model units x 3.5 mm per unit = 9.905 mm (render_setup).
+#
+# Estimated flag (one rule for every data file): `estimated = true` when the spectrum shape is NOT a measured
+# spectrum of that variety, OR the strength is NOT anchored (no concentration, no published color value, a factor
+# chosen for how the variety looks). `estimated = false` only for a measured spectrum at a strength that a published
+# number fixes. The FIRST line of `sources` is one short plain sentence saying which part is estimated: the UI shows it
+# as the "Estimated" tooltip. The full citations follow on the later lines.
+
+data_version = 1
+
+# Diamond, Cape Yellow.
+# Cape Yellow: N3 (ZPL 415.2 nm + 370-390 nm vibronic band, peak ratio 2.5 : 1) and N2 (478 nm line, 451-463 nm lump) of type Ia(AB) diamond, plus a 330 nm band for the blue-violet side of the Ia edge.
+# Scale: N3 ZPL peak 1.0 cm^-1 (0.10 mm^-1), set so the face-up color over the 9.905 mm path is a light yellow.
+# Face-up color over 9.905 mm (D65): L* 99.18, C* 21.94, h 108.15; target L* 98, C* 22, h 103; dE2000 1.97.
+[[variant]]
+material = "Diamond"
+key = "diamond.cape_yellow"
+label = "Cape Yellow"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Optics Letters 49(1), 137 (2024), photo-physical characteristics of the N3 center (ZPL 415.2 nm; cross section of the ZPL about 2.5e-15 cm^2, of the 370-390 nm vibronic band about 1e-15 cm^2; https://opg.optica.org/ol/abstract.cfm?uri=ol-49-1-137)",
+  "Breeding et al., Gems & Gemology Summer 2020, nitrogen factor in yellow and orange diamonds (N3 415.2 nm, N2 478 nm with 451 and 463 nm lines; https://www.gia.edu/gems-gemology/summer-2020-naturally-colored-yellow-orange-diamonds)",
+  "MSA Reviews in Mineralogy and Geochemistry 88 (2022) 637 ff., Diamond Spectroscopy, Defect Centers, Color, and Treatments (https://msaweb.org/wp-content/uploads/2022/07/REV088C12.pdf)",
+  "Estimated: the absolute strength (scaled so the face-up color at 7 mm is a light yellow), the N2 height relative to N3, the room-temperature line widths and the 330 nm Ia-edge band; docs/color_variants/R5_diamond.md and docs/color_variants/R4_quartz_diamond_opal_synthetics_glass.md section 4 (band models)",
+]
+fit_record = "docs/color_variants/fit_records/diamond.md#cape-yellow"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+      { center_nm = 415.2, width_nm = 120, peak = 0.1, shape = "energy" },
+      { center_nm = 385, width_nm = 1000, peak = 0.04, shape = "energy" },
+      { center_nm = 478, width_nm = 150, peak = 0.045, shape = "energy" },
+      { center_nm = 450, width_nm = 1100, peak = 0.0375, shape = "energy" },
+      { center_nm = 330, width_nm = 3500, peak = 0.06, shape = "energy" },
+  ]
+  e_ray = [
+      { center_nm = 415.2, width_nm = 120, peak = 0.1, shape = "energy" },
+      { center_nm = 385, width_nm = 1000, peak = 0.04, shape = "energy" },
+      { center_nm = 478, width_nm = 150, peak = 0.045, shape = "energy" },
+      { center_nm = 450, width_nm = 1100, peak = 0.0375, shape = "energy" },
+      { center_nm = 330, width_nm = 3500, peak = 0.06, shape = "energy" },
+  ]
+
+# Diamond, Canary.
+# Canary: the measured 270 nm Ns0 band (sigma 2743 cm^-1 = 20 nm, 10 x alpha(425 nm)) and the visible Ns0 continuum alpha(425) exp(-(lambda - 425)/45 nm), four energy Gaussians fitted by relative-error NNLS over 380-560 nm (max error 26 %, the tail beyond 520 nm is under-represented).
+# Scale: alpha(425 nm) = 4.28 cm^-1 (alpha(270 nm) = 42.8 cm^-1, about 9.5 ppm Ns0 at 4.51 cm^-1 per ppm), set so the face-up color over 9.905 mm is Fancy Intense to Vivid yellow.
+# Face-up color over 9.905 mm (D65): L* 88.55, C* 71.73, h 88.55; target L* 86, C* 72, h 90; dE2000 1.97.
+[[variant]]
+material = "Diamond"
+key = "diamond.canary"
+label = "Canary"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; the visible continuum and the strength are estimated.",
+  "Luo et al., Appl. Phys. Lett. 121, 064002 (2022), arXiv:2207.14278 (270 nm Ns0 band: Gaussian, centre 268-272 nm, RMS width 13-27 nm, 4.51 cm^-1 per ppm; brown decomposition: 360 nm Gaussian + 520 nm Gaussian + lambda^-3 ramp)",
+  "Breeding et al., Gems & Gemology Summer 2020 (isolated nitrogen Ns0: continuum to about 510 nm gives yellow, to 600 nm orange; https://www.gia.edu/gems-gemology/summer-2020-naturally-colored-yellow-orange-diamonds)",
+  "Element Six patent US7910083B2 (alpha(425 nm) / alpha(270 nm) about 0.1, from the ratio of the stated ranges; https://patents.google.com/patent/US7910083B2/en)",
+  "Estimated: the visible continuum (exponential, 45 nm e-fold, fitted by four energy Gaussians; R4 gave 60 nm, neither value is measured, alpha(425 nm) = 0.44 mm^-1) and the strength (scaled so the face-up color at 7 mm is Fancy Intense to Vivid yellow); docs/color_variants/R5_diamond.md and docs/color_variants/R4_quartz_diamond_opal_synthetics_glass.md section 4 (band models)",
+]
+fit_record = "docs/color_variants/fit_records/diamond.md#canary"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+      { center_nm = 270, width_nm = 2743, peak = 4.276, shape = "energy" },
+      { center_nm = 340, width_nm = 2500, peak = 1.77796, shape = "energy" },
+      { center_nm = 400, width_nm = 1800, peak = 0.400617, shape = "energy" },
+      { center_nm = 460, width_nm = 1500, peak = 0.0882254, shape = "energy" },
+      { center_nm = 530, width_nm = 1200, peak = 0.0328678, shape = "energy" },
+  ]
+  e_ray = [
+      { center_nm = 270, width_nm = 2743, peak = 4.276, shape = "energy" },
+      { center_nm = 340, width_nm = 2500, peak = 1.77796, shape = "energy" },
+      { center_nm = 400, width_nm = 1800, peak = 0.400617, shape = "energy" },
+      { center_nm = 460, width_nm = 1500, peak = 0.0882254, shape = "energy" },
+      { center_nm = 530, width_nm = 1200, peak = 0.0328678, shape = "energy" },
+  ]
+
+# Diamond, Brown.
+# Brown: the measured decomposition form: a 360 nm Gaussian (vacancy clusters, sigma 3425 cm^-1 = FWHM 1 eV), a 510 nm Gaussian of the same width (patent / NVH0 band; peak ratio 3 : 1) and the ramp c x lambda^-3 (lambda in micrometres, c = 0.08) approximated by three energy Gaussians (centres 284.7 / 385.8 / 496.8 nm; max relative error 0.6 % over 380-700 nm).
+# Scale: 360 nm peak 4.23 cm^-1, 510 nm peak 1.41 cm^-1, set so the face-up color over 9.905 mm is a medium brown.
+# Face-up color over 9.905 mm (D65): L* 49.70, C* 40.85, h 68.06; target L* 50, C* 40, h 65; dE2000 1.65.
+[[variant]]
+material = "Diamond"
+key = "diamond.brown"
+label = "Brown"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Luo et al., Appl. Phys. Lett. 121, 064002 (2022), arXiv:2207.14278 (270 nm Ns0 band: Gaussian, centre 268-272 nm, RMS width 13-27 nm, 4.51 cm^-1 per ppm; brown decomposition: 360 nm Gaussian + 520 nm Gaussian + lambda^-3 ramp)",
+  "Eaton-Magana et al., Gems & Gemology Winter 2018 (brown absorption continuum of vacancy clusters, rising toward short wavelengths; https://www.gia.edu/doc/WN18-natural-color-pink-purple-red-brown-diamonds.pdf)",
+  "Element Six patent US7910083B2 (band centres 3.54 eV and 2.43 eV, FWHM 1 eV, peaks 1.5-6 and 0.4-2 cm^-1 preferred; ramp c x lambda^-3 with c below 0.2; https://patents.google.com/patent/US7910083B2/en)",
+  "Estimated: the natural-stone band heights (the decomposition is measured on CVD material) and the strength (scaled so the face-up color at 7 mm is a medium brown); docs/color_variants/R5_diamond.md and docs/color_variants/R4_quartz_diamond_opal_synthetics_glass.md section 4 (band models)",
+]
+fit_record = "docs/color_variants/fit_records/diamond.md#brown"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+      { center_nm = 284.706, width_nm = 4886.15, peak = 0.317547, shape = "energy" },
+      { center_nm = 385.821, width_nm = 4546.68, peak = 0.0645945, shape = "energy" },
+      { center_nm = 496.754, width_nm = 5967.27, peak = 0.033799, shape = "energy" },
+      { center_nm = 360, width_nm = 3425, peak = 0.4239, shape = "energy" },
+      { center_nm = 510, width_nm = 3425, peak = 0.1413, shape = "energy" },
+  ]
+  e_ray = [
+      { center_nm = 284.706, width_nm = 4886.15, peak = 0.317547, shape = "energy" },
+      { center_nm = 385.821, width_nm = 4546.68, peak = 0.0645945, shape = "energy" },
+      { center_nm = 496.754, width_nm = 5967.27, peak = 0.033799, shape = "energy" },
+      { center_nm = 360, width_nm = 3425, peak = 0.4239, shape = "energy" },
+      { center_nm = 510, width_nm = 3425, peak = 0.1413, shape = "energy" },
+  ]
+
+# Diamond, Pink.
+# Pink: the 550 nm band at the measured 548 nm / 62 nm FWHM (sigma 877 cm^-1), its 390 nm companion (0.15 of the peak, sigma 1200 cm^-1) and a weak N3 / N2 set (0.6 times the Cape Yellow set).
+# Scale: 550 nm band peak 1.25 cm^-1, set so the face-up color over 9.905 mm is Fancy Intense pink.
+# Face-up color over 9.905 mm (D65): L* 79.04, C* 39.33, h 329.27; target L* 78, C* 38, h 330; dE2000 0.92.
+[[variant]]
+material = "Diamond"
+key = "diamond.pink"
+label = "Pink"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Eaton-Magana et al., Gems & Gemology Winter 2018, Band of Many Colors (550 nm band centre 545-565 nm, FWHM 60-100 nm; 548 nm / 62 nm and 556 nm / 105 nm examples; 390 nm companion band; https://www.gia.edu/gems-gemology/winter-2018-natural-color-pink-purple-red-brown-diamonds)",
+  "Eaton-Magana et al. 2018: faint colors show only the 550 nm band, fancy and deeper tones add N3 and/or H3 (a weak N3 is included here)",
+  "Optics Letters 49(1), 137 (2024), photo-physical characteristics of the N3 center (ZPL 415.2 nm; cross section of the ZPL about 2.5e-15 cm^2, of the 370-390 nm vibronic band about 1e-15 cm^2; https://opg.optica.org/ol/abstract.cfm?uri=ol-49-1-137)",
+  "Estimated: the strength (scaled so the face-up color at 7 mm is Fancy Intense pink), the 390 nm companion height (0.15 of the 550 nm peak) and the weak N3 / N2 set (0.6 of the Cape Yellow set); docs/color_variants/R5_diamond.md and docs/color_variants/R4_quartz_diamond_opal_synthetics_glass.md section 4 (band models)",
+]
+fit_record = "docs/color_variants/fit_records/diamond.md#pink"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+      { center_nm = 548, width_nm = 876.74, peak = 0.1246, shape = "energy" },
+      { center_nm = 390, width_nm = 1200, peak = 0.01869, shape = "energy" },
+      { center_nm = 415.2, width_nm = 120, peak = 0.06, shape = "energy" },
+      { center_nm = 385, width_nm = 1000, peak = 0.024, shape = "energy" },
+      { center_nm = 478, width_nm = 150, peak = 0.027, shape = "energy" },
+      { center_nm = 450, width_nm = 1100, peak = 0.0225, shape = "energy" },
+      { center_nm = 330, width_nm = 3500, peak = 0.036, shape = "energy" },
+  ]
+  e_ray = [
+      { center_nm = 548, width_nm = 876.74, peak = 0.1246, shape = "energy" },
+      { center_nm = 390, width_nm = 1200, peak = 0.01869, shape = "energy" },
+      { center_nm = 415.2, width_nm = 120, peak = 0.06, shape = "energy" },
+      { center_nm = 385, width_nm = 1000, peak = 0.024, shape = "energy" },
+      { center_nm = 478, width_nm = 150, peak = 0.027, shape = "energy" },
+      { center_nm = 450, width_nm = 1100, peak = 0.0225, shape = "energy" },
+      { center_nm = 330, width_nm = 3500, peak = 0.036, shape = "energy" },
+  ]
+
+# Diamond, Purple-Pink.
+# Purple-Pink: the 550 nm band at the measured 556 nm / 105 nm FWHM (sigma 1443 cm^-1, no N3 or H3) and the 390 nm companion (0.15 of the peak, sigma 1200 cm^-1).
+# Scale: band peak 1.01 cm^-1, set so the face-up color over 9.905 mm is Fancy purple-pink (hue at the purple end: the band centre alone fixes it).
+# Face-up color over 9.905 mm (D65): L* 76.01, C* 45.78, h 306.85; target L* 76, C* 46, h 308; dE2000 0.63.
+[[variant]]
+material = "Diamond"
+key = "diamond.purple_pink"
+label = "Purple-Pink"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Eaton-Magana et al., Gems & Gemology Winter 2018, Band of Many Colors (550 nm band centre 545-565 nm, FWHM 60-100 nm; 548 nm / 62 nm and 556 nm / 105 nm examples; 390 nm companion band; https://www.gia.edu/gems-gemology/winter-2018-natural-color-pink-purple-red-brown-diamonds)",
+  "Eaton-Magana et al. 2018: purple-pink 555-560 nm / 70-100 nm, example Fancy Vivid purple 556 nm / 105 nm with no significant H3 or N3",
+  "Estimated: the strength (scaled so the face-up color at 7 mm is Fancy purple-pink) and the 390 nm companion height (0.15); docs/color_variants/R5_diamond.md and docs/color_variants/R4_quartz_diamond_opal_synthetics_glass.md section 4 (band models)",
+]
+fit_record = "docs/color_variants/fit_records/diamond.md#purple-pink"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+      { center_nm = 556, width_nm = 1442.39, peak = 0.1006, shape = "energy" },
+      { center_nm = 390, width_nm = 1200, peak = 0.01509, shape = "energy" },
+  ]
+  e_ray = [
+      { center_nm = 556, width_nm = 1442.39, peak = 0.1006, shape = "energy" },
+      { center_nm = 390, width_nm = 1200, peak = 0.01509, shape = "energy" },
+  ]
+
+# Diamond, Blue.
+# Blue: one Gaussian standing for the visible tail of the boron photoionisation continuum (centre 1000 nm, sigma 4000 cm^-1, R4 section 4.6); the visible continuum is published only qualitatively.
+# Scale: peak 5.1 cm^-1 at 1000 nm (alpha(700 nm) = 2.87 cm^-1), set so the face-up color over 9.905 mm is Fancy blue.
+# Face-up color over 9.905 mm (D65): L* 76.53, C* 39.44, h 244.78; target L* 76, C* 38, h 244; dE2000 0.66.
+[[variant]]
+material = "Diamond"
+key = "diamond.blue"
+label = "Blue"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "Eaton-Magana et al., Gems & Gemology Summer 2018, natural blue, gray and violet diamonds (https://www.gia.edu/gems-gemology/summer-2018-natural-color-blue-gray-violet-diamonds) (boron acceptor; higher boron gives a higher absorption gradient and a stronger blue; type IIb 25-1500 ppb)",
+  "MSA Reviews in Mineralogy and Geochemistry 88 (2022) 637 ff., Diamond Spectroscopy, Defect Centers, Color, and Treatments (https://msaweb.org/wp-content/uploads/2022/07/REV088C12.pdf)",
+  "Estimated: the shape (one Gaussian standing for the long-wavelength photoionisation tail, only infrared calibrations are published) and the strength (scaled so the face-up color at 7 mm is Fancy blue); docs/color_variants/R5_diamond.md and docs/color_variants/R4_quartz_diamond_opal_synthetics_glass.md section 4 (band models)",
+]
+fit_record = "docs/color_variants/fit_records/diamond.md#blue"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+      { center_nm = 1000, width_nm = 4000, peak = 0.5096, shape = "energy" },
+  ]
+  e_ray = [
+      { center_nm = 1000, width_nm = 4000, peak = 0.5096, shape = "energy" },
+  ]
+
+# Diamond, Green.
+# Green: GR1 as a vibronic Gaussian at 640 nm (sigma 1250 cm^-1) with the 741 nm zero-phonon line (sigma 60 cm^-1, 0.8 of the band peak) and an N3 / N2 set (2.0 times the Cape Yellow set) for the blue-side absorption that makes the stone green rather than cyan.
+# Scale: GR1 band peak 2.14 cm^-1 (about 3.6 ppm V0 at R4's 0.6 cm^-1 per ppm), set so the face-up color over 9.905 mm is Fancy green.
+# Face-up color over 9.905 mm (D65): L* 82.00, C* 61.85, h 170.54; target L* 80, C* 58, h 170; dE2000 1.75.
+[[variant]]
+material = "Diamond"
+key = "diamond.green"
+label = "Green"
+unit = "per_mm"
+reference_path_mm = 7.0
+estimated = true
+sources = [
+  "Built from published band positions; strength estimated.",
+  "MSA Reviews in Mineralogy and Geochemistry 88 (2022) 637 ff., Diamond Spectroscopy, Defect Centers, Color, and Treatments (https://msaweb.org/wp-content/uploads/2022/07/REV088C12.pdf)",
+  "Eaton-Magana et al., Gems & Gemology Summer 2018, natural blue, gray and violet diamonds (https://www.gia.edu/gems-gemology/summer-2018-natural-color-blue-gray-violet-diamonds) (GR1: zero-phonon line 741 nm, vibronic band reaching about 575 nm; N3 and N2 lines in green-blue stones)",
+  "Estimated: the GR1 band maximum (620-650 nm range, 640 nm used), its ZPL height (0.8 of the band peak), the blue-side absorption (N3 / N2 set at 2.0 times the Cape Yellow set) and the strength (scaled so the face-up color at 7 mm is Fancy green); docs/color_variants/R5_diamond.md and docs/color_variants/R4_quartz_diamond_opal_synthetics_glass.md section 4 (band models)",
+]
+fit_record = "docs/color_variants/fit_records/diamond.md#green"
+
+  [variant.absorption]
+  pleochroic = false
+  o_ray = [
+      { center_nm = 640, width_nm = 1250, peak = 0.2136, shape = "energy" },
+      { center_nm = 741, width_nm = 60, peak = 0.17088, shape = "energy" },
+      { center_nm = 415.2, width_nm = 120, peak = 0.2, shape = "energy" },
+      { center_nm = 385, width_nm = 1000, peak = 0.08, shape = "energy" },
+      { center_nm = 478, width_nm = 150, peak = 0.09, shape = "energy" },
+      { center_nm = 450, width_nm = 1100, peak = 0.075, shape = "energy" },
+      { center_nm = 330, width_nm = 3500, peak = 0.12, shape = "energy" },
+  ]
+  e_ray = [
+      { center_nm = 640, width_nm = 1250, peak = 0.2136, shape = "energy" },
+      { center_nm = 741, width_nm = 60, peak = 0.17088, shape = "energy" },
+      { center_nm = 415.2, width_nm = 120, peak = 0.2, shape = "energy" },
+      { center_nm = 385, width_nm = 1000, peak = 0.08, shape = "energy" },
+      { center_nm = 478, width_nm = 150, peak = 0.09, shape = "energy" },
+      { center_nm = 450, width_nm = 1100, peak = 0.075, shape = "energy" },
+      { center_nm = 330, width_nm = 3500, peak = 0.12, shape = "energy" },
+  ]

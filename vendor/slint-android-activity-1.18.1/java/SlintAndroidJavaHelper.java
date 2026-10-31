@@ -178,7 +178,7 @@ class SlintInputView extends View {
     public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
         outAttrs.inputType = mInputType;
         int imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI;
-        // Indicatrix patch: a password field must not teach the keyboard what is typed into
+        // Pleochroma patch: a password field must not teach the keyboard what is typed into
         // it (IME_FLAG_NO_PERSONALIZED_LEARNING needs API 26; the app's minSdk is 28).
         if ((mInputType & EditorInfo.TYPE_MASK_CLASS) == EditorInfo.TYPE_CLASS_TEXT
                 && (mInputType & EditorInfo.TYPE_MASK_VARIATION) == EditorInfo.TYPE_TEXT_VARIATION_PASSWORD) {

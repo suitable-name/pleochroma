@@ -1,0 +1,349 @@
+import { ComboBox } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { AppModel } from "../models/app_model.slint";
+import { GuideModel } from "../models/guide_model.slint";
+import { VerdictBadge, VerdictModel } from "verdict_badge.slint";
+import { CuttingModeModel } from "../models/cutting_mode_model.slint";
+import { LibraryModel } from "../models/library_model.slint";
+
+// One view-tab pill (Render / Solid / Diagram).
+component TabPill inherits Rectangle {
+    in property <string> text;
+    in property <bool> active;
+    // True while the guided walkthrough locks the tab (the Render tab, `view_tabs`): it
+    // dims, ignores clicks and its tooltip says why.
+    in property <bool> locked: false;
+    // The guided lesson's outline around the tab a step points at.
+    in property <bool> highlighted: false;
+    // The tooltip (what the tab shows and its shortcut).
+    in property <string> hint;
+    callback clicked();
+
+    min-width: label.preferred-width + 20px;
+    height: 26px;
+    opacity: root.locked ? 0.4 : 1.0;
+    accessible-role: tab;
+    accessible-label: root.text;
+    border-radius: Theme.radius-sm;
+    background: root.active ? Theme.accent-cyan-surface : (touch.has-hover && !root.locked ? Theme.bg-elevated : Theme.bg-input);
+    border-width: root.highlighted ? 2px : 1px;
+    border-color: (root.active || root.highlighted) ? Theme.accent-cyan : Theme.border-subtle;
+    touch := TouchArea {
+        enabled: !root.locked;
+        clicked => { root.clicked(); }
+    }
+    Tooltip { text: root.locked ? @markdown("\{GuideModel.locked-hint}") : @markdown("\{root.hint}"); }
+    label := Text {
+        text: root.text;
+        font-size: 11px;
+        font-weight: root.active ? 700 : 500;
+        color: root.active ? Theme.accent-cyan : Theme.text-secondary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// The Lighting list, in the frame a guided lesson draws around it (`lighting_combo`). The list
+// sits 2px inside the frame so the outline never covers it.
+component LightingCombo inherits Rectangle {
+    height: 32px;
+    border-radius: Theme.radius-sm;
+    border-width: GuideModel.highlight-target == "lighting_combo" ? 2px : 0px;
+    border-color: Theme.accent-cyan;
+    ComboBox {
+        x: 2px;
+        y: 2px;
+        width: parent.width - 4px;
+        height: parent.height - 4px;
+        model: AppModel.lighting-options;
+        current-index <=> AppModel.lighting-index;
+        selected(value) => { AppModel.lighting-changed(self.current-index); }
+    }
+}
+
+// The Render / Solid / Diagram tabs.
+component ViewTabs inherits HorizontalLayout {
+    spacing: 4px;
+    TabPill {
+        text: "Render";
+        hint: "Render: the stone traced on your CPU cores (Alt+1).";
+        active: AppModel.view-tab == 0;
+        locked: !GuideModel.allows-view-tabs();
+        // The view-mode steps outline all three tabs; the Live Render steps only this one.
+        highlighted: GuideModel.highlight-target == "view_modes" || GuideModel.highlight-target == "live_render_tab";
+        clicked => { AppModel.view-tab = 0; AppModel.view-tab-changed(0); }
+    }
+    TabPill {
+        text: "Solid";
+        hint: "Solid: the flat-shaded stone, with the angle, depth and index handles and the Slice tool (Alt+2).";
+        active: AppModel.view-tab == 1;
+        highlighted: GuideModel.highlight-target == "view_modes";
+        clicked => { AppModel.view-tab = 1; AppModel.view-tab-changed(1); }
+    }
+    TabPill {
+        text: "Diagram";
+        hint: "Diagram: the crown, pavilion and profile drawings (Alt+3).";
+        active: AppModel.view-tab == 2;
+        highlighted: GuideModel.highlight-target == "view_modes";
+        clicked => { AppModel.view-tab = 2; AppModel.view-tab-changed(2); }
+    }
+}
+
+// The Cutting Mode entry point: opens the full-window, one-step-per-page cutting instructions
+// (`editor/cutting_mode.slint`). Disabled, with the reason as its tooltip, while there is no
+// design to cut (`CuttingModeModel.unavailable-reason`, kept up to date by Rust) or the guided
+// walkthrough locks the advanced actions.
+component CutButton inherits Rectangle {
+    property <bool> usable: AppModel.has-design && CuttingModeModel.unavailable-reason == "" && GuideModel.allows-advanced();
+    // The tooltip: why it is disabled, else what it does.
+    property <string> hint: !AppModel.has-design ? "Open or create a design first."
+        : CuttingModeModel.unavailable-reason != "" ? CuttingModeModel.unavailable-reason
+        : !GuideModel.allows-advanced() ? GuideModel.locked-hint
+        : "Cutting Mode: the cutting instructions one step per page, with done marks (Alt+C).";
+
+    min-width: label.preferred-width + 20px;
+    height: 26px;
+    opacity: root.usable ? 1.0 : 0.4;
+    accessible-role: button;
+    accessible-label: "Cutting Mode";
+    accessible-enabled: root.usable;
+    accessible-action-default => {
+        if root.usable {
+            CuttingModeModel.open-cutting-mode();
+        }
+    }
+    border-radius: Theme.radius-sm;
+    background: touch.has-hover && root.usable ? Theme.bg-elevated : Theme.bg-input;
+    border-width: GuideModel.highlight-target == "cutting_mode_button" ? 2px : 1px;
+    border-color: GuideModel.highlight-target == "cutting_mode_button" ? Theme.accent-cyan : Theme.border-subtle;
+    touch := TouchArea {
+        enabled: root.usable;
+        mouse-cursor: root.usable ? pointer : default;
+        clicked => { CuttingModeModel.open-cutting-mode(); }
+    }
+    Tooltip { text: @markdown("\{root.hint}"); }
+    label := Text {
+        text: "Cut Mode";
+        font-size: 11px;
+        font-weight: 500;
+        color: Theme.text-secondary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// Opens the design library screen (`library/library_screen.slint`), like File > Design Library
+// (Alt+L). The screen itself says when this browser cannot keep a library.
+component LibraryButton inherits Rectangle {
+    property <bool> usable: GuideModel.allows-file-ops();
+    property <string> hint: root.usable
+        ? "Design Library: the designs kept in this browser, with search, tags and import (Alt+L)."
+        : GuideModel.locked-hint;
+
+    min-width: label.preferred-width + 20px;
+    height: 26px;
+    opacity: root.usable ? 1.0 : 0.4;
+    accessible-role: button;
+    accessible-label: "Design Library";
+    accessible-enabled: root.usable;
+    accessible-action-default => {
+        if root.usable {
+            LibraryModel.open-library();
+        }
+    }
+    border-radius: Theme.radius-sm;
+    background: touch.has-hover && root.usable ? Theme.bg-elevated : Theme.bg-input;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+    touch := TouchArea {
+        enabled: root.usable;
+        mouse-cursor: root.usable ? pointer : default;
+        clicked => { LibraryModel.open-library(); }
+    }
+    Tooltip { text: @markdown("\{root.hint}"); }
+    label := Text {
+        text: "Library";
+        font-size: 11px;
+        font-weight: 500;
+        color: Theme.text-secondary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// The logo tile.
+component Logo inherits Rectangle {
+    width: 22px;
+    height: 22px;
+    background: #1e3a8a;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: Theme.accent-cyan;
+    Text {
+        // (U+25C8 is not in the web build's font; the inverted triangle is a gem's pavilion.)
+        text: "\u{25BC}";
+        font-size: 12px;
+        color: Theme.accent-cyan;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// The toolbar under the menu bar, modelled on the desktop's
+// `components/header.slint`: logo and title, the render material and lighting
+// combos (settings state the renderer renders with) and the
+// Render / Solid / Diagram view tabs. The File menu itself is `app.slint`'s
+// `MenuBar` (a `MenuBar` must be a direct child of the Window).
+//
+// Wide (the default): one 40px row. `compact` (set by `app.slint` below 640px) stacks
+// two rows -- logo, title and the tabs on top, the two combos (sharing the width, their
+// labels dropped) underneath -- so the header's minimum width is that of the tabs plus
+// the logo instead of the whole wide row, and a 360px viewport fits.
+export component Header inherits Rectangle {
+    in property <bool> compact: false;
+
+    height: root.compact ? 76px : 40px;
+    background: Theme.bg-card;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+
+    if !root.compact: HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 8px;
+
+        VerticalLayout {
+            alignment: center;
+            Logo {}
+        }
+        Text {
+            text: "Pleochroma Web";
+            overflow: elide;
+            font-size: 13px;
+            font-weight: 700;
+            color: Theme.text-primary;
+            vertical-alignment: center;
+        }
+
+        // Filler: takes the slack, so the controls sit at the right edge.
+        Rectangle { horizontal-stretch: 1; }
+
+        // The overall verdict on the open design; hidden until there is something to judge.
+        if VerdictModel.level >= 0 && AppModel.has-design: VerticalLayout {
+            alignment: center;
+            VerdictBadge {}
+        }
+
+        Text {
+            text: "Material";
+            overflow: elide;
+            font-size: 10px;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+        }
+        VerticalLayout {
+            alignment: center;
+            ComboBox {
+                min-width: 90px;
+                preferred-width: 170px;
+                height: 28px;
+                model: AppModel.material-options;
+                current-index <=> AppModel.material-index;
+                selected(value) => { AppModel.material-changed(self.current-index); }
+            }
+        }
+
+        Text {
+            text: "Lighting";
+            overflow: elide;
+            font-size: 10px;
+            color: Theme.text-muted;
+            vertical-alignment: center;
+        }
+        VerticalLayout {
+            alignment: center;
+            LightingCombo {
+                min-width: 94px;
+                preferred-width: 204px;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            LibraryButton {}
+        }
+
+        Rectangle { width: 4px; }
+
+        VerticalLayout {
+            alignment: center;
+            CutButton {}
+        }
+
+        Rectangle { width: 4px; }
+
+        VerticalLayout {
+            alignment: center;
+            ViewTabs {}
+        }
+    }
+
+    if root.compact: VerticalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        padding-top: 5px;
+        padding-bottom: 5px;
+        spacing: 5px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                Logo {}
+            }
+            Text {
+                text: "Pleochroma Web";
+                overflow: elide;
+                font-size: 13px;
+                font-weight: 700;
+                color: Theme.text-primary;
+                vertical-alignment: center;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            if VerdictModel.level >= 0 && AppModel.has-design: VerticalLayout {
+                alignment: center;
+                VerdictBadge {}
+            }
+            VerticalLayout {
+                alignment: center;
+                ViewTabs {}
+            }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            ComboBox {
+                horizontal-stretch: 1;
+                min-width: 70px;
+                height: 28px;
+                model: AppModel.material-options;
+                current-index <=> AppModel.material-index;
+                selected(value) => { AppModel.material-changed(self.current-index); }
+            }
+            LightingCombo {
+                horizontal-stretch: 1;
+                min-width: 74px;
+            }
+            VerticalLayout {
+                horizontal-stretch: 0;
+                alignment: center;
+                LibraryButton {}
+            }
+            VerticalLayout {
+                horizontal-stretch: 0;
+                alignment: center;
+                CutButton {}
+            }
+        }
+    }
+}

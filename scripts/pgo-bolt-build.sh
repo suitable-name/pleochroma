@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Profile-guided-optimization (PGO), optionally followed by BOLT, for indicatrix-worker
-# and/or indicatrix-cut. Supports sequential execution or parallel dispatch across all
+# Profile-guided-optimization (PGO), optionally followed by BOLT, for pleochroma-worker
+# and/or pleochroma-cut. Supports sequential execution or parallel dispatch across all
 # tiers, and across either or both target binaries (`--target worker|cut|all`).
 #
 # Host/target OS: PGO training runs the instrumented binaries directly, so it needs the
@@ -42,21 +42,21 @@
 # crate hash, or the profile silently does not apply): the instrumented build and the
 # optimised build must select IDENTICAL packages, target, target-dir and features --
 # ONLY `RUSTFLAGS` (here, `CARGO_ENCODED_RUSTFLAGS`) may differ between them. Both now
-# build `indicatrix` (which owns the `pgo_train` example) together with whichever of
-# `indicatrix-cut` (plus `indicatrix-cut-core`, trained by `--example pgo_train_cutcore`)
-# or `indicatrix-worker` `--target` selects, with `--bins --example pgo_train` and the
+# build `pleochroma` (which owns the `pgo_train` example) together with whichever of
+# `pleochroma-cut` (plus `pleochroma-cut-core`, trained by `--example pgo_train_cutcore`)
+# or `pleochroma-worker` `--target` selects, with `--bins --example pgo_train` and the
 # SAME `--features` string, in one `cargo build` each. Previously the
-# instrumented step selected only `-p indicatrix --example pgo_train` while the optimised
-# step selected only `-p indicatrix-worker`/`-p indicatrix-cut` -- a different package
+# instrumented step selected only `-p pleochroma --example pgo_train` while the optimised
+# step selected only `-p pleochroma-worker`/`-p pleochroma-cut` -- a different package
 # set changes every downstream crate's feature-unification result (e.g. `glam` gaining
 # `bytemuck` only through the app build), which changes that crate's `-C metadata` hash,
 # which changes its mangled symbol names, so `-C profile-use` found nothing to match and
 # every previously "PGO'd" binary was in fact built as if untrained.
 #
-# `indicatrix`'s `hdr` and `serde` features are always both enabled regardless of
-# `--target`: `indicatrix-cut` depends on `indicatrix` with `features = ["hdr"]`
-# unconditionally and always enables `indicatrix-net/render` (-> `indicatrix/serde`), and
-# `indicatrix-worker`'s own `worker` feature does the same. `indicatrix-net/compression`
+# `pleochroma`'s `hdr` and `serde` features are always both enabled regardless of
+# `--target`: `pleochroma-cut` depends on `pleochroma` with `features = ["hdr"]`
+# unconditionally and always enables `pleochroma-net/render` (-> `pleochroma/serde`), and
+# `pleochroma-worker`'s own `worker` feature does the same. `pleochroma-net/compression`
 # is likewise always on (a default feature of that crate, named explicitly in
 # `pgo_features` so it can never be dropped by accident). A `cut`-only build's profile
 # is kept in `pgo-profile/cut/` and a `worker`-only build's in `pgo-profile/worker/` --
@@ -64,7 +64,7 @@
 # combined `worker`+`cut` build, so they must not share a profile file with it or with
 # each other.
 #
-# A profile trained under one `INDICATRIX_SIMD` tier leaves `indicatrix`'s SIMD kernels
+# A profile trained under one `PLEOCHROMA_SIMD` tier leaves `pleochroma`'s SIMD kernels
 # for every OTHER tier with zero profile counts (see `simd::simd_level`), so LLVM treats
 # them as cold/size-optimised in that binary regardless of what the CPU it later runs on
 # actually supports. Ship the avx2 build to AVX2-and-newer machines (including AVX-512
@@ -77,7 +77,7 @@
 # explicit `--isa avx512` on such a host refuses immediately instead of crashing mid-run.
 #
 # Up to three instrumented training binaries feed each combination's merged profile:
-#   1. `indicatrix`'s `pgo_train` example -- the CPU spectral tracer (every material
+#   1. `pleochroma`'s `pgo_train` example -- the CPU spectral tracer (every material
 #      optical character, dispersive/non-dispersive, plain/frosted-girdle, both the
 #      float HDR buffer and the 8-bit tonemapped output), every lighting model plus a
 #      synthetic HDR map, the meet-point solver (and through it the SIMD
@@ -87,15 +87,15 @@
 #      (only in the `gpu` tier, when this host has an adapter) the CPU-side GPU chunk
 #      dispatch/readback orchestration. See that example's own doc comment for the
 #      full stage-by-stage coverage table.
-#   2. `indicatrix-cut-core`'s OWN `pgo_train_cutcore` example (cut target only) -- the
-#      editor-core layer built on top of `indicatrix`: `Design::solve`, `.asc` export,
-#      the `.isdd` design file save/load round trip, `resolve_after_edit`, and
+#   2. `pleochroma-cut-core`'s OWN `pgo_train_cutcore` example (cut target only) -- the
+#      editor-core layer built on top of `pleochroma`: `Design::solve`, `.asc` export,
+#      the `.psdd` design file save/load round trip, `resolve_after_edit`, and
 #      `optimize_design`'s search loop, run against every built-in template plus the
 #      crate's own CrackOtto-Step fixture. It is built in the SAME `cargo build`
 #      invocation as everything else for the `cut` target (`pgo_packages` includes
-#      `indicatrix-cut-core`, and `--example pgo_train --example pgo_train_cutcore` are
+#      `pleochroma-cut-core`, and `--example pgo_train --example pgo_train_cutcore` are
 #      both passed), so the instrumented and optimised builds resolve the identical
-#      dependency graph and `indicatrix-cut-core`'s `-C metadata` (hence every mangled
+#      dependency graph and `pleochroma-cut-core`'s `-C metadata` (hence every mangled
 #      symbol) matches. The example carries a distinct name because two examples named
 #      `pgo_train` collide on Cargo's name-keyed "pretty path" uplift
 #      (`target/<profile>/examples/<name>`) in one invocation. An earlier separate
@@ -103,39 +103,39 @@
 #      applied (proven 2026-10-06). The worker target does not link cut-core and skips
 #      this step. The workload runs from `examples/pgo_train_cutcore` right after the
 #      main one, with its own `cutcore-*.profraw` naming.
-#   3. `indicatrix-net`'s `scene_roundtrip` integration test, run under the same
+#   3. `pleochroma-net`'s `scene_roundtrip` integration test, run under the same
 #      instrumentation -- covers `SceneState`'s postcard wire-protocol encode/decode,
-#      the one hot path that cannot be reached from `pgo_train` (a `indicatrix` example
-#      cannot depend on `indicatrix-net`, which itself depends on `indicatrix`). Built
+#      the one hot path that cannot be reached from `pgo_train` (a `pleochroma` example
+#      cannot depend on `pleochroma-net`, which itself depends on `pleochroma`). Built
 #      with the SAME `--features`/`--target`/`--target-dir` as the main instrumented
-#      build above so `indicatrix-net`'s own crate hash lines up with what the final
+#      build above so `pleochroma-net`'s own crate hash lines up with what the final
 #      binary resolves to, but through `cargo test --no-run` (a separate cargo
 #      subcommand from the `cargo build` the other two steps share) -- this is a smaller,
 #      not fully eliminated, version of the same crate-hash risk the parity note above
 #      describes;
 #      the post-build "hash mismatch"/"no profile data available" scan below is what
 #      catches it if it ever matters in practice.
-#   4. `indicatrix-net`'s `pgo_codecs` example (own `cargo build`, same `--features render`
+#   4. `pleochroma-net`'s `pgo_codecs` example (own `cargo build`, same `--features render`
 #      as step 3) -- the payload codecs: byte shuffle, zstd and LZ4 encode/decode of
 #      1080p sparse and dense frames plus one 4K frame, every round trip checked.
 # `pgo_train` itself runs twice per tier build when the host's native SIMD tier outranks
 # the build's cap (`--print-simd-tier`, see `simd_training_caps`): once with
-# `INDICATRIX_SIMD` unset (what the shipped binary does) and once capped.
+# `PLEOCHROMA_SIMD` unset (what the shipped binary does) and once capped.
 # Every `.profraw` from all binaries and runs is merged into one `.profdata` per combination.
 #
 # Training coverage is a known limitation, not a complete picture. None of the training
 # binaries exercises the radiance (HDR) image FILE codecs, the solid rasterizer,
-# `guide_pass`, the `indicatrix-vault` database, the desktop editor's event loops and GUI
+# `guide_pass`, the `pleochroma-vault` database, the desktop editor's event loops and GUI
 # code, or the `GpuBackend` type; those paths are optimised as cold code. The `gpu` tier's
 # `train_gpu` stage trains `render_hybrid`, which no app calls today. Two more limits:
-# the `indicatrix-net` test build selects only that package with `--features render`.
-# The post-build crate-hash check compares `indicatrix` tokens, and for the `cut` target
-# also `indicatrix-cut-core` tokens (`test_profile_hash_applied`); it proves the profile
+# the `pleochroma-net` test build selects only that package with `--features render`.
+# The post-build crate-hash check compares `pleochroma` tokens, and for the `cut` target
+# also `pleochroma-cut-core` tokens (`test_profile_hash_applied`); it proves the profile
 # applied to those crates, not how much of them the training covers.
 #
 # Environment knobs `pgo_train` honours:
-#   INDICATRIX_SIMD=scalar|avx2|avx512   caps runtime SIMD dispatch during training (unset for native)
-#   INDICATRIX_SAMPLES=<n>               overrides the tracer's samples-per-pixel directly
+#   PLEOCHROMA_SIMD=scalar|avx2|avx512   caps runtime SIMD dispatch during training (unset for native)
+#   PLEOCHROMA_SAMPLES=<n>               overrides the tracer's samples-per-pixel directly
 #   PGO_SCALE=<factor>               scales every stage's frame size/iteration count (default 1.0)
 #   PGO_TRAIN_SKIP_GPU=1             skips the GPU chunk-orchestration training stage
 #
@@ -146,17 +146,17 @@
 #   scripts/pgo-bolt-build.sh --os windows --parallel        # Windows binaries from a Linux host, trained under Wine (plain release, labelled NO PGO, without a runner)
 #   scripts/pgo-bolt-build.sh --collect-only                 # Generate & copy Windows PGO profiles only (native on Windows, under Wine on Linux; needs a runner there)
 #   scripts/pgo-bolt-build.sh --isa avx2 --gpu gpu           # single combination
-#   scripts/pgo-bolt-build.sh --target worker                # indicatrix-worker only
-#   scripts/pgo-bolt-build.sh --target cut                   # indicatrix-cut only
-#   scripts/pgo-bolt-build.sh --bolt                         # PGO + BOLT (Linux only, indicatrix-worker only -- see below)
+#   scripts/pgo-bolt-build.sh --target worker                # pleochroma-worker only
+#   scripts/pgo-bolt-build.sh --target cut                   # pleochroma-cut only
+#   scripts/pgo-bolt-build.sh --bolt                         # PGO + BOLT (Linux only, pleochroma-worker only -- see below)
 #   scripts/pgo-bolt-build.sh --bolt --native                # PGO + BOLT, host-CPU tier only
-#   scripts/pgo-bolt-build.sh --bolt --target worker         # PGO + BOLT, indicatrix-worker only
+#   scripts/pgo-bolt-build.sh --bolt --target worker         # PGO + BOLT, pleochroma-worker only
 #
-# BOLT applies only to `indicatrix-worker`, on Linux, regardless of `--target`: it has a
-# headless, deterministic `render` workload to profile. `indicatrix-cut` is an
+# BOLT applies only to `pleochroma-worker`, on Linux, regardless of `--target`: it has a
+# headless, deterministic `render` workload to profile. `pleochroma-cut` is an
 # interactive desktop app with no scriptable workload -- a startup-only profile would
 # give it a worse code layout than no BOLT at all (see the root README's "Optimized
-# builds" section) -- so `--bolt --target cut`/`--target all` PGO-builds indicatrix-cut
+# builds" section) -- so `--bolt --target cut`/`--target all` PGO-builds pleochroma-cut
 # normally and skips the BOLT pass for it, with a notice explaining why.
 #
 set -euo pipefail
@@ -179,18 +179,18 @@ USE_BOLT=0
 PARALLEL=0
 COLLECT_ONLY=0
 WITH_NATIVE=0
-# "no profile data available" fires in bulk, and expectedly, for indicatrix-cut/
-# indicatrix-worker's own GUI/server/CLI code that pgo_train never exercises. Measured
+# "no profile data available" fires in bulk, and expectedly, for pleochroma-cut/
+# pleochroma-worker's own GUI/server/CLI code that pgo_train never exercises. Measured
 # on 2026-09-28 (Linux host, windows-gnu target, Wine-trained, crate-hash check OK):
-# indicatrix-cut ~66,150-66,170 per combination, indicatrix-worker well under 50,000.
+# pleochroma-cut ~66,150-66,170 per combination, pleochroma-worker well under 50,000.
 # This count is therefore only a FALLBACK gate, used when test_profile_hash_applied
 # could not verify the profile (a parsing miss); once the crate-hash check has proven
 # the profile applied, the count is reported and never fatal -- see
 # test_profile_warnings.
 #
 # Since 2026-10-06 the fallback gate is the trained LIBRARY crates' count
-# (MAX_LIBRARY_MISSING_FUNCTION_WARNINGS; everything except indicatrix_cut/
-# indicatrix_worker's own code): indicatrix-cut's own count grows with every GUI feature
+# (MAX_LIBRARY_MISSING_FUNCTION_WARNINGS; everything except pleochroma_cut/
+# pleochroma_worker's own code): pleochroma-cut's own count grows with every GUI feature
 # (~161,000 that day with the profile applied) and proves nothing. The overall count is
 # kept only as a generous ceiling against a runaway.
 MAX_MISSING_FUNCTION_WARNINGS=400000
@@ -486,39 +486,39 @@ step() { printf '\n==> %s\n' "$*"; }
 # Binary/package name for a target key ("worker" or "cut").
 target_bin() {
     case "$1" in
-        worker) printf 'indicatrix-worker' ;;
-        cut)    printf 'indicatrix-cut' ;;
+        worker) printf 'pleochroma-worker' ;;
+        cut)    printf 'pleochroma-cut' ;;
         *)      die "unknown target: $1" ;;
     esac
 }
 
-# The full package set for a -Target key: `indicatrix` (owns pgo_train) plus whichever
-# app it selects (cut also lists indicatrix-cut-core, which owns pgo_train_cutcore).
+# The full package set for a -Target key: `pleochroma` (owns pgo_train) plus whichever
+# app it selects (cut also lists pleochroma-cut-core, which owns pgo_train_cutcore).
 # Used IDENTICALLY by the instrumented and optimised builds -- see this
 # file's header comment on package/feature parity.
 pgo_packages() {
     case "$1" in
-        worker) printf 'indicatrix indicatrix-worker' ;;
-        cut)    printf 'indicatrix indicatrix-cut indicatrix-cut-core' ;;
+        worker) printf 'pleochroma pleochroma-worker' ;;
+        cut)    printf 'pleochroma pleochroma-cut pleochroma-cut-core' ;;
         *)      die "unknown target: $1" ;;
     esac
 }
 
 # The full --features string for a (target, gpu) combination -- see this file's header
-# comment: `indicatrix/serde` and `indicatrix/hdr` are always both on, regardless of
+# comment: `pleochroma/serde` and `pleochroma/hdr` are always both on, regardless of
 # target, since both apps' own dependency edges always turn them on anyway.
-# `indicatrix-net/compression` (the v14 zstd/LZ4/PNG payload codecs) is a DEFAULT feature
-# of `indicatrix-net` that both apps inherit, so it is already on in every variant --
+# `pleochroma-net/compression` (the v14 zstd/LZ4/PNG payload codecs) is a DEFAULT feature
+# of `pleochroma-net` that both apps inherit, so it is already on in every variant --
 # named here too so a later change to that crate's default set can never silently drop
 # it from a PGO build (the owner wants it active in every PGO variant).
 pgo_features() {
     local target="$1" gpu="$2"
-    local -a feats=(indicatrix/serde indicatrix/hdr indicatrix-net/compression)
-    [ "$target" = worker ] && feats+=(indicatrix-worker/worker)
+    local -a feats=(pleochroma/serde pleochroma/hdr pleochroma-net/compression)
+    [ "$target" = worker ] && feats+=(pleochroma-worker/worker)
     if [ "$gpu" = gpu ]; then
-        feats+=(indicatrix/gpu)
-        [ "$target" = cut ] && feats+=(indicatrix-cut/gpu)
-        [ "$target" = worker ] && feats+=(indicatrix-worker/gpu)
+        feats+=(pleochroma/gpu)
+        [ "$target" = cut ] && feats+=(pleochroma-cut/gpu)
+        [ "$target" = worker ] && feats+=(pleochroma-worker/gpu)
     fi
     local IFS=,
     printf '%s' "${feats[*]}"
@@ -543,19 +543,19 @@ test_profile_warnings() {
     fi
     if [ "${PROFILE_HASH_VERIFIED:-0}" -eq 1 ]; then
         # The crate-hash check already proved the profile applied; the count is only
-        # code the training run never executes (the whole GUI for indicatrix-cut).
+        # code the training run never executes (the whole GUI for pleochroma-cut).
         printf '  [%s] %s function(s) without profile data (untrained code; the crate-hash check confirmed the profile applied)\n' "$label" "${no_profile_count:-0}"
         return 0
     fi
     # The fallback gate counts only the TRAINED library crates' warnings. The app's own
-    # crate (GUI/server/CLI, never trained) grows with every feature: indicatrix-cut alone
+    # crate (GUI/server/CLI, never trained) grows with every feature: pleochroma-cut alone
     # was ~66,000 on 2026-09-28 and ~161,000 on 2026-10-06 with a fully applied profile,
     # which says nothing about whether the profile applied. A profile that silently stopped
     # applying shows up as the libraries' counts jumping instead: measured 2026-10-06 with
-    # the profile applied, indicatrix under 103 and every library together about 5,500.
+    # the profile applied, pleochroma under 103 and every library together about 5,500.
     local library_count
     library_count="$(grep 'no profile data available' "$logfile" \
-        | grep -vcE '^warning: (indicatrix_cut|indicatrix_worker)\.' || true)"
+        | grep -vcE '^warning: (pleochroma_cut|pleochroma_worker)\.' || true)"
     if [ "${library_count:-0}" -gt "$MAX_LIBRARY_MISSING_FUNCTION_WARNINGS" ]; then
         die "[$label] $library_count 'no profile data available' warning(s) from the trained library crates in $logfile, over the threshold ($MAX_LIBRARY_MISSING_FUNCTION_WARNINGS, --max-library-missing-function-warnings), and the crate-hash check could not verify the profile: it most likely did not apply. Per-crate counts: $(grep 'no profile data available' "$logfile" | grep -oE '^warning: [a-z_]+' | sort | uniq -c | sort -rn | head -n 8 | tr -s ' \n' ' ')"
     fi
@@ -566,8 +566,8 @@ test_profile_warnings() {
 }
 
 # Verifies the merged profile's crate-hash tokens match the tokens actually baked into
-# the optimised build's rlibs for `indicatrix` and, for the `cut` target, also
-# `indicatrix-cut-core`, i.e. the profile actually applies to both. (The worker does not
+# the optimised build's rlibs for `pleochroma` and, for the `cut` target, also
+# `pleochroma-cut-core`, i.e. the profile actually applies to both. (The worker does not
 # link cut-core: not applicable there.) A feature-unification difference between the
 # training and optimised builds would apply nothing while the missing-function
 # tolerance hid the loss. Best-effort: a parsing miss prints a warning
@@ -577,10 +577,10 @@ test_profile_hash_applied() {
     local profdata="$1" bdir="$2" rust_target="$3" label="$4" target="$5"
     local core_rc=0 cutcore_rc=0
     test_crate_hash_token "$profdata" "$bdir" "$rust_target" "$label" \
-        trace_spectral_ray_with_finish_soa 'Cs[0-9a-zA-Z]+_10indicatrix' indicatrix indicatrix || core_rc=$?
+        trace_spectral_ray_with_finish_soa 'Cs[0-9a-zA-Z]+_10pleochroma' pleochroma pleochroma || core_rc=$?
     if [ "$target" = cut ]; then
         test_crate_hash_token "$profdata" "$bdir" "$rust_target" "$label" \
-            resolve_after_edit 'Cs[0-9a-zA-Z]+_19indicatrix_cut_core' indicatrix-cut-core indicatrix_cut_core || cutcore_rc=$?
+            resolve_after_edit 'Cs[0-9a-zA-Z]+_19pleochroma_cut_core' pleochroma-cut-core pleochroma_cut_core || cutcore_rc=$?
     fi
     if [ "$core_rc" -eq 0 ] && [ "$cutcore_rc" -eq 0 ]; then
         PROFILE_HASH_VERIFIED=1
@@ -601,7 +601,7 @@ test_crate_hash_token() {
     # function under different metadata. The profile applies when ANY
     # copy carries the optimised rlib's token, so collect every token, not just the first
     # match. Taking only the first match reported a false "did NOT apply" on 2026-10-06,
-    # while the per-crate warning counts showed `indicatrix` fully profiled.
+    # while the per-crate warning counts showed `pleochroma` fully profiled.
     local prof_lines
     prof_lines="$("$PROFDATA" show --all-functions "$profdata" 2>&1 | grep "$func" || true)"
     if [ -z "$prof_lines" ]; then
@@ -660,7 +660,7 @@ no_pgo_notice() {
         "$target" "$combo" "$HOST_TARGET"
 }
 
-# The `INDICATRIX_SIMD` values `pgo_train` is run with for one tier build (BLD-1), one per
+# The `PLEOCHROMA_SIMD` values `pgo_train` is run with for one tier build (BLD-1), one per
 # output line (an empty line = variable unset). The shipped binary runs with the variable
 # UNSET and dispatches at run time to the host's best kernels (`simd::simd_level`), so a
 # tier build trained only under its own cap leaves the higher tier's kernels (the AVX-512
@@ -680,7 +680,7 @@ simd_training_caps() {
     local host_tier
     host_tier="$(
         cd "$rawdir" && \
-        env -u INDICATRIX_SIMD LLVM_PROFILE_FILE="probe-%p-%m.profraw" \
+        env -u PLEOCHROMA_SIMD LLVM_PROFILE_FILE="probe-%p-%m.profraw" \
         ${train_env[@]+"${train_env[@]}"} \
         ${runner[@]+"${runner[@]}"} \
         "$exe" --print-simd-tier | head -n1 | tr -d '[:space:]'
@@ -837,7 +837,7 @@ build_combination() {
         # way. Native and cross runs share this one code path. Executable paths stay
         # absolute; `${arr[@]+"${arr[@]}"}` keeps empty arrays safe under `set -u`.
         # Two-run tier training (BLD-1): see simd_training_caps. The shipped binary runs
-        # with INDICATRIX_SIMD unset, so when the host's native tier outranks this
+        # with PLEOCHROMA_SIMD unset, so when the host's native tier outranks this
         # build's cap, train once unset (host kernels) AND once capped; both runs'
         # `.profraw` files land in $rawdir and merge into the tier's one profile.
         local train_exe="$bdir/$rust_target/release/examples/pgo_train$target_exe"
@@ -846,22 +846,22 @@ build_combination() {
         [ "${#run_caps[@]}" -gt 0 ] || die "[$target][$current_os-$name][train] could not determine the SIMD training runs (see the --print-simd-tier error above)"
         local run_cap
         for run_cap in "${run_caps[@]}"; do
-            step "[$target][$current_os-$name][train] Running workload (INDICATRIX_SIMD='${run_cap}', INDICATRIX_SAMPLES=$SAMPLES${runner[0]:+; runner: ${runner[*]}})"
+            step "[$target][$current_os-$name][train] Running workload (PLEOCHROMA_SIMD='${run_cap}', PLEOCHROMA_SAMPLES=$SAMPLES${runner[0]:+; runner: ${runner[*]}})"
             (
                 cd "$rawdir"
-                env -u INDICATRIX_SIMD LLVM_PROFILE_FILE="train-%p-%m.profraw" \
+                env -u PLEOCHROMA_SIMD LLVM_PROFILE_FILE="train-%p-%m.profraw" \
                 ${train_env[@]+"${train_env[@]}"} \
-                ${run_cap:+INDICATRIX_SIMD="$run_cap"} \
-                INDICATRIX_SAMPLES="$SAMPLES" \
+                ${run_cap:+PLEOCHROMA_SIMD="$run_cap"} \
+                PLEOCHROMA_SAMPLES="$SAMPLES" \
                 ${runner[@]+"${runner[@]}"} \
                 "$train_exe"
             ) 2>&1 | tee -a "$logfile"
         done
 
-        # `indicatrix-cut-core`'s OWN training binary (cut target only), built by the
+        # `pleochroma-cut-core`'s OWN training binary (cut target only), built by the
         # invocation above (see the header comment, step 2).
         if [ "$target" = cut ]; then
-            step "[$target][$current_os-$name][train] Running indicatrix-cut-core training workload"
+            step "[$target][$current_os-$name][train] Running pleochroma-cut-core training workload"
             (
                 cd "$rawdir"
                 env LLVM_PROFILE_FILE="cutcore-%p-%m.profraw" \
@@ -871,11 +871,11 @@ build_combination() {
             ) 2>&1 | tee -a "$logfile"
         fi
 
-        step "[$target][$current_os-$name][train] Building instrumented indicatrix-net wire-protocol test (scene_roundtrip)"
+        step "[$target][$current_os-$name][train] Building instrumented pleochroma-net wire-protocol test (scene_roundtrip)"
         CARGO_PROFILE_RELEASE_STRIP="$release_strip" \
         CARGO_ENCODED_RUSTFLAGS="-C${US}target-cpu=$target_cpu${US}-C${US}profile-generate=$rawdir" \
         cargo test --release --target "$rust_target" --target-dir "$bdir" \
-        -p indicatrix-net --features render --test scene_roundtrip --no-run \
+        -p pleochroma-net --features render --test scene_roundtrip --no-run \
         --message-format=json > "$bdir/net-test-build.json"
 
         # The JSON-extracted path is used unchanged: it is already absolute, and `-x`
@@ -886,7 +886,7 @@ build_combination() {
         [ -n "$net_test_exe" ] && [ -x "$net_test_exe" ] || \
         die "[$target][$current_os-$name][train] could not locate the instrumented scene_roundtrip test binary"
 
-        step "[$target][$current_os-$name][train] Running indicatrix-net wire-protocol training (scene_roundtrip)"
+        step "[$target][$current_os-$name][train] Running pleochroma-net wire-protocol training (scene_roundtrip)"
         (
             cd "$rawdir"
             env LLVM_PROFILE_FILE="net-%p-%m.profraw" \
@@ -895,17 +895,17 @@ build_combination() {
             "$net_test_exe" --test-threads=1
         ) 2>&1 | tee -a "$logfile"
 
-        # indicatrix-net's payload codecs (byte shuffle + zstd + LZ4 encode/decode, 1080p
-        # and one 4K frame): the `indicatrix` pgo_train example cannot link
-        # `indicatrix-net`, so they get their own example, built with the same --features
+        # pleochroma-net's payload codecs (byte shuffle + zstd + LZ4 encode/decode, 1080p
+        # and one 4K frame): the `pleochroma` pgo_train example cannot link
+        # `pleochroma-net`, so they get their own example, built with the same --features
         # as the scene_roundtrip test build above.
-        step "[$target][$current_os-$name][train] Building instrumented indicatrix-net payload codec example (pgo_codecs)"
+        step "[$target][$current_os-$name][train] Building instrumented pleochroma-net payload codec example (pgo_codecs)"
         CARGO_PROFILE_RELEASE_STRIP="$release_strip" \
         CARGO_ENCODED_RUSTFLAGS="-C${US}target-cpu=$target_cpu${US}-C${US}profile-generate=$rawdir" \
         cargo build --release --target "$rust_target" --target-dir "$bdir" \
-        -p indicatrix-net --features render --example pgo_codecs 2>&1 | tee -a "$logfile"
+        -p pleochroma-net --features render --example pgo_codecs 2>&1 | tee -a "$logfile"
 
-        step "[$target][$current_os-$name][train] Running indicatrix-net payload codec training (pgo_codecs)"
+        step "[$target][$current_os-$name][train] Running pleochroma-net payload codec training (pgo_codecs)"
         (
             cd "$rawdir"
             env LLVM_PROFILE_FILE="codecs-%p-%m.profraw" \
@@ -974,21 +974,21 @@ build_combination() {
     cp -f "$src" "$dst"
     printf '    %s (%s)\n' "$dst" "$(du -h "$dst" | cut -f1)"
 
-    # 3. Optional BOLT post-processing (Linux only, indicatrix-worker only -- see the
-    #    root README's "Optimized builds" section: indicatrix-cut is an interactive
+    # 3. Optional BOLT post-processing (Linux only, pleochroma-worker only -- see the
+    #    root README's "Optimized builds" section: pleochroma-cut is an interactive
     #    GUI binary with no scriptable workload, and a startup-only BOLT profile would
     #    give it a worse code layout than no BOLT at all).
     if [ "$BOLT_ENABLED" -eq 1 ] && [ "$current_os" = linux ]; then
         if [ "$target" = worker ]; then
             bolt_binary "$current_os" "$name" "$release_dir" "$bdir" "$simd_cap" "$target"
         else
-            step "[$target][$current_os-$name][bolt] Skipping BOLT for indicatrix-cut (no scriptable workload -- see root README)"
+            step "[$target][$current_os-$name][bolt] Skipping BOLT for pleochroma-cut (no scriptable workload -- see root README)"
         fi
     fi
 }
 
 # Cached path to the fixed training scene BOLT's `render` invocation needs -- built and
-# generated once (via `indicatrix-worker`'s `write_pgo_scene` example, a plain release
+# generated once (via `pleochroma-worker`'s `write_pgo_scene` example, a plain release
 # build outside any PGO target-dir) and reused by every BOLT combination.
 PGO_BOLT_SCENE=""
 ensure_pgo_bolt_scene() {
@@ -999,7 +999,7 @@ ensure_pgo_bolt_scene() {
     if [ ! -f "$scene_json" ]; then
         step "[bolt] Writing training scene ($scene_json)"
         cargo run --release --target "$HOST_TARGET" --target-dir "$scene_dir/build" \
-        -p indicatrix-worker --features worker --example write_pgo_scene -- "$scene_json"
+        -p pleochroma-worker --features worker --example write_pgo_scene -- "$scene_json"
     fi
     PGO_BOLT_SCENE="$scene_json"
 }
@@ -1019,11 +1019,11 @@ bolt_binary() {
 
     # `render` needs `--scene` (there is no built-in demo scene); `--no-gpu` is not a
     # real flag on this CLI -- `--only-cpu` is what forces the CPU tracer (see
-    # apps/indicatrix-worker/src/cli/mod.rs's USAGE_RENDER). BOLT profiles this binary's
-    # OWN code layout, not indicatrix's GPU dispatch, so CPU-only is also the right
+    # apps/pleochroma-worker/src/cli/mod.rs's USAGE_RENDER). BOLT profiles this binary's
+    # OWN code layout, not pleochroma's GPU dispatch, so CPU-only is also the right
     # workload to profile here regardless.
     step "[$target][$current_os-$name][bolt] Collecting profile"
-    env ${simd_cap:+INDICATRIX_SIMD="$simd_cap"} "$work/$bin.inst" render \
+    env ${simd_cap:+PLEOCHROMA_SIMD="$simd_cap"} "$work/$bin.inst" render \
     --scene "$PGO_BOLT_SCENE" \
     --out "$work/train.png" \
     --width 640 --height 360 --samples "$SAMPLES" --only-cpu
@@ -1055,7 +1055,7 @@ printf 'ISA Tiers:    %s\n' "${ISA_LIST[*]}"
 printf 'GPU Tiers:    %s\n' "${GPU_LIST[*]}"
 printf 'Targets:      %s\n' "${TARGET_LIST[*]}"
 printf 'Execution:    %s\n' "$([ "$PARALLEL" -eq 1 ] && echo 'parallel' || echo 'sequential')"
-printf 'BOLT:         %s\n' "$([ "$BOLT_ENABLED" -eq 1 ] && echo 'enabled (indicatrix-worker only)' || echo 'disabled')"
+printf 'BOLT:         %s\n' "$([ "$BOLT_ENABLED" -eq 1 ] && echo 'enabled (pleochroma-worker only)' || echo 'disabled')"
 printf 'Output Dir:   %s\n' "$([ "$COLLECT_ONLY" -eq 1 ] && echo "$PGO_PROFILE_DIR (collect-only)" || echo "$OUT_DIR")"
 
 mkdir -p "$OUT_DIR"

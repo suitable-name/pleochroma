@@ -1,0 +1,82 @@
+import { SurfaceModel } from "../../models/surface.slint";
+
+// The tier row's right-click menu: Surface Finish for the tier, in one submenu. A grade is one
+// undoable edit (`SurfaceModel.grade_chosen`); "Custom..." selects the tier too, so the inspector's
+// Surface Finish section shows the Custom values (roughness, anisotropy, Custom Angle). The
+// scratch direction items change only the tier's own finish; a facet is overridden from the
+// inspector. Mounted by `TierTableRow` over the whole row, below its buttons.
+export component TierSurfaceMenu inherits Rectangle {
+    // The table row.
+    in property <int> tier_index;
+    // `false` for a concave tier (it has no surface finish of its own) and while the worked-example
+    // guide locks the tier table.
+    in property <bool> available: true;
+    // Custom... asks for the tier to be opened in the inspector.
+    callback select_tier(int);
+
+    // Explicit geometry: an overlay positioned by default would propagate its constraints to the row.
+    x: 0px;
+    y: 0px;
+    width: 100%;
+    height: 100%;
+
+    if root.available: ContextMenuArea {
+        Menu {
+            Menu {
+                title: "Surface Finish";
+                MenuItem {
+                    title: "Ideal";
+                    activated => { SurfaceModel.grade_chosen(root.tier_index, 0); }
+                }
+                MenuItem {
+                    title: "Mirror";
+                    activated => { SurfaceModel.grade_chosen(root.tier_index, 1); }
+                }
+                MenuItem {
+                    title: "Fine";
+                    activated => { SurfaceModel.grade_chosen(root.tier_index, 2); }
+                }
+                MenuItem {
+                    title: "Commercial";
+                    activated => { SurfaceModel.grade_chosen(root.tier_index, 3); }
+                }
+                MenuItem {
+                    title: "Prepolish";
+                    activated => { SurfaceModel.grade_chosen(root.tier_index, 4); }
+                }
+                MenuItem {
+                    title: "Ground (Fine)";
+                    activated => { SurfaceModel.grade_chosen(root.tier_index, 5); }
+                }
+                MenuItem {
+                    title: "Ground (Coarse)";
+                    activated => { SurfaceModel.grade_chosen(root.tier_index, 6); }
+                }
+                MenuItem {
+                    title: "Custom...";
+                    activated => {
+                        SurfaceModel.grade_chosen(root.tier_index, 7);
+                        root.select_tier(root.tier_index);
+                    }
+                }
+                MenuSeparator {}
+                MenuItem {
+                    title: "No Sweep";
+                    activated => { SurfaceModel.no_sweep_set(root.tier_index, true); }
+                }
+                MenuItem {
+                    title: "Follow the Sweep";
+                    activated => { SurfaceModel.no_sweep_set(root.tier_index, false); }
+                }
+                MenuSeparator {}
+                MenuItem {
+                    title: SurfaceModel.show_overlay ? "Hide Surface Finish" : "Show Surface Finish";
+                    activated => {
+                        SurfaceModel.show_overlay = !SurfaceModel.show_overlay;
+                        SurfaceModel.overlay_changed();
+                    }
+                }
+            }
+        }
+    }
+}

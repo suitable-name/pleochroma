@@ -1,0 +1,197 @@
+import { Theme } from "../../theme.slint";
+import { SolidPreviewModel } from "../../models/solid_preview.slint";
+import { ViewportModel } from "../../models/viewport.slint";
+import { EditorModel } from "../../models/editor.slint";
+
+// The pictures of the Edit viewport and the notes drawn with them: the solid image, the traced
+// image, the combined view's layers, the Diagram image, the refusal card and the placeholder. A
+// pure move out of `SolidViewportView` (`components/solid_viewport.slint`), which mounts it as
+// the one child below its pointer handling: it fills the viewport, handles no pointer event and
+// keeps the draw order the pictures had there. `is_dragging`, `diagram_zoom`, `diagram_pan_x`
+// and `diagram_pan_y` are the viewport's own gesture state.
+export component SolidViewportLayers inherits Rectangle {
+    in property <bool> is_dragging;
+    in property <float> diagram_zoom: 1.0;
+    in property <length> diagram_pan_x: 0px;
+    in property <length> diagram_pan_y: 0px;
+
+    // Before a real design is installed only the startup placeholder exists. The empty-state
+    // card grid (`EditorViewportOverlay`) starts below the toolbar, so none of the pictures is
+    // drawn: the placeholder's render would otherwise show through around the toolbar's pills.
+    property <bool> placeholder_only: EditorModel.enabled && !EditorModel.has_design;
+    property <bool> ray_refused: !root.placeholder_only && SolidPreviewModel.ray_selected && ViewportModel.trace_refusal != "";
+    // A combined view while the Cut slider has the design cut back and the traced image has
+    // not caught up with the cut yet: the flat-shaded solid, which always shows the cut
+    // stone, stands in for the stale render (with its edges on top) instead of a dimmed
+    // render with the edges hidden, which would show the wrong stone. Not while orbiting:
+    // the layers compose as if matching then (see the combined layers below).
+    property <bool> cut_shows_solid: SolidPreviewModel.combined && !root.ray_refused && SolidPreviewModel.tier_cutoff != -1 && !SolidPreviewModel.trace_matches_solid && !root.is_dragging && SolidPreviewModel.has_solid;
+
+    if !root.placeholder_only && SolidPreviewModel.view_mode == 0 && SolidPreviewModel.has_solid: Image {
+        width: 100%;
+        height: 100%;
+        source: SolidPreviewModel.image;
+        image-fit: contain;
+    }
+
+    if !root.placeholder_only && (SolidPreviewModel.view_mode == 1 || SolidPreviewModel.view_mode == 4) && ViewportModel.has_render: Image {
+        width: 100%;
+        height: 100%;
+        source: ViewportModel.render_image;
+        image-fit: contain;
+        opacity: root.ray_refused ? 0.15 : 1.0;
+    }
+
+    if root.ray_refused: Rectangle {
+        width: 100%;
+        height: 100%;
+        VerticalLayout {
+            alignment: center;
+            padding: 32px;
+            Rectangle {
+                border-radius: Theme.radius-md;
+                background: Theme.accent-amber;
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 6px;
+                    Text {
+                        text: "Cannot Trace This Design";
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: Theme.bg-darkest;
+                        horizontal-alignment: center;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: ViewportModel.trace_refusal;
+                        font-size: 12px;
+                        color: Theme.bg-darkest;
+                        horizontal-alignment: center;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+    }
+
+    // Combined modes: the selected traced image as a base layer, with the solid's
+    // transparent-fill/opaque-edges layer composited on top -- see
+    // `gui::solid_preview::edges_layer`'s own doc comment.
+    //
+    // #32: `edges_image` rebuilds from the CURRENT (possibly just-edited) design on
+    // every edit, while `render_image` only changes when the path tracer's own
+    // planes are resubmitted -- this reconciles the two layers' provenance so a
+    // misaligned edge overlay after an edit reads as the render simply being one
+    // edit behind, rather than a solver error. Gated on `trace_matches_solid`
+    // (defaults to `true`, so this composites normally until something actually
+    // sets it `false`); when mismatched, the base dims and a small note explains
+    // why, rather than silently overlaying stale edges.
+    //
+    // While `root.is_dragging` (an orbit drag, `ViewportModel.camera_drag_begin`) the layers compose
+    // as if matching: the dim and the note wait for the release, and the edges stay
+    // visible as the orientation aid over the low-resolution preview trace.
+    //
+    // With the Cut slider cut back (`root.cut_shows_solid`) the stale render would show
+    // the wrong stone, so the solid layer shows the cut stone itself, edges on top, until
+    // the render catches up.
+    if !root.placeholder_only && root.cut_shows_solid: Image {
+        width: 100%;
+        height: 100%;
+        source: SolidPreviewModel.image;
+        image-fit: contain;
+    }
+    if !root.placeholder_only && SolidPreviewModel.combined && !root.ray_refused && ViewportModel.has_render && !root.cut_shows_solid: Image {
+        width: 100%;
+        height: 100%;
+        source: ViewportModel.render_image;
+        image-fit: contain;
+        opacity: (SolidPreviewModel.trace_matches_solid || root.is_dragging) ? 1.0 : 0.5;
+    }
+    if !root.placeholder_only && SolidPreviewModel.combined && !root.ray_refused && SolidPreviewModel.has_solid_edges && (SolidPreviewModel.trace_matches_solid || root.is_dragging || root.cut_shows_solid): Image {
+        width: 100%;
+        height: 100%;
+        source: SolidPreviewModel.edges_image;
+        image-fit: contain;
+    }
+    if root.cut_shows_solid: Text {
+        text: "Showing the flat preview while the render catches up with the cut";
+        font-size: 11px;
+        color: Theme.text-secondary;
+        horizontal-alignment: center;
+        y: parent.height - 56px;
+        width: 100%;
+        wrap: word-wrap;
+    }
+    if SolidPreviewModel.combined && ViewportModel.has_render && !root.ray_refused && !SolidPreviewModel.trace_matches_solid && !root.is_dragging && !root.cut_shows_solid: Text {
+        text: "Render is behind the current edit -- edges hidden until it catches up";
+        font-size: 12px;
+        color: Theme.text-primary;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: 100%;
+        wrap: word-wrap;
+    }
+
+    // Both Ray-Traced choices show the base color only: the same note as the Live Render
+    // footnote (`gem_viewport.slint`), when the material has a color pattern.
+    if SolidPreviewModel.ray_selected && ViewportModel.render_color_zone_swatches.length > 0: Text {
+        x: 8px;
+        y: root.height - self.height - 8px;
+        width: root.width - 16px;
+        text: "This material's color pattern shows in Path-Traced views. Ray-Traced shows the base color.";
+        color: Theme.text-secondary;
+        font-size: 10px;
+        wrap: word-wrap;
+    }
+
+    // Diagram mode: the three-panel 2D faceting diagram (`gui::solid_preview::diagram2d`).
+    // #29: scaled/translated by `diagram_zoom`/`diagram_pan_x`/`diagram_pan_y` -- the viewport's
+    // own `clip: true` is what keeps a zoomed-in image from spilling outside it.
+    if !root.placeholder_only && SolidPreviewModel.view_mode == 3 && SolidPreviewModel.has_diagram: Image {
+        x: root.diagram_pan_x;
+        y: root.diagram_pan_y;
+        width: root.width * root.diagram_zoom;
+        height: root.height * root.diagram_zoom;
+        source: SolidPreviewModel.diagram_image;
+        image-fit: contain;
+    }
+
+    // Placeholder: nothing solved yet in Solid mode, nothing rendered yet in
+    // Path-traced/Both mode, or nothing solved yet in Diagram mode.
+    if !root.ray_refused && ((SolidPreviewModel.view_mode == 0 && !SolidPreviewModel.has_solid) || (SolidPreviewModel.view_mode == 3 && !SolidPreviewModel.has_diagram) || (SolidPreviewModel.view_mode != 0 && SolidPreviewModel.view_mode != 3 && !ViewportModel.has_render)): VerticalLayout {
+        alignment: center;
+        spacing: 12px;
+        // Side padding instead of a `width: 80%` on the Text: a Text with its own width sits at the
+        // left of its cell in a column, which put the caption left of the gem's centre line.
+        padding-left: root.width * 0.1;
+        padding-right: root.width * 0.1;
+
+        // Centred by a layout of its own: a fixed-size Image in the column sits at the left of
+        // its cell (`horizontal-alignment` only places the picture inside the Image).
+        HorizontalLayout {
+            alignment: center;
+            Image {
+                source: @image-url("../../icons/gem.svg");
+                colorize: Theme.text-muted;
+                width: 48px;
+                height: 48px;
+            }
+        }
+
+        Text {
+            // A brand-new, zero-tier design has nothing TO solve, so this names
+            // the actual next step rather than telling a first-time cutter to
+            // press "Solve to preview" on a button that cannot yet do anything
+            // (New/Load Selected/Open all live in the catalogue panel
+            // and the command bar, neither of which this viewport can reach
+            // directly, hence naming them rather than linking them).
+            text: EditorModel.tiers.length == 0
+                ? "Nothing to show yet -- start with New, Load Selected from the catalogue, or Open."
+                : ((SolidPreviewModel.view_mode == 0 || SolidPreviewModel.view_mode == 3) ? "Solve to preview" : "Nothing rendered yet");
+            font-size: 13px;
+            color: Theme.text-muted;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+    }
+}

@@ -1,0 +1,235 @@
+import { Theme } from "../../theme.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { BaselineModel } from "../../models/baseline.slint";
+import { EditorModel } from "../../models/editor.slint";
+import { TrialsModel } from "../../models/trials.slint";
+import { CompactButton } from "../compact_controls.slint";
+import { StaleBadge } from "../stale_badge.slint";
+
+// The strip under the Inspector's tabs: every figure of the design now with its signed change
+// since the Baseline ("Bril. 21.0 % +1.8"), scored face-up under the Grading tray (state in
+// `models/baseline.slint`, Rust in `gui::editor::baseline`).
+//
+// A change is green when it is better than the figure's noise threshold, red when worse and
+// grey when it is within the threshold, so most single nudges read grey; the tooltip of a grey
+// figure says so. The strip carries Set Baseline in the Simple and the Advanced interface:
+// the deltas are read here, so the Baseline is set here. Compare and Measure Tilt are
+// Advanced.
+//
+// The strip's height is explicit (`BaselineStripMetrics.height`) rather than measured, so the
+// Inspector can add it up for its own minimum height without reaching into the strip, and a
+// wrapped note cannot under-measure it. It is also FIXED: the figures' rows and the note line
+// are always reserved, so scoring (the note "Scoring the Baseline...") never grows it, and the
+// sub-tab row below never moves.
+export global BaselineStripMetrics {
+    // Figures per row; a design with tilt averages wraps to a further row.
+    out property <int> columns: 5;
+    // 30 px per figure: the 10 px name, the 11 px value and a gap of about 4 px before the next row.
+    out property <length> cell_h: 30px;
+    // The figures a design always has (see `BaselineCell.short_label`). While a Baseline is held
+    // but its figures are not scored yet (the score lands a moment after a design opens), the
+    // strip keeps the room these will take, so the form below does not jump down under the
+    // pointer when they arrive (a click on Add Facet at that moment missed). The reserved room
+    // shows the names with "--" in place of the values, so it reads as "not scored yet" and not
+    // as a blank band.
+    out property <[string]> placeholder_labels: ["Bril.", "Wind.", "Ext.", "Fire", "Scint.", "Yield", "Warn."];
+    // Always at least the rows of the figures a design has, scored or not.
+    out property <int> rows: Math.ceil(Math.max(BaselineModel.cells.length, BaselineStripMetrics.placeholder_labels.length) / BaselineStripMetrics.columns);
+    // The note under the figures: one line of 10 px text, elided (its tooltip has all of it).
+    out property <length> note_h: 14px;
+    // The buttons line (24), the label line (16), the grid and the note line, 3 px apart.
+    out property <length> height: 24px + 3px + 16px
+        + 3px + BaselineStripMetrics.rows * BaselineStripMetrics.cell_h
+        + 3px + BaselineStripMetrics.note_h;
+}
+
+export component BaselineStrip inherits Rectangle {
+    property <int> columns: BaselineStripMetrics.columns;
+    property <length> cell_h: BaselineStripMetrics.cell_h;
+    property <[string]> placeholder_labels: BaselineStripMetrics.placeholder_labels;
+    property <int> rows: BaselineStripMetrics.rows;
+
+    height: BaselineStripMetrics.height;
+    accessible-role: AccessibleRole.groupbox;
+    accessible-label: "Figures against the Baseline";
+
+    column := VerticalLayout {
+        spacing: 3px;
+
+        // The first line: what the figures are read against, and the buttons that act on them.
+        HorizontalLayout {
+            spacing: 6px;
+            height: 24px;
+            Text {
+                text: "vs Baseline";
+                font-size: 11px;
+                font-weight: 700;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+            }
+            Rectangle { horizontal-stretch: 1; }
+            // The buttons share the first line, so the strip takes as little of the inspector's
+            // height as it can: on a short window the tab's form below needs every pixel.
+            if GuideModel.shows_advanced(): HorizontalLayout {
+                spacing: 6px;
+                CompactButton {
+                    width: 84px;
+                    height: 24px;
+                    font_size: 10px;
+                    text: BaselineModel.measuring_tilt ? "Stop" : "Measure Tilt";
+                    hint: BaselineModel.measuring_tilt
+                        ? "Stop measuring the tilt averages."
+                        : "Measure the tilt averages of the Baseline and of the\ndesign now, over all four axes. Takes a few seconds.";
+                    enabled: GuideModel.allows_advanced() && BaselineModel.has_baseline;
+                    clicked => { BaselineModel.measure_tilt(); }
+                }
+                CompactButton {
+                    width: 72px;
+                    height: 24px;
+                    font_size: 10px;
+                    text: "Compare...";
+                    hint: "Compare the design now with the Baseline, tier by tier.";
+                    enabled: GuideModel.allows_advanced() && BaselineModel.has_baseline;
+                    clicked => { BaselineModel.compare(); }
+                }
+            }
+            // Keeps the design as it is now as a trial (History tab, Trials view): both
+            // interfaces, like Set as Baseline.
+            Rectangle {
+                width: 84px;
+                height: 24px;
+                CompactButton {
+                    width: parent.width;
+                    height: parent.height;
+                    font_size: 10px;
+                    text: "Keep as Trial";
+                    hint: "Keep the design as it is now as a trial, with its\nfigures, to compare or come back to. Shortcut:\nCtrl+Shift+K. See the History tab's Trials view.";
+                    enabled: GuideModel.allows_history() && EditorModel.enabled;
+                    clicked => { TrialsModel.keep_trial(); }
+                }
+                // The guide's Keep Trials lesson outlines this button.
+                if GuideModel.highlight_target == "keep_trial_button": Rectangle {
+                    border-width: 2px;
+                    border-color: Theme.accent-cyan;
+                    border-radius: Theme.radius-sm;
+                }
+            }
+            // Not worded exactly like the command bar's "Set Baseline" (Advanced only): a harness
+            // or tutorial route that finds the bar's button by its label must not find this one,
+            // which is also there in the Simple interface.
+            CompactButton {
+                width: 100px;
+                height: 24px;
+                font_size: 10px;
+                text: "Set as Baseline";
+                hint: "Keep the design as it is now as the Baseline. The figures\nabove then show every change from here. The Baseline\nlives only in this session and is not saved to disk.";
+                enabled: GuideModel.allows_advanced();
+                clicked => { BaselineModel.set_baseline(); }
+            }
+        }
+
+        // The second line: which Baseline the figures are read against and whether they are out of
+        // date. It has its own line so the badge never squeezes the label down to "Baseline: open...".
+        HorizontalLayout {
+            spacing: 6px;
+            height: 16px;
+            Text {
+                text: BaselineModel.has_baseline ? BaselineModel.label : "No Baseline yet";
+                font-size: 10px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+            }
+            if BaselineModel.stale: StaleBadge {
+                text: "Out of Date: Press Solve";
+                hint: "The design changed and has not been solved since, so these figures\nare the last ones worked out. Press Solve to update them.";
+                show_recompute: false;
+            }
+            // The one "Scoring..." indicator: while the note under the figures already says
+            // "Scoring the Baseline..." (no figures yet) it is not repeated up here.
+            if BaselineModel.busy && !BaselineModel.stale && (BaselineModel.measuring_tilt || BaselineModel.note == ""): Text {
+                text: BaselineModel.measuring_tilt ? "Measuring..." : "Scoring...";
+                font-size: 10px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+            }
+        }
+
+        // The figures, in a grid of `columns` per row. The rows are reserved even while nothing is
+        // scored (see below), so the strip never changes height.
+        Rectangle {
+            height: root.rows * root.cell_h;
+            opacity: BaselineModel.stale ? 0.55 : 1.0;
+            for cell[i] in BaselineModel.cells: Rectangle {
+                x: Math.mod(i, root.columns) * (parent.width / root.columns);
+                y: Math.floor(i / root.columns) * root.cell_h;
+                width: parent.width / root.columns;
+                height: root.cell_h;
+                accessible-role: AccessibleRole.text;
+                accessible-label: cell.short_label + " " + cell.text
+                    + (cell.tone == 1 ? ", better" : (cell.tone == 2 ? ", worse" : ", about the same"));
+                Tooltip { text: @markdown("\{cell.tooltip}"); }
+                VerticalLayout {
+                    padding-right: 4px;
+                    spacing: 1px;
+                    Text {
+                        text: cell.short_label;
+                        font-size: 10px;
+                        color: Theme.text-secondary;
+                        overflow: elide;
+                    }
+                    Text {
+                        text: cell.text;
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: cell.tone == 1 ? Theme.success : (cell.tone == 2 ? Theme.danger : Theme.text-secondary);
+                        overflow: elide;
+                    }
+                }
+            }
+            // Nothing is scored yet (no Baseline, or the score lands a moment after a design
+            // opens): the figures' names with "--", in the room the values will take.
+            if BaselineModel.cells.length == 0: Rectangle {
+                for label[i] in root.placeholder_labels: Rectangle {
+                    x: Math.mod(i, root.columns) * (parent.width / root.columns);
+                    y: Math.floor(i / root.columns) * root.cell_h;
+                    width: parent.width / root.columns;
+                    height: root.cell_h;
+                    VerticalLayout {
+                        padding-right: 4px;
+                        spacing: 1px;
+                        Text {
+                            text: label;
+                            font-size: 10px;
+                            color: Theme.text-secondary;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: "--";
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: Theme.text-muted;
+                        }
+                    }
+                }
+            }
+        }
+
+        // The note line is always there (empty, it is just room): one elided line, the whole
+        // sentence in its tooltip.
+        Rectangle {
+            height: BaselineStripMetrics.note_h;
+            Text {
+                width: 100%;
+                height: 100%;
+                text: BaselineModel.note;
+                font-size: 10px;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            if BaselineModel.note != "": Tooltip { text: @markdown("\{BaselineModel.note}"); }
+        }
+    }
+}

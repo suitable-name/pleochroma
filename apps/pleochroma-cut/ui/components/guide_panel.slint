@@ -1,0 +1,557 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../theme.slint";
+import { GuideModel } from "../models/guide.slint";
+import { HelpTopics } from "../models/help.slint";
+import { HelpButton } from "help_button.slint";
+import { IconButton } from "icon_button.slint";
+import { ActionButton } from "chip_toggle.slint";
+
+// The step panel of whichever guide is running (the worked example, the welcome tour, a
+// tutorial). Mounted two ways (never both at once): as a third column of the wide Edit
+// layout (`app.slint`'s `edit_row`), and floating at the window's right edge everywhere
+// else -- the narrow Edit stack, the Live Render tab, the catalogue tabs -- through
+// `GuideOverlayLayer` below, so the guide never disappears mid-walkthrough.
+//
+// The panel sets NO height of its own. Both mounts size it to its step text
+// (`natural_height`, at least 120px) up to the room they have: docked, the column slot of
+// `Tab3dContent` (a fixed height here used to cap the whole Edit row: a `HorizontalLayout`'s
+// maximum height is its smallest child's maximum, so a 480px panel left the status strip
+// two thirds of the way down the window, which is why the slot is a plain Rectangle with the
+// card positioned inside it); floating, `GuideOverlayLayer` sizes it against the window.
+// Either way a step longer than the room scrolls internally with the footer pinned.
+//
+// The header row drags the floating panel (`draggable`, reported through
+// `dragged`), and its collapse button shrinks either mount to a small
+// "Guide · Step N of M" pill that expands again on click
+// (`GuideModel.collapsed`).
+//
+// Layout of one step: title, a muted one-sentence intro, the numbered actions,
+// an emerald "Look for" line, an optional italic "why" note, then the status chip
+// ("Waiting for: ..." until Rust reports the goal reached, then "Done") and the
+// Back / Next-or-Skip row. Action steps advance by themselves; only manual
+// (reading) steps show a primary Next.
+export component GuidePanel inherits Rectangle {
+    // Whether the header row (and the collapsed pill) drag the panel -- only the
+    // floating mount, whose owner applies the moves.
+    in property <bool> draggable: false;
+    // An incremental move of `(dx, dy)` requested by a drag on the header or pill.
+    callback dragged(length, length);
+    // The collapsed pill's size, read by `GuideOverlayLayer` to size the floating
+    // mount while collapsed.
+    out property <length> collapsed_width: 176px;
+    out property <length> collapsed_height: 30px;
+    // The height the expanded panel wants for its whole step (padding, header, title, the full
+    // body text, the buttons): `GuideOverlayLayer` sizes the floating mount to it (capped), so a
+    // short step leaves no empty gap. Kept by the column below; stale while collapsed.
+    out property <length> natural_height: 0px;
+
+    width: GuideModel.collapsed ? root.collapsed_width : 260px;
+    background: Theme.bg-card;
+    border-radius: Theme.radius-md;
+    border-width: 1px;
+    border-color: Theme.accent-cyan;
+    clip: true;
+
+    // Swallows clicks on the panel's own background: the floating mount sits over
+    // the viewport, which must not receive a click aimed at the panel.
+    TouchArea { }
+
+    if GuideModel.collapsed: Rectangle {
+        height: root.collapsed_height;
+        // Set once the pointer has actually travelled, so the release that ends
+        // a drag does not also expand the pill.
+        property <bool> drag_moved: false;
+        background: pill_touch.has-hover ? Theme.bg-card-hover : Theme.bg-card;
+        border-width: pill_focus.has-focus ? 2px : 0px;
+        border-color: Theme.accent-cyan-hover;
+        accessible-role: AccessibleRole.button;
+        accessible-label: "Guide, step " + (GuideModel.step_index + 1) + " of " + GuideModel.total_steps + ". Expand the guide.";
+        accessible-action-default => { GuideModel.collapsed = false; }
+        // Tab reaches the pill; Space and Enter expand it.
+        pill_focus := FocusScope {
+            key-pressed(event) => {
+                if event.text == Key.Space || event.text == Key.Return {
+                    GuideModel.collapsed = false;
+                    return accept;
+                }
+                return reject;
+            }
+        }
+        pill_touch := TouchArea {
+            mouse-cursor: pointer;
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.down {
+                    parent.drag_moved = false;
+                }
+            }
+            moved => {
+                if self.pressed && root.draggable
+                        && Math.abs(self.mouse-x - self.pressed-x) + Math.abs(self.mouse-y - self.pressed-y) > 2px {
+                    parent.drag_moved = true;
+                    root.dragged(self.mouse-x - self.pressed-x, self.mouse-y - self.pressed-y);
+                }
+            }
+            clicked => {
+                if !parent.drag_moved {
+                    GuideModel.collapsed = false;
+                }
+            }
+        }
+        Text {
+            x: 10px;
+            width: parent.width - 30px;
+            height: parent.height;
+            text: "Guide \u{00B7} Step " + (GuideModel.step_index + 1) + " of " + GuideModel.total_steps;
+            font-size: 10px;
+            font-weight: 700;
+            color: GuideModel.step_done ? Theme.accent-emerald : Theme.accent-cyan;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        // "Expand" chevron at the right end: an icon, not a text triangle (the UI
+        // font has no small-triangle symbol).
+        Image {
+            source: @image-url("../icons/chevron-right.svg");
+            colorize: GuideModel.step_done ? Theme.accent-emerald : Theme.accent-cyan;
+            width: 10px;
+            height: 10px;
+            x: parent.width - 18px;
+            y: (parent.height - self.height) / 2;
+            image-fit: contain;
+        }
+        Tooltip { text: root.draggable ? @markdown("Expand the guide. Drag to move it.") : @markdown("Expand the guide."); }
+    }
+
+    if !GuideModel.collapsed: content_col := VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+
+        // The column's own preferred height is the panel's natural height (the body Rectangle
+        // below offers its full text height as its preferred one). Mirrored out through
+        // `natural_height` because a conditional element's id cannot be read from outside it.
+        init => { root.natural_height = self.preferred-height; }
+        changed preferred-height => { root.natural_height = self.preferred-height; }
+
+        HorizontalLayout {
+            spacing: 6px;
+            // The drag handle of the floating mount: the header text's own area.
+            Rectangle {
+                horizontal-stretch: 1;
+                header_drag := TouchArea {
+                    enabled: root.draggable;
+                    mouse-cursor: root.draggable ? MouseCursor.move : MouseCursor.default;
+                    moved => {
+                        if self.pressed {
+                            root.dragged(self.mouse-x - self.pressed-x, self.mouse-y - self.pressed-y);
+                        }
+                    }
+                }
+                Text {
+                    text: "Guide \u{00B7} Step " + (GuideModel.step_index + 1) + " of " + GuideModel.total_steps;
+                    font-size: 10px;
+                    font-weight: 700;
+                    color: Theme.accent-cyan;
+                    vertical-alignment: center;
+                    horizontal-alignment: left;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                HelpButton { topic: HelpTopics.tutorials; hint: "Open the manual page on the tutorials"; }
+            }
+            IconButton {
+                icon: @image-url("../icons/chevron-down.svg");
+                hint: "Collapse the guide to a small pill; click the pill to expand it again. The guide keeps running.";
+                tint: Theme.text-muted;
+                hover_fill: Theme.bg-card-hover;
+                width: 22px;
+                height: 22px;
+                glyph: 10px;
+                clicked => { GuideModel.collapsed = true; }
+            }
+            // Always enabled: closing the guide lifts every lock it placed.
+            IconButton {
+                icon: @image-url("../icons/close.svg");
+                hint: "Close the guide and unlock every control. Start it again any time from Help > Tutorials...";
+                tint: Theme.text-muted;
+                hover_fill: Theme.bg-card-hover;
+                width: 22px;
+                height: 22px;
+                glyph: 10px;
+                clicked => { GuideModel.close(); }
+            }
+        }
+
+        // Which guide this is: the name shown in the tutorial browser.
+        if GuideModel.guide_title != "": Text {
+            text: GuideModel.guide_title;
+            font-size: 10px;
+            color: Theme.text-secondary;
+            overflow: elide;
+        }
+
+        // A wrapped Text in a layout reports a one-line height, so a long title would
+        // run into what follows: it is sized by its own wrapped height instead (as are
+        // the intro, the "Look for" line and the note below).
+        Rectangle {
+            height: title_text.preferred-height;
+            title_text := Text {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                text: GuideModel.current.title;
+                font-size: 13px;
+                font-weight: 700;
+                color: Theme.text-primary;
+                wrap: word-wrap;
+            }
+        }
+
+        // The step body scrolls. While more of it lies below the visible part, a fade
+        // over the bottom edge says so -- the text used to stop mid-line with no cue.
+        Rectangle {
+            vertical-stretch: 1;
+            min-height: 40px;
+            // The whole text's height (every row below is an explicit-height Rectangle), so
+            // the column's preferred height covers the step without scrolling.
+            preferred-height: body_col.preferred-height;
+            body_scroll := ScrollView {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: parent.height;
+            body_col := VerticalLayout {
+                alignment: start;
+                spacing: 8px;
+
+                if GuideModel.current.intro != "": Rectangle {
+                    height: intro_text.preferred-height;
+                    intro_text := Text {
+                        x: 0px;
+                        y: 0px;
+                        width: parent.width;
+                        text: GuideModel.current.intro;
+                        font-size: 11px;
+                        color: Theme.text-secondary;
+                        wrap: word-wrap;
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 5px;
+                    // A wrapped Text inside a HorizontalLayout reports a one-line
+                    // height, so a multi-line action overlapped the next row: each
+                    // row is a Rectangle sized by its Text's own wrapped height.
+                    for action[i] in GuideModel.current.actions: Rectangle {
+                        height: action_text.preferred-height;
+                        Text {
+                            x: 0px;
+                            y: 0px;
+                            width: 16px;
+                            text: "" + (i + 1);
+                            font-size: 11px;
+                            font-weight: 700;
+                            color: Theme.accent-cyan;
+                            horizontal-alignment: right;
+                        }
+                        action_text := Text {
+                            x: 22px;
+                            y: 0px;
+                            width: max(20px, parent.width - 22px);
+                            text: action;
+                            font-size: 11px;
+                            color: Theme.text-primary;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+
+                if GuideModel.current.check != "": Rectangle {
+                    height: check_text.preferred-height;
+                    Image {
+                        source: @image-url("../icons/check.svg");
+                        colorize: Theme.accent-emerald;
+                        x: 0px;
+                        y: 1px;
+                        width: 11px;
+                        height: 11px;
+                        image-fit: contain;
+                    }
+                    check_text := Text {
+                        x: 15px;
+                        y: 0px;
+                        width: max(20px, parent.width - 15px);
+                        text: "Look for: " + GuideModel.current.check;
+                        font-size: 10px;
+                        color: Theme.accent-emerald;
+                        wrap: word-wrap;
+                    }
+                }
+
+                if GuideModel.current.why != "": Rectangle {
+                    height: why_text.preferred-height;
+                    why_text := Text {
+                        x: 0px;
+                        y: 0px;
+                        width: parent.width;
+                        text: GuideModel.current.why;
+                        font-size: 10px;
+                        font-italic: true;
+                        color: Theme.text-secondary;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+            }
+            if body_scroll.content-height + body_scroll.content-y > body_scroll.visible-height + 2px: Rectangle {
+                x: 0px;
+                y: parent.height - 24px;
+                width: parent.width;
+                height: 24px;
+                background: @linear-gradient(180deg, Theme.bg-card.transparentize(1.0) 0%, Theme.bg-card 100%);
+            }
+        }
+
+        // "Show Me Where" action button: guides the learner to the step's stage
+        // (view, inspector tab, accordion sections, camera reframe) when the target
+        // control is off-screen or out of alignment.
+        if GuideModel.stage_mismatched: Rectangle {
+            height: 28px;
+            border-radius: Theme.radius-sm;
+            background: show_me_touch.has-hover ? Theme.accent-cyan-surface : Theme.bg-elevated;
+            border-width: show_me_focus.has-focus ? 2px : 1px;
+            border-color: show_me_focus.has-focus ? Theme.accent-cyan-hover : Theme.accent-cyan;
+            clip: true;
+
+            accessible-role: AccessibleRole.button;
+            accessible-label: "Show Me Where";
+            accessible-description: GuideModel.stage_hint;
+            accessible-action-default => { GuideModel.show_me_where(); }
+
+            show_me_focus := FocusScope {
+                key-pressed(event) => {
+                    if event.text == Key.Space || event.text == Key.Return {
+                        GuideModel.show_me_where();
+                        return accept;
+                    }
+                    return reject;
+                }
+            }
+
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                spacing: 6px;
+                alignment: center;
+
+                // An Image in a row ignores `vertical-alignment`: each icon is centred by
+                // a layout of its own, which puts it level with the label. The label and
+                // both icons sit together in the middle of the button (no stretch gap).
+                VerticalLayout {
+                    alignment: center;
+                    Image {
+                        source: @image-url("../icons/search.svg");
+                        width: 12px;
+                        height: 12px;
+                        colorize: Theme.accent-cyan;
+                        image-fit: contain;
+                    }
+                }
+
+                Text {
+                    text: "Show Me Where";
+                    font-size: 10px;
+                    font-weight: 700;
+                    color: Theme.accent-cyan;
+                    vertical-alignment: center;
+                }
+
+                VerticalLayout {
+                    alignment: center;
+                    Image {
+                        source: @image-url("../icons/chevron-right.svg");
+                        width: 9px;
+                        height: 9px;
+                        colorize: Theme.accent-cyan;
+                        image-fit: contain;
+                    }
+                }
+            }
+
+            show_me_touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    show_me_focus.focus();
+                    GuideModel.show_me_where();
+                }
+            }
+
+            Tooltip { text: @markdown("\{GuideModel.stage_hint}"); }
+        }
+
+        // Status chip: what the guide is waiting for, then a short "Done" before
+        // the automatic move to the next step.
+        Rectangle {
+            // The same minimum height for "Waiting for" and "Done", so the Back row does
+            // not lift when the chip changes; two wrapped lines get room to breathe.
+            height: max(30px, chip_txt.preferred-height + 12px);
+            border-radius: Theme.radius-sm;
+            background: GuideModel.step_done ? Theme.toast-success-surface : Theme.bg-input;
+            border-width: 1px;
+            border-color: GuideModel.step_done ? Theme.accent-emerald : Theme.border-subtle;
+            // The tick before "Done" is an icon: the UI font has no check-mark symbol.
+            if GuideModel.step_done: Image {
+                source: @image-url("../icons/check.svg");
+                colorize: Theme.accent-emerald;
+                width: 11px;
+                height: 11px;
+                x: 8px;
+                y: (parent.height - self.height) / 2;
+                image-fit: contain;
+            }
+            chip_txt := Text {
+                x: GuideModel.step_done ? 24px : 8px;
+                y: (parent.height - self.height) / 2;
+                width: parent.width - self.x - 8px;
+                height: self.preferred-height;
+                text: GuideModel.step_done
+                    ? "Done"
+                    : (GuideModel.current_is_manual
+                        ? "Read this step, then click " + (GuideModel.has_next ? "Next." : "Finish.")
+                        : "Waiting for: " + GuideModel.current.waiting + "\u{2026}");
+                font-size: 10px;
+                font-weight: GuideModel.step_done ? 700 : 400;
+                color: GuideModel.step_done ? Theme.accent-emerald : Theme.text-secondary;
+                vertical-alignment: center;
+                wrap: word-wrap;
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 6px;
+            ActionButton {
+                width: 60px;
+                height: 26px;
+                text: "Back";
+                hint: "Go back to the previous step.";
+                fill: Theme.bg-input;
+                hover_fill: Theme.bg-elevated;
+                ink: GuideModel.has_back ? Theme.text-secondary : Theme.text-muted;
+                edge: Theme.border-subtle;
+                font_size: 10px;
+                enabled: GuideModel.has_back;
+                clicked => { GuideModel.back(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            // A manual (reading) step's primary Next/Finish. On an action step the same
+            // slot does the step for the learner ("Next") where the app can, and is a quiet
+            // "Skip step" where it cannot; those steps also advance by themselves once their
+            // goal is reached. After Back, a step whose goal still holds shows "Done" and a
+            // primary Next instead: it stays until the learner moves on.
+            action-button-offers-next := ActionButton {
+                width: 84px;
+                height: 26px;
+                text: GuideModel.offers_next ? (GuideModel.has_next ? "Next" : "Finish") : (GuideModel.offers_perform ? "Next" : "Skip Step");
+                hint: GuideModel.offers_next
+                    ? (GuideModel.has_next ? "Go on to the next step." : "Finish the guide.")
+                    : (GuideModel.offers_perform
+                        ? "Do this step for me and go on."
+                        : "Skip this step without doing it. Steps move on by themselves once you have done what they ask.");
+                // "Skip Step" is a quiet button, not a disabled one: it reads like an enabled
+                // Back (secondary ink, a medium edge, a raised fill) and keeps full contrast.
+                fill: (GuideModel.offers_next || GuideModel.offers_perform) ? Theme.primary : Theme.bg-elevated;
+                hover_fill: (GuideModel.offers_next || GuideModel.offers_perform) ? Theme.primary-hover : Theme.surface-control-hover;
+                ink: (GuideModel.offers_next || GuideModel.offers_perform) ? Theme.text-on-primary : Theme.text-secondary;
+                edge: (GuideModel.offers_next || GuideModel.offers_perform) ? Theme.primary : Theme.border-medium;
+                font_size: 10px;
+                weight: (GuideModel.offers_next || GuideModel.offers_perform) ? 700 : 600;
+                enabled: (!GuideModel.step_done || GuideModel.revisiting) && !GuideModel.perform_busy;
+                clicked => { GuideModel.go_on(); }
+            }
+        }
+    }
+}
+
+// Mounted once by `app.slint` as an explicitly positioned full-window layer (so none
+// of its constraints reach `MainWindow`). Holds the timer behind the guide's short
+// "Done" moment -- here rather than inside `GuidePanel`, so it runs whichever way the
+// panel is mounted -- and the floating `GuidePanel` for every place the wide Edit
+// layout's own column does not exist. The layer itself has no `TouchArea`, so clicks
+// outside the floating panel reach whatever is underneath.
+export component GuideOverlayLayer inherits Rectangle {
+    // `true` while the wide Edit layout mounts its own `GuidePanel` column, which
+    // then replaces the floating one.
+    in property <bool> docked: false;
+    // Width at the window's right edge the panel keeps clear in its default spot: the
+    // Parameters dock (or its rail) sits there, and the panel used to float over it.
+    in property <length> right_reserve: 0px;
+    // `true` while a dialog is up (`WindowState.guide_lifted`): the panel -- docked or
+    // floating alike -- is drawn here as a fixed card at the window's right edge, above the
+    // dialogs' scrim, so a lesson's step text and Back/Next stay lit and clickable. It cannot
+    // be dragged meanwhile.
+    in property <bool> parked: false;
+
+    Timer {
+        interval: 700ms;
+        running: GuideModel.step_done && !GuideModel.revisiting && !GuideModel.presentation_hold;
+        triggered => { GuideModel.complete_advance(); }
+    }
+
+    // A step whose goal reads the view mode or the inspector tab: those change without the
+    // design changing, so Rust is asked to re-check the step a few times a second.
+    Timer {
+        interval: 300ms;
+        running: GuideModel.open && !GuideModel.step_done && GuideModel.current.watches_ui;
+        triggered => { GuideModel.poll(); }
+    }
+
+    // Next was pressed on an unfinished step and its recipe has run, but the goal is not met
+    // yet (a solve takes time): Rust re-checks a few times a second and, after a few seconds,
+    // lets the button offer Skip step instead.
+    Timer {
+        interval: 300ms;
+        running: GuideModel.perform_busy;
+        triggered => { GuideModel.perform_tick(); }
+    }
+
+    // A guide waiting for the design it asked for (a new design, a library design, possibly
+    // behind the unsaved-changes question): Rust starts it when the design arrives and gives
+    // up when the question is cancelled.
+    Timer {
+        interval: 250ms;
+        running: GuideModel.launch_pending;
+        triggered => { GuideModel.launch_tick(); }
+    }
+
+    // Default spot: bottom-right but left of the Parameters dock (`right_reserve`), its
+    // bottom edge 50px above the window's (clear of the Edit tab's status strip) and its
+    // top well below the render toolbar. The height follows the step's text
+    // (`natural_height`, at least 120px) up to 720px / the window less 140px (the 480px
+    // cap of round 2 cut the last lines of a long step); a longer step scrolls inside the
+    // panel with the footer pinned.
+    // Once dragged, `GuideModel.float_x`/`float_y` hold the spot; both are clamped
+    // here on every read, so the panel always stays fully inside the window.
+    // `parked` (a dialog is up): the same panel at the window's top right, 12px from both
+    // edges, up to the window less 24px tall.
+    if GuideModel.open && (!root.docked || root.parked): GuidePanel {
+        draggable: !root.parked;
+        height: GuideModel.collapsed
+            ? self.collapsed_height
+            : min(max(self.natural_height, 120px), max(180px, root.parked ? root.height - 24px : min(720px, root.height - 140px)));
+        x: root.parked
+            ? max(0px, root.width - self.width - 12px)
+            : (GuideModel.float_placed
+                ? clamp(GuideModel.float_x, 0px, max(0px, root.width - self.width))
+                : max(0px, root.width - self.width - 20px - root.right_reserve));
+        y: root.parked
+            ? 12px
+            : (GuideModel.float_placed
+                ? clamp(GuideModel.float_y, 0px, max(0px, root.height - self.height))
+                : max(0px, root.height - self.height - 50px));
+        dragged(dx, dy) => {
+            GuideModel.float_x = clamp(self.x + dx, 0px, max(0px, root.width - self.width));
+            GuideModel.float_y = clamp(self.y + dy, 0px, max(0px, root.height - self.height));
+            GuideModel.float_placed = true;
+        }
+    }
+}

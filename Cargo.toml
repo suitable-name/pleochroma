@@ -1,57 +1,57 @@
 [workspace]
 resolver = "3"
 members = [
-    "apps/indicatrix-cli",
-    "apps/indicatrix-cut",
-    "apps/indicatrix-mobile-android",
-    "apps/indicatrix-web",
-    "apps/indicatrix-web-compute",
-    "apps/indicatrix-web-gpu",
-    "apps/indicatrix-worker",
-    "crates/indicatrix",
-    "crates/indicatrix-cut-core",
-    "crates/indicatrix-dispatch",
-    "crates/indicatrix-editor",
-    "crates/indicatrix-formats",
-    "crates/indicatrix-mobile-core",
-    "crates/indicatrix-net",
-    "crates/indicatrix-render-jobs",
-    "crates/indicatrix-solid",
-    "crates/indicatrix-update",
-    "crates/indicatrix-vault",
-    "crates/indicatrix-web-core",
+    "apps/pleochroma-cli",
+    "apps/pleochroma-cut",
+    "apps/pleochroma-mobile-android",
+    "apps/pleochroma-web",
+    "apps/pleochroma-web-compute",
+    "apps/pleochroma-web-gpu",
+    "apps/pleochroma-worker",
+    "crates/pleochroma",
+    "crates/pleochroma-cut-core",
+    "crates/pleochroma-dispatch",
+    "crates/pleochroma-editor",
+    "crates/pleochroma-formats",
+    "crates/pleochroma-mobile-core",
+    "crates/pleochroma-net",
+    "crates/pleochroma-render-jobs",
+    "crates/pleochroma-solid",
+    "crates/pleochroma-update",
+    "crates/pleochroma-vault",
+    "crates/pleochroma-web-core",
 ]
 # `vendor/` holds a patched copy of a crates.io package (see `[patch.crates-io]` below). It is
 # a path dependency inside the workspace directory, which cargo would otherwise take in as a
 # member; it stays a plain dependency.
 exclude = ["vendor"]
-# indicatrix: a physically-based spectral gemstone renderer and faceting-design
-# library. `indicatrix` is the spectral path tracer at the center; `indicatrix-formats` reads and
-# writes GemCAD-style `.asc` cutting instructions; `indicatrix-vault` is the local
-# SQLite-backed design library; `indicatrix-cut-core` is the editor-core crate (preform, editable
-# cutting instructions, undo/redo); `indicatrix-solid` is the pure-CPU solid
+# pleochroma: a physically-based spectral gemstone renderer and faceting-design
+# library. `pleochroma` is the spectral path tracer at the center; `pleochroma-formats` reads and
+# writes GemCAD-style `.asc` cutting instructions; `pleochroma-vault` is the local
+# SQLite-backed design library; `pleochroma-cut-core` is the editor-core crate (preform, editable
+# cutting instructions, undo/redo); `pleochroma-solid` is the pure-CPU solid
 # rasterizer and 2D faceting diagram, shared by the desktop and the wasm web app;
-# `indicatrix-editor` is the GUI-free editor session, forms and view models both
-# editors share; `indicatrix-update` is the apps' new-version check against the GitHub releases;
-# `indicatrix-dispatch` is the coordinator's job-execution
-# core (lane pool, sample cursor, rate models, deterministic merge); `apps/indicatrix-cut`
-# is the desktop faceting-design editor and `apps/indicatrix-worker` the headless
+# `pleochroma-editor` is the GUI-free editor session, forms and view models both
+# editors share; `pleochroma-update` is the apps' new-version check against the GitHub releases;
+# `pleochroma-dispatch` is the coordinator's job-execution
+# core (lane pool, sample cursor, rate models, deterministic merge); `apps/pleochroma-cut`
+# is the desktop faceting-design editor and `apps/pleochroma-worker` the headless
 # coordinator (`serve`), joining render worker (`join`) and render CLI, connected by
-# `indicatrix-net`'s wire protocol. `apps/indicatrix-web` is the browser app;
-# `apps/indicatrix-web-core` is its DOM-free compute side (Worker protocol, scene,
-# CPU chunk tracing, solve, host-side Worker pool) and `apps/indicatrix-web-compute`
-# its Web Worker entry point. `apps/indicatrix-mobile-android` is the Android phone and
+# `pleochroma-net`'s wire protocol. `apps/pleochroma-web` is the browser app;
+# `apps/pleochroma-web-core` is its DOM-free compute side (Worker protocol, scene,
+# CPU chunk tracing, solve, host-side Worker pool) and `apps/pleochroma-web-compute`
+# its Web Worker entry point. `apps/pleochroma-mobile-android` is the Android phone and
 # tablet app (touch-first Slint UI, JNI platform services, a desktop preview binary) over
-# `crates/indicatrix-mobile-core`, its UI-free core (app state, compute threads, platform trait).
+# `crates/pleochroma-mobile-core`, its UI-free core (app state, compute threads, platform trait).
 
 [workspace.package]
-version = "0.9.0"
+version = "0.10.0"
 edition = "2024"
 rust-version = "1.95"
 authors = ["Suitable-Name"]
 license = "MIT"
-repository = "https://github.com/suitable-name/indicatrix"
-homepage = "https://indicatrix-suite.com"
+repository = "https://github.com/suitable-name/pleochroma"
+homepage = "https://pleochroma.com"
 publish = true
 
 [workspace.dependencies]
@@ -60,7 +60,7 @@ anyhow = "1.0.104"
 # criterion (no plotting stack). Dev-dependency only.
 divan = "0.1.21"
 bytemuck = { version = "1.25", features = ["derive"] }
-# Pinned exactly: crates/indicatrix's SIMD twins (simd/triple_solve.rs, used by
+# Pinned exactly: crates/pleochroma's SIMD twins (simd/triple_solve.rs, used by
 # geometry/meet_solver/candidates.rs) follow glam 0.34.1's scalar DMat3 sequence
 # (determinant = x_axis.dot(y_axis.cross(z_axis)); inverse = cofactor columns scaled
 # by 1/determinant, transposed) bit for bit. 
@@ -72,18 +72,18 @@ glam = "=0.34.1"
 # Each member declares the one image format it actually uses.
 image = { version = "0.25", default-features = false }
 pollster = { version = "1.0.1" }
-# Wire-format serializer for indicatrix-net's `SceneState` (sent once per camera change --
+# Wire-format serializer for pleochroma-net's `SceneState` (sent once per camera change --
 # a few KB, serialisation cost irrelevant, compactness is what matters). NOT used for
 # the per-sample radiance buffer, which goes over the wire as raw `bytemuck` POD bytes
-# instead -- see crates/indicatrix-net's crate docs.
+# instead -- see crates/pleochroma-net's crate docs.
 postcard = { version = "1.1.3", features = ["alloc"] }
-# CA/leaf certificate generation for `indicatrix-worker`'s `cert init`/`issue-server`/
-# `issue-client` subcommands (see apps/indicatrix-worker's `pki` module). Same `ring`
+# CA/leaf certificate generation for `pleochroma-worker`'s `cert init`/`issue-server`/
+# `issue-client` subcommands (see apps/pleochroma-worker's `pki` module). Same `ring`
 # provider pin as `rustls` above -- `rcgen`'s "ring" feature implies its "crypto"
 # feature, no separate flag needed for that.
 rcgen = { version = "0.14.10", default-features = false, features = ["ring", "pem", "x509-parser"] }
 # Native OS file/folder picker dialogs (import/HDR/cert-dir/export "Browse..."
-# buttons in `apps/indicatrix-cut`). Default features kept
+# buttons in `apps/pleochroma-cut`). Default features kept
 # on: the only default is `xdg-portal` (Linux/BSD), which talks to the desktop over
 # D-Bus at runtime and needs no C toolchain/dev-headers at BUILD time, unlike the
 # non-default `gtk3` feature -- so this stays a no-op for the Windows build (native
@@ -91,12 +91,12 @@ rcgen = { version = "0.14.10", default-features = false, features = ["ring", "pe
 # Linux build of this workspace.
 rfd = "0.17.2"
 # "functions" (pure `cfg`, `functions = []` in rusqlite's own Cargo.toml -- no new
-# transitive dependency, no Cargo.lock change) is needed by indicatrix-vault's
+# transitive dependency, no Cargo.lock change) is needed by pleochroma-vault's
 # `fold()` SQL scalar function (case-/typography-insensitive title/designer search,
-# see `crates/indicatrix-vault/src/db/sqlite/search/predicate.rs::register_fold_function`).
+# see `crates/pleochroma-vault/src/db/sqlite/search/predicate.rs::register_fold_function`).
 rusqlite = { version = "0.40.2", features = ["bundled", "functions"] }
-# Mutual-TLS stack for indicatrix-net/indicatrix-worker (see crates/indicatrix-net's `tls` module
-# and apps/indicatrix-worker's `pki` module). `ring` is pinned explicitly as the crypto
+# Mutual-TLS stack for pleochroma-net/pleochroma-worker (see crates/pleochroma-net's `tls` module
+# and apps/pleochroma-worker's `pki` module). `ring` is pinned explicitly as the crypto
 # provider across rustls/rcgen -- it's already resolved in this workspace's dependency
 # graph (via `ureq`), so this adds no new native-toolchain requirement (no cmake/NASM,
 # unlike `aws-lc-rs`). `tls12` is deliberately left out of rustls's feature list: this
@@ -105,14 +105,18 @@ rusqlite = { version = "0.40.2", features = ["bundled", "functions"] }
 rustls = { version = "0.23.46", default-features = false, features = ["std", "ring", "logging"] }
 rustls-pemfile = "2.2"
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.154"
-# Version comparison of the new-version check (`indicatrix-update`).
+# `float_roundtrip`: without it serde_json parses a 17-digit `f64` (a computed angle such as
+# `TAU / 3`) with a double rounding that can land one ULP off, so a stored color pattern, design
+# or scene would not read back bit for bit. It costs about 2x on parsing floats, which no path
+# here is bound by.
+serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
+# Version comparison of the new-version check (`pleochroma-update`).
 semver = "1.0.28"
 # The new-version check's one HTTPS GET. `rustls` = rustls on `ring` (the provider pinned
 # above) with the bundled webpki roots: no system TLS library, no cmake/NASM.
 ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
 sha2 = "0.11.1"
-# `SockRef::set_tcp_keepalive`/`TcpStream::set_nodelay` tuning for `apps/indicatrix-worker`'s
+# `SockRef::set_tcp_keepalive`/`TcpStream::set_nodelay` tuning for `apps/pleochroma-worker`'s
 # accepted connections (see that crate's `serve` module) -- `std::net::TcpStream` has no
 # keepalive API of its own, and `socket2::SockRef::from` borrows an existing standard-library
 # socket rather than requiring one be constructed through `socket2` from the start, so this
@@ -121,8 +125,8 @@ sha2 = "0.11.1"
 socket2 = { version = "0.6.5", features = ["all"] }
 # `default-features = false` lives here for the same reason `image`'s does above --
 # see that comment. Each member re-declares the feature set it actually wants:
-# `apps/indicatrix-cut` names slint's own defaults verbatim (unchanged behaviour),
-# `apps/indicatrix-web` names the trimmed wasm set.
+# `apps/pleochroma-cut` names slint's own defaults verbatim (unchanged behaviour),
+# `apps/pleochroma-web` names the trimmed wasm set.
 slint = { version = "1.18.1", default-features = false }
 slint-build = "1.18.1"
 # The UI harness (formerly slint-harness), crates.io, own repository github.com/suitable-name/uiprobe
@@ -132,14 +136,14 @@ uiprobe-hooks = "0.1"
 # needed directly (not re-exported by `rcgen`) to set certificate validity windows,
 # including the clock-skew backdating in `pki::not_before_with_skew_slack`.
 time = { version = "0.3", default-features = false, features = ["std"] }
-# The native design-file format in `indicatrix_cut_core::native` (TOML on-disk encoding) and
-# `apps/indicatrix-cut`'s settings persistence -- see each crate's own comment on its
+# The native design-file format in `pleochroma_cut_core::native` (TOML on-disk encoding) and
+# `apps/pleochroma-cut`'s settings persistence -- see each crate's own comment on its
 # `toml` dependency for why TOML was chosen there.
 toml = "1.1.8"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 # `default-features = false` lives here for the same reason `image`'s does above --
-# see that comment. `crates/indicatrix`'s native target arm re-enables wgpu 30.0.1's
+# see that comment. `crates/pleochroma`'s native target arm re-enables wgpu 30.0.1's
 # own default set verbatim; its wasm32 arm names only the browser backend.
 wgpu = { version = "30.0.1", default-features = false }
 # Embeds the Windows .ico resource into each app binary -- see either app's
@@ -147,7 +151,7 @@ wgpu = { version = "30.0.1", default-features = false }
 # gates on the TARGET OS at run time, so Windows binaries cross-built from Linux
 # get their icon too).
 winresource = "0.1.34"
-# The mobile app's Android-only glue (`apps/indicatrix-mobile-android/src/platform_android`):
+# The mobile app's Android-only glue (`apps/pleochroma-mobile-android/src/platform_android`):
 # JNI calls into the Kotlin activity, logcat output and panics written to logcat. Built only
 # for `target_os = "android"`.
 jni = "0.22.4"
@@ -156,19 +160,19 @@ log = "0.4"
 log-panics = { version = "2", features = ["with-backtrace"] }
 
 # Workspace members
-indicatrix-vault = { path = "crates/indicatrix-vault", version = "0.9.0" }
-indicatrix = { path = "crates/indicatrix", version = "0.9.0" }
-indicatrix-net = { path = "crates/indicatrix-net", version = "0.9.0" }
-indicatrix-dispatch = { path = "crates/indicatrix-dispatch", version = "0.9.0" }
-indicatrix-formats = { path = "crates/indicatrix-formats", version = "0.9.0" }
-indicatrix-cut-core = { path = "crates/indicatrix-cut-core", version = "0.9.0" }
-indicatrix-solid = { path = "crates/indicatrix-solid", version = "0.9.0" }
-indicatrix-editor = { path = "crates/indicatrix-editor", version = "0.9.0" }
-indicatrix-web-core = { path = "crates/indicatrix-web-core", version = "0.9.0" }
-indicatrix-update = { path = "crates/indicatrix-update", version = "0.9.0" }
-indicatrix-render-jobs = { path = "crates/indicatrix-render-jobs", version = "0.9.0" }
-indicatrix-cut = { path = "apps/indicatrix-cut", version = "0.9.0" }
-indicatrix-mobile-core = { path = "crates/indicatrix-mobile-core", version = "0.9.0" }
+pleochroma-vault = { path = "crates/pleochroma-vault", version = "0.10.0" }
+pleochroma = { path = "crates/pleochroma", version = "0.10.0" }
+pleochroma-net = { path = "crates/pleochroma-net", version = "0.10.0" }
+pleochroma-dispatch = { path = "crates/pleochroma-dispatch", version = "0.10.0" }
+pleochroma-formats = { path = "crates/pleochroma-formats", version = "0.10.0" }
+pleochroma-cut-core = { path = "crates/pleochroma-cut-core", version = "0.10.0" }
+pleochroma-solid = { path = "crates/pleochroma-solid", version = "0.10.0" }
+pleochroma-editor = { path = "crates/pleochroma-editor", version = "0.10.0" }
+pleochroma-web-core = { path = "crates/pleochroma-web-core", version = "0.10.0" }
+pleochroma-update = { path = "crates/pleochroma-update", version = "0.10.0" }
+pleochroma-render-jobs = { path = "crates/pleochroma-render-jobs", version = "0.10.0" }
+pleochroma-cut = { path = "apps/pleochroma-cut", version = "0.10.0" }
+pleochroma-mobile-core = { path = "crates/pleochroma-mobile-core", version = "0.10.0" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
@@ -199,39 +203,42 @@ debug = 2
 # as an rlib with full debug info (6.1 GB on 2026-10-06), and MSVC's link.exe ignores an
 # archive over 4 GiB ("LNK4003: invalid library format"), so every test and the binary
 # failed to link. Line tables keep file:line backtraces and breakpoints by line.
-[profile.dev.package.indicatrix-cut]
+[profile.dev.package.pleochroma-cut]
 debug = "line-tables-only"
 
-[profile.test.package.indicatrix-cut]
+[profile.dev.package.pleochroma-editor]
+debug = "line-tables-only"
+
+[profile.test.package.pleochroma-cut]
 debug = "line-tables-only"
 
 # The browser app's dev builds (`trunk serve` / `trunk build`): BOTH the page
-# (`apps/indicatrix-web`) and its Web Worker (`apps/indicatrix-web-compute`), selected by
-# `data-cargo-profile-dev="indicatrix-web-compute"` on their two `<link>`s in
-# `apps/indicatrix-web/index.html`. The worker traces every render sample and runs every
+# (`apps/pleochroma-web`) and its Web Worker (`apps/pleochroma-web-compute`), selected by
+# `data-cargo-profile-dev="pleochroma-web-compute"` on their two `<link>`s in
+# `apps/pleochroma-web/index.html`. The worker traces every render sample and runs every
 # solve, and the page rasterises the Solid and Diagram views and solves small designs on
 # the main thread; debug wasm is far too slow for either (a solid frame took about 1.8 s and
 # the page stalled). One profile for both means the shared dependencies compile once.
-# `trunk build --release` ignores this and uses `indicatrix-web-release` below. Its own output
-# directory (`target/wasm32-unknown-unknown/indicatrix-web-compute/`), so it never evicts the
+# `trunk build --release` ignores this and uses `pleochroma-web-release` below. Its own output
+# directory (`target/wasm32-unknown-unknown/pleochroma-web-compute/`), so it never evicts the
 # native `dev` artefacts (`[profile.dev]` itself is unchanged).
-[profile.indicatrix-web-compute]
+[profile.pleochroma-web-compute]
 inherits = "dev"
 opt-level = 3
 debug = false
 debug-assertions = false
 overflow-checks = false
 
-# The page crate alone at opt-level 1 inside that same dev profile. `apps/indicatrix-web` is
+# The page crate alone at opt-level 1 inside that same dev profile. `apps/pleochroma-web` is
 # mostly Slint-generated UI code, which at opt-level 3 dominates a dev rebuild, while its hot
 # loops (the Solid/Diagram rasteriser, the meet solver) live in dependency crates that keep
-# opt-level 3 here, and the Worker (`indicatrix-web-compute`, a different package) is
+# opt-level 3 here, and the Worker (`pleochroma-web-compute`, a different package) is
 # untouched. One profile still means the dependencies compile once. Measured 2026-09-29
 # (page rebuild after an edit, then Solid / Diagram frame time): opt-level 3 about 3 min
 # for a Rust-only edit; opt-level 1 40 s for a Rust-only edit and 3 to 6 min for an edit to
 # a `.slint` file (the generated UI code is recompiled whole), Solid 4-8 ms, Diagram 8-23 ms;
 # opt-level 0 33 s and 2 min, Solid 9 ms but Diagram 29 ms with one panel, so too slow.
-[profile.indicatrix-web-compute.package.indicatrix-web]
+[profile.pleochroma-web-compute.package.pleochroma-web]
 opt-level = 1
 
 # Applies to future `cargo bench` targets; no crate has a benches/ directory today, so it is unused.
@@ -241,20 +248,20 @@ lto = false
 strip = false
 
 # The browser app's release builds (`trunk build --release`), selected by
-# `data-cargo-profile-release="indicatrix-web-release"` on the page and Worker `<link>`s in
-# `apps/indicatrix-web/index.html`. It is `[profile.release]` (LTO, one codegen unit,
+# `data-cargo-profile-release="pleochroma-web-release"` on the page and Worker `<link>`s in
+# `apps/pleochroma-web/index.html`. It is `[profile.release]` (LTO, one codegen unit,
 # symbols stripped) with one change: the page crate, which is mostly Slint-generated UI code,
 # is optimised for size. The hot loops (Slint's renderer, the rasteriser, the meet solver and
 # the Worker's tracer) all live in dependency crates and keep opt-level 3. Native release
 # builds never use it. Both `<link>`s name it so their shared dependencies compile once.
-[profile.indicatrix-web-release]
+[profile.pleochroma-web-release]
 inherits = "release"
 
-[profile.indicatrix-web-release.package.indicatrix-web]
+[profile.pleochroma-web-release.package.pleochroma-web]
 opt-level = "s"
 
 # Release `.so` of the Android app for the signed AAB (`gradlew assembleRelease` /
-# `bundleRelease` in `apps/indicatrix-mobile-android/android` passes `--profile
+# `bundleRelease` in `apps/pleochroma-mobile-android/android` passes `--profile
 # android-release`). Unwinding stays on: `log-panics` needs it to write the panic and its
 # backtrace to logcat.
 [profile.android-release]
@@ -271,13 +278,13 @@ lto = "thin"
 inherits = "dev"
 opt-level = 3
 
-[profile.android-dev.package.indicatrix-mobile-android]
+[profile.android-dev.package.pleochroma-mobile-android]
 opt-level = 0
 
-[profile.android-dev.package.indicatrix-mobile-core]
+[profile.android-dev.package.pleochroma-mobile-core]
 opt-level = 0
 
-# For the long-running validation harnesses under `crates/indicatrix/examples/` --
+# For the long-running validation harnesses under `crates/pleochroma/examples/` --
 # `gpu_equivalence_harness` and `meet_solver_validation` -- which are rebuilt often
 # while iterating and need release-level speed to finish in reasonable time.
 # `[profile.release]` above sets lto=true, codegen-units=1, the right trade for a real
@@ -297,6 +304,7 @@ codegen-units = 16
 # goes to `target/ui-harness/report.md`.
 [profile.harness]
 inherits = "release"
+opt-level = "z"
 lto = false
 codegen-units = 16
 debug = "line-tables-only"
@@ -313,10 +321,10 @@ strip = false
 # elsewhere), so the tracer's pinned bit tables are captured from this optimised
 # level, which a release build reproduces; `cargo test` and `cargo test --release`
 # therefore agree. The price is one optimised compile of each crate per test build.
-[profile.test.package.indicatrix]
+[profile.test.package.pleochroma]
 opt-level = 3
 
-[profile.test.package.indicatrix-cut-core]
+[profile.test.package.pleochroma-cut-core]
 opt-level = 3
 
 # Pinned Slint Android Back ownership switch; see package PATCH.md.

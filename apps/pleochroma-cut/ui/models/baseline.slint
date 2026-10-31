@@ -1,0 +1,49 @@
+// The Baseline strip's state (`components/editor_inspector/baseline_strip.slint` is its view).
+//
+// The Baseline is the copy of the design that every later change is read against: set by Set
+// Baseline, automatically when a design opens, and after an Optimize or Retarget apply lands.
+// The strip shows each figure of the design now with its signed change since the Baseline,
+// scored face-up under the Grading tray, the one lighting every optimization rates under.
+//
+// Rust owns everything the strip shows (`gui::editor::baseline`): the cells already carry their
+// text, tone and tooltip, so the view only draws what it is given. The deltas come from
+// `pleochroma_editor::live_deltas::figure_deltas`.
+
+// One figure of the strip: its short name, the current value with the signed change, and how
+// the change reads.
+export struct BaselineCell {
+    // "Bril.", "Wind.", "Ext.", "Fire", "Scint.", "Yield", "Warn." or a tilt average.
+    short_label: string,
+    // The current value and the change since the Baseline, e.g. "21.0 % +1.8".
+    text: string,
+    // 0 about the same (within the noise threshold), 1 better, 2 worse.
+    tone: int,
+    // The Baseline and current values, or why the change is about the same.
+    tooltip: string,
+}
+
+export global BaselineModel {
+    // Whether a Baseline is held; the strip offers Set Baseline either way.
+    in property <bool> has_baseline: false;
+    // "Baseline: opened 4 min ago", "Baseline: after Optimize 2 min ago".
+    in property <string> label: "";
+    // The figures with their change; empty while nothing is scored yet.
+    in property <[BaselineCell]> cells: [];
+    // The design changed and no solve has delivered new masts: the cells are the last figures.
+    in property <bool> stale: false;
+    // Figures are being worked out.
+    in property <bool> busy: false;
+    // The tilt averages are being measured (the Measure Tilt button turns into Stop).
+    in property <bool> measuring_tilt: false;
+    // One plain sentence under the cells: "Baseline re-scored for Quartz", why there are no
+    // figures, or empty.
+    in property <string> note: "";
+
+    // Keeps the design as it is now as the Baseline.
+    callback set_baseline();
+    // Opens the comparison of the Baseline with the design now.
+    callback compare();
+    // Measures the tilt averages of the Baseline and of the design now (a few seconds), or
+    // stops the measurement.
+    callback measure_tilt();
+}

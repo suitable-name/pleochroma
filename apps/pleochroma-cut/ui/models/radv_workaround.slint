@@ -1,0 +1,31 @@
+// The RADV shader workaround (Linux, Mesa's AMD driver): the one-time question, the Preferences
+// switch and the restart. On Mesa's RADV driver some stones (color zones with a play-of-color
+// structure, oriented inclusions) render too bright or with errors; turning off one optimization
+// of the AMD shader compiler makes them right, at the price of about 10 % slower GPU rendering.
+// The driver reads that choice when the graphics device is created, so a change needs a restart.
+// Rust (`gui::radv_workaround`) seeds these from the settings, raises the question once the GPU
+// adapter is known, saves every answer and does the restart.
+export global RadvWorkaroundModel {
+    // The Preferences section shows only where the driver exists: set by Rust (Linux only).
+    in-out property <bool> available: false;
+    // The stored answer is "use the workaround" (the Preferences switch). Applies after a restart.
+    in-out property <bool> enabled: false;
+    // `true` while the question is still to be asked: the GPU is RADV, nothing was answered yet and
+    // the workaround is not in force anyway. The main window shows the question only when no other
+    // dialog is open (`MainWindow.radv_prompt_open`).
+    in-out property <bool> prompt_pending: false;
+    // The driver as the question names it ("Mesa 26.2.5 (RADV)"), set by Rust with `prompt_pending`.
+    in-out property <string> driver_text: "";
+
+    // "Restart With Workaround": store `on`, then restart the program (after the unsaved-changes
+    // guard).
+    callback restart_with_workaround();
+    // "Not Now": store nothing; the question comes again at the next start.
+    callback not_now();
+    // "Don't Use It": store `off`; never ask again.
+    callback dont_use();
+    // The Preferences switch changed (`enabled` already holds the new value).
+    callback enabled_changed(bool);
+    // Preferences > "Restart Now": restart the program (after the unsaved-changes guard).
+    callback restart_now();
+}

@@ -1,0 +1,319 @@
+import { LightingPresetItem } from "../types.slint";
+import { PhysicscolorModel } from "physics_color.slint";
+
+// Shared state for the 3D viewport interactions (`GemViewportView`'s camera/lighting/
+// material controls and the read-only optical-metrics readout), plus
+// `SolidViewportView`'s camera drag, which moves the SAME shared
+// `bridge::render_thread::context::RenderContext` yaw/pitch as the Live Render
+// viewport.
+export global ViewportModel {
+    in property <image> render_image;
+    in property <bool> has_render: false;
+    in property <bool> render_progress_visible: false;
+    in property <bool> render_progress_indeterminate: true;
+    in property <int> render_samples_done: 0;
+    in property <int> render_samples_target: 0;
+    in property <string> render_progress_stage: "Preparing preview";
+    in property <string> render_eta_text: "";
+    // Live Render modes: 0 Solid, 1 Path-Traced, 2 Ray-Traced.
+    // Live Render tab's own renderer toggle -- `0` shows the fast CPU solid
+    // raster (`SolidPreviewModel.image`, forced to `view_mode` 0 regardless of the
+    // Edit tab's own choice -- see `gui::render::camera_lighting::resubmit_live_solid`),
+    // `2` shows the deterministic ray tracer; `1` (model default) shows the spectral path tracer (`render_image` above), same as
+    // this tab's sole behaviour before this control existed. Hoisted here rather than
+    // local to `GemViewportView` for the same reason as `render_paused` below --
+    // reading a global survives that view being conditionally destroyed/recreated
+    // across tab switches. Gates the tracer itself, not just what's displayed: see
+    // `gui::render::render_visibility::render_is_visible`.
+    in-out property <int> live_view_mode: 1;
+    // Persists `live_view_mode` through the debounced settings writer -- same pattern
+    // as `SolidPreviewModel.view_mode_changed`.
+    callback live_view_mode_changed(int);
+    changed live_view_mode => { live_view_mode_changed(live_view_mode); }
+    // Hoisted here rather than local to `GemViewportView`: reading a global survives
+    // that view being conditionally destroyed/recreated across tab switches, unlike a
+    // local property, which would silently reset and desync from the render thread's
+    // actual `paused` flag.
+    in-out property <bool> render_paused: false;
+    callback pause_toggled(bool);
+    // The Material Editor dialog's own visibility -- hoisted here rather than local to
+    // `GemViewportView` for the same reason as `render_paused` above, and because it's
+    // reached from the same material-picker row this global already owns.
+    in-out property <bool> material_editor_open: false;
+
+    in property <[string]> material_options: ["Diamond", "Emerald", "Moissanite", "Quartz", "Ruby", "Sapphire", "Spinel", "Tanzanite", "Topaz", "Zircon"];
+    in-out property <int> selected_material_index: 0;
+    // Keeps the material-editor pre-fill fields below fresh as the
+    // selection changes -- see `gui::optics::custom_materials::
+    // setup_selected_material_prefill_callback` (the Rust side of this boundary).
+    // Also directly invocable (with no args) by whatever opens the material editor,
+    // to force a refresh against the current selection without requiring the index
+    // to have actually changed since the last one.
+    callback selected_material_changed_for_editor_prefill();
+    changed selected_material_index => { selected_material_changed_for_editor_prefill(); }
+    // The design's own traced material name, pushed on every editor refresh
+    // (`gui::editor::view::refresh_design_settings`); meaningful while `shows_editor_design`.
+    // "Preview as..." compares its pick with this, not with what the view currently traces.
+    in-out property <string> design_material_name: "";
+    // Now the "following the design" state: true (default) = the picture uses the design's own
+    // material; false = the person chose "Preview as..." in the Stone tab. Only the Stone tab's
+    // Preview picker (and an explicit "Save & Apply" in the material editor) turn it off, and
+    // "Back to design" turns it on; nothing unlinks silently.
+    in-out property <bool> viewport_material_linked: true;
+    // The view shows a material other than the design's, by the person's own choice. Drives the
+    // amber "Previewing" badge in the Stone tab, both viewport toolbars and the export dialogs.
+    out property <bool> previewing: !viewport_material_linked && shows_editor_design;
+    // The material the picture is traced with (what the Preview picker shows).
+    out property <string> traced_material_name: material_options[selected_material_index];
+    // "Preview as..." picked a material (name). Starts a preview; never fires implicitly.
+    callback preview_material_chosen(string);
+    // The Stone tab's "Material" pick while a LIBRARY design is on the viewport (`!shows_editor_design`):
+    // a library design is not editable, so this is only the view selection, remembered as the app
+    // preference `selected_material`. It starts no preview (`previewing` stays false).
+    callback library_material_chosen(string);
+    // "Back to design": stop previewing, show the design's own material and colour again.
+    callback preview_back_to_design();
+
+    // The path-traced image describes the planes last pushed to
+    // the render thread, which an ordinary tier edit does NOT refresh -- the trace
+    // is expensive and only re-runs on a solve. Without this the picture just
+    // silently went on showing the design as it was several edits ago, with nothing
+    // on screen saying so. Set from `EditorState::generation` against the
+    // generation stamped on the planes the tracer actually holds (see
+    // `RenderContext::traced_planes_are_stale`), so it is true exactly while the
+    // two disagree.
+    in property <bool> trace_stale: false;
+
+    // Whether the live viewport shows the Edit tab's own design (true) or something else: a
+    // Library row opened in Live Render, or the built-in placeholder (false). Live Render
+    // follows the Edit tab's Cut slider, so it shows its "Cut: ..." pill only while this is
+    // true -- a Library row is always drawn whole. Pushed from Rust wherever the plane slot
+    // is claimed (`gui::editor::push_viewport_owner`).
+    in property <bool> shows_editor_design: true;
+
+    // Surfaces a lost GPU device instead of leaving the viewport silently frozen with
+    // no explanation. Set by the render thread's own `update_gpu_status` push (see
+    // `bridge::render_thread::gpu_backend::ViewportGpu::status_message`'s own doc
+    // comment for the exact sequence): empty while healthy, "GPU renderer lost —
+    // reacquiring…" for the brief re-acquire attempt, or a "CPU fallback: <reason>"
+    // message once re-acquiring has also failed and this session gives up on the GPU
+    // for good. `gem_viewport.slint` shows this as a small pill next to the pause
+    // pill, in Path-traced mode only -- Solid mode never touches the tracer at all.
+    in property <string> gpu_status_text: "";
+
+    // Why the currently active design cannot be traced honestly, as a cutter-facing
+    // message -- empty while tracing is valid. Set by the render thread's own
+    // `last_trace_refusal` push (`bridge::render_thread::mod`'s frame loop, mirroring
+    // `gpu_status_text` just above) straight from `RenderContext::material_unresolved`.
+    // `gem_viewport.slint` shows this as a banner and blanks/dims the image while it
+    // is set, rather than letting the viewport go on showing a stale frame (or, before
+    // this existed, silently tracing the wrong stone as Diamond) with nothing on
+    // screen saying why.
+    in property <string> trace_refusal: "";
+
+    // This list is what actually reaches the ComboBox. ORDER is load-bearing: must
+    // match `LightingPreset::ALL` (`LightTent`, `IsoHemisphere`, `WhiteTray`, `ShopLights`,
+    // `WindowDaylight`, `DaylightDome`, `DaylightSun`, `Daylight`, `Incandescent`,
+    // `IlluminantA`, `RingLights`, `DarkSpotlight`, `Aset`, `UvLamp365`, `UvLamp395`) exactly, since
+    // `lighting_changed` below carries the selected INDEX, not the label text.
+    // The two UV lamps come last and are offered only in a `physical-color` build
+    // (`PhysicscolorModel.ui_enabled`), so every other index is the same either way.
+    in property <[string]> lighting_options: PhysicscolorModel.ui_enabled
+        ? ["Light tent + black cards", "Grading tray (D65 hemisphere + head shadow)", "White tray (lit from below)", "Jewellery shop (diffuse + spots)", "Window daylight", "Daylight sky (no sun)", "Daylight sky + direct sun", "D65 Daylight (6500K)", "Incandescent (3200K)", "Incandescent A (2856K)", "Gem Studio Ring Lights", "Dramatic Dark Spotlight", "Contrast view (ASET-style)", "UV lamp 365 nm", "UV lamp 395 nm"]
+        : ["Light tent + black cards", "Grading tray (D65 hemisphere + head shadow)", "White tray (lit from below)", "Jewellery shop (diffuse + spots)", "Window daylight", "Daylight sky (no sun)", "Daylight sky + direct sun", "D65 Daylight (6500K)", "Incandescent (3200K)", "Incandescent A (2856K)", "Gem Studio Ring Lights", "Dramatic Dark Spotlight", "Contrast view (ASET-style)"];
+    in-out property <int> selected_lighting_index: 0;
+    // Parallel to `lighting_options`: whether that preset is a Studio rig (pinpoint
+    // sources), set once at startup from `LightingPreset::ALL`. The Optimize tab shows its
+    // "measured against this rig's light sources" note when the selected one is.
+    in property <[bool]> lighting_is_studio: [];
+    in property <[LightingPresetItem]> lighting_presets: [];
+
+    in property <float> brilliance_pct: 0.0;
+    in property <float> fire_index: 0.0;
+    in property <float> scintillation_pct: 0.0;
+    in property <float> windowing_pct: 0.0;
+    in property <float> extinction_pct: 0.0;
+
+    callback camera_orbit(float, float);
+    callback camera_zoom(float);
+    // Mouse-button edges of an orbit or light drag in EITHER viewport.
+    // `camera_drag_begin` fires on the press that
+    // starts a drag (never for a handle or slice drag); `camera_drag_end` on the
+    // matching `up`/`cancel`, when Slint's own `pressed` drops, or when the drag area
+    // is disabled mid-drag. Rust mirrors them into `RenderContext::camera_drag_held`,
+    // which keeps the preview-then-settle machinery in its low-resolution preview
+    // until release. Idempotent: a stray extra `end` is harmless.
+    callback camera_drag_begin();
+    callback camera_drag_end();
+    callback light_move(float, float);
+    callback light_pos_changed(float, float);
+    callback reset_camera();
+    // Poses for the shared orbit camera: 0 = Front, 1 = Top, 2 = Bottom, 3 = Left,
+    // 4 = Right (yaw resets to index 0), 5 = Fit (distance only), 6 = Turn 90° (a quarter
+    // turn added to the yaw). Distance and lighting are kept except by Fit.
+    callback set_view(int);
+    // Carries the selected preset's INDEX into `lighting_options`/`LightingPreset::ALL`,
+    // not its label text.
+    callback lighting_changed(int);
+    callback save_lighting_preset(string);
+    // The name offered when saving a lighting: "<rig> - <date>", made unique among the saved
+    // lightings (`gui::render::lighting_presets`). Answered by Rust so the date and the
+    // uniqueness check live in one place; the Lighting tab calls it when its save row opens.
+    pure callback suggest_lighting_name() -> string;
+    // The Lighting tab's "Reset this tab": puts the lighting rig, light direction, exposure,
+    // glare, backdrop, head shadow and the HDR map back to the built-in defaults
+    // (`LightingValues::default()`). Camera pose untouched. Handled in
+    // `gui::render::camera_lighting`.
+    callback reset_lighting_tab();
+    // The renderer's own "Save as preset" button -- captures the FULL current view
+    // (lighting AND camera pose), unlike `save_lighting_preset` above (lighting only).
+    callback save_view_preset(string);
+    callback apply_lighting_preset(int);
+    callback rename_lighting_preset(int, string);
+    callback delete_lighting_preset(int);
+    // The Parameters panel's "usable for export" checkbox next to a preset row.
+    callback toggle_preset_export_usable(int, bool);
+    callback copy_metrics();
+    // name, ri, dispersion, birefringence, color_idx, crystal_system_idx,
+    // optical_character_idx, biaxial_delta_beta_alpha, specific_gravity,
+    // apply_to_live_render -- see `MaterialEditorDialog.save_material`'s own callback
+    // doc comment.
+    // `specific_gravity` (`0.0` = not recorded) is the tenth
+    // argument -- `gui::optics::custom_materials`'s `on_save_custom_material` handler
+    // persists it via `crystal_optics::save_gem_material`, so the dialog no longer
+    // silently drops a field it collects but has no slot to carry.
+    // Whether the name currently typed in the material editor
+    // already names an existing CUSTOM material (so saving would overwrite it, and
+    // Delete is a legitimate action) or a BUILT-IN one (so saving is refused
+    // outright). Answered in Rust, where the authoritative lookups already live --
+    // Slint can neither loop over a list inside an expression nor test a string for
+    // a substring, so a Slint-side search is not merely awkward but impossible, and
+    // a second implementation would be free to drift from the real check anyway.
+    in property <bool> material_name_is_existing_custom: false;
+    in property <bool> material_name_collides_with_builtin: false;
+    // Reported on every change to the editor's name field, including the preset
+    // buttons that assign it directly.
+    callback material_name_edited(string);
+
+    // The last argument is the full `colorMode` JSON (`PhysicscolorModel.mode_json`): both the
+    // fantasy payload and the recipe are saved, whichever mode is active.
+    callback save_custom_material(string, float, float, float, int, int, int, float, float, bool, string);
+    callback delete_custom_material(string);
+
+    // Pre-fills the material editor from the viewport-selected
+    // CUSTOM material's own saved values, so opening the dialog on an existing
+    // custom material shows what it actually is instead of always the dialog's own
+    // "Custom Diamond" literal defaults. Read from the original saved row (`gui::
+    // optics::custom_materials::push_selected_custom_material_fields`, the Rust side
+    // of this boundary), not the converted `GemMaterial` the render context holds --
+    // that conversion is one-way (see `gui::optics::crystal_optics::
+    // save_gem_material`'s own doc comment), so only the original row still has the
+    // exact RI/dispersion/birefringence/absorption scalars the dialog's sliders edit.
+    //
+    // `selected_custom_material_valid` is false for a built-in selection or a name
+    // that no longer names any saved custom material -- there is nothing honest to
+    // pre-fill from either case, and every other property below is only meaningful
+    // while it is true. `material_editor_dialog.slint` assigns all eight of these
+    // into its own `mat_name`/`ri_val`/`disp_val`/`sg_val`/`biref_val`/
+    // `selected_crystal_system_idx`/`selected_optical_character_idx`/
+    // `biaxial_delta_beta_alpha_val` in one shot when it opens for a custom-material
+    // selection with this true -- never a name-only partial pre-fill (see that
+    // file's own doc comment for why: leaving the optics fields at the dialog's
+    // defaults would let Save silently overwrite a real custom material's optics).
+    in property <bool> selected_custom_material_valid: false;
+    in property <float> selected_custom_material_ri: 2.417;
+    in property <float> selected_custom_material_dispersion: 0.0256;
+    in property <float> selected_custom_material_birefringence: 0.000;
+    in property <float> selected_custom_material_specific_gravity: 0.0;
+    in property <int> selected_custom_material_crystal_system_idx: 0;
+    in property <int> selected_custom_material_optical_character_idx: 0;
+    in property <float> selected_custom_material_biaxial_delta_beta_alpha: 0.0;
+    in property <int> selected_custom_material_color_idx: 0;
+    // The typed `colorMode` JSON the selected custom material stores ("" when it has no
+    // recipe). The Physics color state is rebuilt from it on every dialog open
+    // (`PhysicscolorModel.dialog_opened`); see `models/physics_color.slint`.
+    in property <string> selected_custom_material_color_recipe_json: "";
+    // The fantasy color (absorption triple) the selected material stores, for the dialog's
+    // fantasy payload when its swatch row reads "Custom (keep)".
+    in property <[float]> selected_custom_material_rgb: [0.0, 0.0, 0.0];
+    // The selected material's recipe was built with older color data than this build's
+    // catalogue: the toolbar shows a "color data updated" badge (it keeps rendering from its
+    // stored bands until the user updates it in the editor).
+    in property <bool> selected_material_color_outdated: false;
+
+    // ---- The Live Render toolbar's "Color" control -------------------------------------
+    // (`ui/components/gem_viewport/render_color_picker.slint`; Rust side:
+    // `gui::render::render_body_color`.) A quick colour change that needs no custom
+    // material. While the view shows the editor's open design with the render material
+    // linked, a pick is that design's own colour override (the same undoable edit as the
+    // Edit tab's color box); otherwise it is a view-only setting that is remembered but
+    // never written to a design. Everything below is pushed from Rust.
+    //
+    // The list is the same keyed list as the design's color combo, for the viewed material:
+    // Material Default, the material's color variants, then either the nine generic one-color
+    // presets (a material that looks the same in every direction) or a Legacy row (an old single
+    // color on a pleochroic stone), and Custom Color last. Every position below is a position in
+    // that list: `render_color_index` is the selected one and `render_color_chosen` hands one back.
+    //
+    // Material Default and the variants: text rows with a dot, a tooltip and their list position.
+    in property <[string]> render_color_row_labels: [];
+    in property <[string]> render_color_row_tips: [];
+    in property <[color]> render_color_row_swatches: [];
+    in property <[bool]> render_color_row_has_swatch: [];
+    in property <[int]> render_color_row_indexes: [];
+    // The generic presets (round swatches, empty for a pleochroic material): names, tooltips and
+    // dots, contiguous from list position `render_color_preset_first` (-1 for none).
+    in property <[string]> render_color_preset_labels: [];
+    in property <[string]> render_color_preset_tips: [];
+    in property <[color]> render_color_preset_swatches: [];
+    in property <int> render_color_preset_first: -1;
+    // The Legacy row ("Legacy: Blue (No Pleochroism)"): its list position (-1 for none), label,
+    // tooltip and dot. `render_color_legacy_note` is the sentence under the list while the shown
+    // color is such an old single color ("Legacy Color: No Pleochroism"), else empty.
+    in property <int> render_color_legacy_index: -1;
+    in property <string> render_color_legacy_label: "";
+    in property <string> render_color_legacy_tip: "";
+    in property <color> render_color_legacy_swatch: transparent;
+    in property <string> render_color_legacy_note: "";
+    // "Custom Color..." (the per-axis editor): its list position and tooltip.
+    in property <int> render_color_custom_index: -1;
+    in property <string> render_color_custom_tip: "";
+    // The selected list position and the shown color's name for the popup's heading (a variant's
+    // own label, "Custom Color", or "Material Default").
+    in property <int> render_color_index: 0;
+    in property <string> render_color_summary: "Material Default";
+    // The colour the selection renders in, for the pill's dot and the picker's start colour;
+    // `render_color_has_swatch` is false for "Material default" (the dot is drawn hollow).
+    in property <bool> render_color_has_swatch: false;
+    in property <color> render_color_current: transparent;
+    // The colors of the traced material's zones, base zone first (a Two-Color zone as its
+    // unpolarised blend); empty for a material without a color pattern. The Material chip draws
+    // them as a strip instead of the single dot, and the Ray-Traced footnote of the Live Render
+    // viewport says the pattern shows in Path-Traced views while this is not empty.
+    in property <[color]> render_color_zone_swatches: [];
+    // False for a material that defines its own colour (a physics recipe): the control is
+    // greyed out and says why.
+    in property <bool> render_color_enabled: true;
+    // The body colors (Material Default, the swatches, Custom Color) can be picked: false for a
+    // physics recipe and for a zoned material, whose color is its zones. The popup of a zoned
+    // material stays open for its Color Zoning section (Edit Zones, Remove Zoning).
+    in property <bool> render_color_colors_enabled: true;
+    in property <bool> render_color_physics: false;
+    // True while the traced material has colour zones (colour zoning): no colour applies to it.
+    in property <bool> render_color_zoned: false;
+    // True while a pick edits the open design, false while it only changes the view.
+    in property <bool> render_color_targets_design: false;
+    // A custom colour is being matched to the closest colour the material model can
+    // reach (a short background job): the control says so instead of looking ignored.
+    in property <bool> render_color_busy: false;
+    // A list row (Material Default, a variant, a preset or the Legacy row) was clicked; the
+    // argument is its list position. Custom Color opens the editor instead.
+    callback render_color_chosen(int);
+    // Asks Rust to recompute everything above; the control calls it when it appears and
+    // when a design, material or link change could have moved the answer.
+    callback render_color_refresh();
+    // Following the design changed (the Stone tab's "Preview as..." picker or "Back to design"): the
+    // render pipeline mirrors it so it can tell a design-driven view from a free one.
+    callback render_color_context_changed();
+    changed viewport_material_linked => { render_color_context_changed(); }
+}

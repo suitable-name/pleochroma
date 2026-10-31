@@ -192,6 +192,11 @@ Measured color:
 
 ## 3. V³⁺ in corundum; alexandrite (Cr³⁺ in chrysoberyl)
 
+> **Superseded for alexandrite (2026-10-27):** the alexandrite axis and color assignments in this
+> section contradict the Caltech GRR 874 file headers and Farrell & Newnham. Use
+> `docs/color_variants/R1_corundum_spinel_chrysoberyl.md` section 5 (E∥a = β yellow, E∥b = γ
+> blue-green, E∥c = α red), which also matches the built-in Alexandrite tensor.
+
 V³⁺ (3d², octahedral) in corundum, E⊥c:
 - ³T₁(F)→³T₂(F): 575 nm (17390 cm⁻¹), FWHM ≈ 3350 cm⁻¹, σ = 2.05×10⁻¹⁹ cm²
   (0.0241 cm⁻¹ per ppma V).
@@ -201,7 +206,7 @@ color change relies on window I (475–490 nm) vs window II (> 650 nm); excess C
 permanently red; excess Fe³⁺ or Fe–Ti kills a window.
 
 Alexandrite: BeAl₂O₄, Pnma, a = 9.404, b = 5.476, c = 4.427 Å, Z = 4.
-Indicatrix: α (n ≈ 1.745) ∥ c; β (1.748) ∥ b; γ (1.754) ∥ a.
+Pleochroma: α (n ≈ 1.745) ∥ c; β (1.748) ∥ b; γ (1.754) ∥ a.
 Cr³⁺ on the mirror site Al2 (C_s) ≈ 78 ± 3 %, inversion site Al1 (C_i) 22 %.
 
 | Ray | ⁴T₂ band | ⁴T₁ band | Pleochroic color |

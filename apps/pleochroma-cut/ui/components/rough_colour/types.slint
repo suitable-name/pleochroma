@@ -1,0 +1,47 @@
+// The row structs of the Rough Color wizard (`ui/rough_colour_window.slint`, which re-exports
+// them under the same names for `app.slint`).
+
+// One view's row of the Photos step: the file names and what was found.
+export struct ImportSlot {
+    name: string,
+    stone: string,
+    white: string,
+    dark: string,
+    second: string,
+    status: string,
+    active: bool,
+}
+
+// One view in the strip over the picture.
+export struct ViewRow {
+    name: string,
+    status: string,
+    active: bool,
+}
+
+// One row of the zone list.
+export struct ZoneListRow {
+    title: string,
+    summary: string,
+    selected: bool,
+}
+
+// One parameter of the selected zone.
+export struct ParamEditRow {
+    name: string,
+    value: string,
+    locked: bool,
+}
+
+// A predicted colour with its words.
+export struct ChipItem {
+    label: string,
+    swatch: color,
+    text: string,
+}
+
+// A mask flag colour and its name.
+export struct LegendRow {
+    name: string,
+    swatch: color,
+}

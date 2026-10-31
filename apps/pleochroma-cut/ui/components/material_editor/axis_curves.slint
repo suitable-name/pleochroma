@@ -1,0 +1,298 @@
+import { ComboBox, LineEdit } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { FormRow } from "../editor_inspector/form_row.slint";
+import { WarningLine } from "../warning_line.slint";
+import { DispersionEditorModel, DispersionView } from "../../models/dispersion_editor.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { SegmentPill } from "../pill_button.slint";
+
+// The state of the per-axis curves section of the Gem Material Editor. It lives in this global,
+// not in the dialog: Rust fills it when the dialog's pre-fill is pushed
+// (`gui::optics::custom_materials::curves`) and reads it when Save runs, so the Save callback
+// keeps its signature (the same way the Crystal Axis row and the Dispersion section do).
+export global AxisCurvesModel {
+    // 0 = Simple (the main curve plus a constant birefringence), 1 = Curves.
+    in-out property <int> mode: 0;
+    // The model kind of each curve: 0 = Sellmeier 1 term, 1 = Sellmeier 3 terms, 2 = Cauchy.
+    // Curve 0 is the extraordinary ray of a uniaxial material or the alpha ray of a biaxial one;
+    // curve 1 is the gamma ray of a biaxial one.
+    in-out property <[int]> kinds: [2, 2];
+    // The coefficient fields, six per curve (curve 0 first), in the order Rust lists them.
+    in-out property <[string]> texts: ["", "", "", "", "", "", "", "", "", "", "", ""];
+}
+
+// One coefficient field of a curve. The typed text is mirrored into `AxisCurvesModel.texts`, and
+// a change made there (clearing a curve, seeding it) is mirrored back, so the field never shows
+// stale text after the user has typed in it.
+component CurveField inherits FormRow {
+    in property <int> slot;
+    in property <string> placeholder;
+    in-out property <string> value;
+    property <string> external: AxisCurvesModel.texts[root.slot];
+
+    label_width: 56px;
+    init => { root.value = AxisCurvesModel.texts[root.slot]; }
+    changed value => { AxisCurvesModel.texts[root.slot] = root.value; }
+    changed external => {
+        if (root.value != root.external) {
+            root.value = root.external;
+        }
+    }
+    LineEdit {
+        text <=> root.value;
+        placeholder-text: root.placeholder;
+        accessible-label: "Axis Curve Coefficient " + root.label;
+    }
+}
+
+// The model combo of a curve, mirrored into `AxisCurvesModel.kinds` the same way.
+component CurveKind inherits FormRow {
+    in property <int> curve;
+    in-out property <int> kind_idx;
+    property <int> external: AxisCurvesModel.kinds[root.curve];
+
+    label: "Model";
+    label_width: 56px;
+    tooltip: "The kind of equation the coefficients belong to. Choosing another model clears the fields of this curve.";
+    callback chosen();
+    init => { root.kind_idx = AxisCurvesModel.kinds[root.curve]; }
+    changed external => {
+        if (root.kind_idx != root.external) {
+            root.kind_idx = root.external;
+        }
+    }
+    ComboBox {
+        model: ["Sellmeier, 1 Term", "Sellmeier, 3 Terms", "Cauchy"];
+        current-index <=> root.kind_idx;
+        accessible-label: "Axis Curve Model";
+        selected(value) => {
+            AxisCurvesModel.kinds[root.curve] = root.kind_idx;
+            root.chosen();
+        }
+    }
+}
+
+// The editor of one curve: its model, its coefficient fields and the live readout.
+component CurveEditor inherits VerticalLayout {
+    in property <int> curve;
+    in property <DispersionView> view;
+    callback kind_chosen();
+
+    // How many fields the curve's model has (as the Dispersion section shows them). Taken from
+    // the model kind, not from `view`: `view` is re-evaluated on every keystroke, and a repeater
+    // over it would rebuild the fields while the user types in one.
+    property <int> field_count: AxisCurvesModel.kinds[root.curve] == 1 ? 6
+        : AxisCurvesModel.kinds[root.curve] == 0 ? 2 : 3;
+
+    spacing: 8px;
+
+    CurveKind {
+        curve: root.curve;
+        chosen => { root.kind_chosen(); }
+    }
+    for i in root.field_count : CurveField {
+        slot: root.curve * 6 + i;
+        label: root.view.labels[i];
+        placeholder: root.view.placeholders[i];
+        tooltip: "A coefficient of this ray's curve. The formulas are the ones of the Dispersion section above.";
+        invalid: root.view.field_errors[i] != "";
+        error: root.view.field_errors[i];
+    }
+    if root.view.hint != "" : Text {
+        text: root.view.hint;
+        font-size: 9px;
+        color: Theme.text-muted;
+        wrap: word-wrap;
+    }
+    if root.view.model_error != "" : WarningLine {
+        text: root.view.model_error;
+        tint: Theme.danger;
+        font_size: 10px;
+        font_weight: 600;
+    }
+    if root.view.valid : Text {
+        text: "nd " + root.view.n_d + "   ΔnF−C " + root.view.delta + "   Abbe Number " + root.view.abbe;
+        font-size: 10px;
+        font-weight: 600;
+        color: Theme.accent-cyan;
+        wrap: word-wrap;
+    }
+    for note in root.view.warnings : WarningLine {
+        text: note;
+        font_size: 9px;
+        font_weight: 600;
+    }
+}
+
+// The per-axis curves of the Gem Material Editor: a Simple | Curves switch. In Curves mode one
+// more refractive-index curve is typed as Sellmeier or Cauchy coefficients (the same fields and
+// readout as the Dispersion section above): the extraordinary ray of a uniaxial material, or the
+// alpha and gamma rays of a biaxial one, picked with "Curve For". The main curve stays the
+// ordinary (uniaxial) or beta (biaxial) ray.
+//
+// Shown for every material that is not isotropic. The Simple interface hides the switch unless
+// the material already has curves. `save_ok` keeps Save disabled while a typed curve is unusable;
+// `dirty` feeds the dialog's unsaved-changes check.
+export component MaterialAxisCurves inherits VerticalLayout {
+    // The dialog's optical character combo: 0 = Isotropic, 1/2 = Uniaxial, 3/4 = Biaxial.
+    in property <int> character_idx: 0;
+    // The dialog's own numbers, to seed a new curve from.
+    in property <float> ri_val: 2.417;
+    in property <float> disp_val: 0.0256;
+    in property <float> biref_val: 0.0;
+    in property <float> delta_val: 0.0;
+
+    spacing: 8px;
+
+    property <bool> biaxial: root.character_idx >= 3;
+    // The curve being edited: 0 for a uniaxial material, the "Curve For" choice for a biaxial one.
+    property <int> axis_idx: 0;
+    property <int> cur: root.biaxial ? root.axis_idx : 0;
+    property <DispersionView> view0: DispersionEditorModel.evaluate(AxisCurvesModel.kinds[0], root.texts_of(0));
+    property <DispersionView> view1: DispersionEditorModel.evaluate(AxisCurvesModel.kinds[1], root.texts_of(1));
+    property <bool> shown: root.character_idx != 0 && (GuideModel.shows_advanced() || AxisCurvesModel.mode == 1);
+
+    // Save is allowed in Simple mode, and in Curves mode while every needed curve is usable.
+    out property <bool> save_ok: root.character_idx == 0 || AxisCurvesModel.mode == 0
+        || (root.view0.valid && (!root.biaxial || root.view1.valid));
+    out property <string> signature: AxisCurvesModel.mode == 1
+        ? "c|\{AxisCurvesModel.kinds[0]}|\{AxisCurvesModel.kinds[1]}|" + AxisCurvesModel.texts[0] + "|"
+            + AxisCurvesModel.texts[1] + "|" + AxisCurvesModel.texts[2] + "|" + AxisCurvesModel.texts[3] + "|"
+            + AxisCurvesModel.texts[4] + "|" + AxisCurvesModel.texts[5] + "|" + AxisCurvesModel.texts[6] + "|"
+            + AxisCurvesModel.texts[7] + "|" + AxisCurvesModel.texts[8] + "|" + AxisCurvesModel.texts[9] + "|"
+            + AxisCurvesModel.texts[10] + "|" + AxisCurvesModel.texts[11]
+        : "s";
+    property <string> baseline_signature: "s";
+    out property <bool> dirty: root.signature != root.baseline_signature;
+
+    // The six fields of curve `k`.
+    pure function texts_of(k: int) -> [string] {
+        return [
+            AxisCurvesModel.texts[k * 6], AxisCurvesModel.texts[k * 6 + 1], AxisCurvesModel.texts[k * 6 + 2],
+            AxisCurvesModel.texts[k * 6 + 3], AxisCurvesModel.texts[k * 6 + 4], AxisCurvesModel.texts[k * 6 + 5]
+        ];
+    }
+
+    // The refractive index a new curve starts from: the extraordinary ray of a uniaxial material
+    // is the main index plus the birefringence; for a biaxial one the main index is the beta ray.
+    pure function seed_index(k: int) -> float {
+        return root.biaxial
+            ? (k == 0 ? root.ri_val - root.delta_val : root.ri_val - root.delta_val + root.biref_val)
+            : root.ri_val + root.biref_val;
+    }
+
+    init => {
+        root.baseline_signature = root.signature;
+    }
+
+    // Back to the Simple mode: the dialog calls this when a template has just proposed numbers.
+    public function reset_to_simple() {
+        AxisCurvesModel.mode = 0;
+    }
+
+    // Choosing another model starts its curve's fields empty: the same number means something else
+    // in each equation.
+    function clear_curve(k: int) {
+        AxisCurvesModel.texts[k * 6] = "";
+        AxisCurvesModel.texts[k * 6 + 1] = "";
+        AxisCurvesModel.texts[k * 6 + 2] = "";
+        AxisCurvesModel.texts[k * 6 + 3] = "";
+        AxisCurvesModel.texts[k * 6 + 4] = "";
+        AxisCurvesModel.texts[k * 6 + 5] = "";
+    }
+
+    // The Cauchy fit of the dialog's numbers: the curve the Simple mode would trace, as a
+    // starting point to edit.
+    function seed_curve(k: int) {
+        AxisCurvesModel.kinds[k] = 2;
+        AxisCurvesModel.texts[k * 6] = DispersionEditorModel.cauchy_seed(root.seed_index(k), root.disp_val, 0);
+        AxisCurvesModel.texts[k * 6 + 1] = DispersionEditorModel.cauchy_seed(root.seed_index(k), root.disp_val, 1);
+        AxisCurvesModel.texts[k * 6 + 2] = DispersionEditorModel.cauchy_seed(root.seed_index(k), root.disp_val, 2);
+        AxisCurvesModel.texts[k * 6 + 3] = "";
+        AxisCurvesModel.texts[k * 6 + 4] = "";
+        AxisCurvesModel.texts[k * 6 + 5] = "";
+    }
+
+    function switch_to_curves() {
+        if (AxisCurvesModel.mode == 1) {
+            return;
+        }
+        AxisCurvesModel.mode = 1;
+        if (AxisCurvesModel.texts[0] == "") {
+            root.seed_curve(0);
+        }
+        if (root.biaxial && AxisCurvesModel.texts[6] == "") {
+            root.seed_curve(1);
+        }
+    }
+
+    if root.shown : VerticalLayout {
+        spacing: 8px;
+
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: start;
+            Text {
+                text: "Per-Axis Curves:";
+                font-size: 11px;
+                font-weight: 600;
+                color: Theme.text-secondary;
+                vertical-alignment: center;
+            }
+            SegmentPill {
+                width: 70px;
+                text: "Simple";
+                hint: "Use the main refractive-index curve for every ray, with the birefringence added as one constant.";
+                selected: AxisCurvesModel.mode == 0;
+                picked => { AxisCurvesModel.mode = 0; }
+            }
+            SegmentPill {
+                width: 70px;
+                text: "Curves";
+                hint: "Type the Sellmeier or Cauchy coefficients of the extraordinary ray (or the alpha and gamma rays of a biaxial stone), so each ray has its own dispersion.";
+                selected: AxisCurvesModel.mode == 1;
+                picked => { root.switch_to_curves(); }
+            }
+        }
+
+        if AxisCurvesModel.mode == 1 : VerticalLayout {
+            spacing: 8px;
+
+            FormRow {
+                label: "Curve For";
+                tooltip: "Which ray this curve describes. The main curve above stays the ordinary ray of a uniaxial stone, or the beta ray of a biaxial one.";
+                label_width: 56px;
+                if root.biaxial : ComboBox {
+                    model: ["Alpha Ray (Lowest Index)", "Gamma Ray (Highest Index)"];
+                    current-index <=> root.axis_idx;
+                    accessible-label: "Curve For";
+                }
+                if !root.biaxial : Text {
+                    text: "Extraordinary Ray";
+                    font-size: 11px;
+                    color: Theme.text-primary;
+                    vertical-alignment: center;
+                }
+            }
+
+            // One editor per curve, so switching the ray rebuilds the fields from the stored texts.
+            if root.cur == 0 : CurveEditor {
+                curve: 0;
+                view: root.view0;
+                kind_chosen => { root.clear_curve(0); }
+            }
+            if root.cur == 1 : CurveEditor {
+                curve: 1;
+                view: root.view1;
+                kind_chosen => { root.clear_curve(1); }
+            }
+
+            if root.biaxial && !(root.view0.valid && root.view1.valid) : Text {
+                text: "A biaxial stone needs both the alpha and the gamma curve. Pick the other one with Curve For.";
+                font-size: 9px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

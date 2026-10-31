@@ -273,9 +273,9 @@ dependencies = [
 
 [[package]]
 name = "annotate-snippets"
-version = "0.12.16"
+version = "0.12.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f211a51805bc641f3ad5b7664c77d2547af685cc33b4cd8d31964027a46f13f1"
+checksum = "b2a5b0a5ab8561c603f16c3b78c24a386b1f70e7fc1b1b1e8c15738828e4a176"
 dependencies = [
  "anstyle",
  "memchr",
@@ -310,6 +310,15 @@ dependencies = [
  "windows-sys 0.61.2",
  "wl-clipboard-rs",
  "x11rb",
+]
+
+[[package]]
+name = "arc-swap"
+version = "1.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "380962b3d93b99642e50b9febf72c071e97e8b32d86eae9cf4ef582bb960ae6e"
+dependencies = [
+ "rustversion",
 ]
 
 [[package]]
@@ -810,9 +819,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.8.0"
+version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6651c9ed80effdc7db0ff72512157f901af5e3549e341e24b1dd4887d836d838"
+checksum = "877bf67ac8e52449eb2f9e98a344ea163beb70dd1f9eebe3cc5357dcfeaee4df"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -1078,9 +1087,9 @@ dependencies = [
 
 [[package]]
 name = "crc32fast"
-version = "1.5.2"
+version = "1.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01a7799fd6b852db0e61728dde9a204c423b44d689dbd432522543614b490e78"
+checksum = "0ba106e844045ddc02c20768ac4b0b7cb45f2cc2ecbd833ac9f5dacb183c2055"
 dependencies = [
  "cfg-if",
 ]
@@ -1115,6 +1124,15 @@ name = "crossbeam-epoch"
 version = "0.9.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc74980687109a3b14c72fd458107bf0baa1da1a1a805e178d15501ba9b86d9d"
+dependencies = [
+ "crossbeam-utils",
+]
+
+[[package]]
+name = "crossbeam-queue"
+version = "0.3.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "03e8bd762f7479489c70ed6c768ddca99d7296857de437a68dcb2a94365b3fae"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -1549,9 +1567,9 @@ dependencies = [
 
 [[package]]
 name = "find-msvc-tools"
-version = "0.1.14"
+version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
+checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
 name = "fixed_decimal"
@@ -2308,7 +2326,7 @@ dependencies = [
  "rowan",
  "rspolib",
  "skrifa",
- "smol_str 0.3.6",
+ "smol_str 0.3.7",
  "strum",
  "swash",
  "typed-index-collections",
@@ -2727,340 +2745,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "indicatrix"
-version = "0.9.0"
-dependencies = [
- "bytemuck",
- "divan",
- "futures-channel",
- "glam",
- "image",
- "indicatrix-formats",
- "js-sys",
- "naga",
- "pollster 1.0.1",
- "rusqlite",
- "serde",
- "toml 1.1.8+spec-1.1.0",
- "tracing",
- "tracing-subscriber",
- "wasm-bindgen",
- "web-time",
- "wgpu",
-]
-
-[[package]]
-name = "indicatrix-cli"
-version = "0.9.0"
-dependencies = [
- "indicatrix",
- "indicatrix-cut",
- "indicatrix-cut-core",
- "indicatrix-editor",
- "indicatrix-formats",
- "indicatrix-net",
- "indicatrix-render-jobs",
- "indicatrix-update",
- "indicatrix-vault",
- "serde_json",
-]
-
-[[package]]
-name = "indicatrix-cut"
-version = "0.9.0"
-dependencies = [
- "anyhow",
- "bytemuck",
- "glam",
- "image",
- "indicatrix",
- "indicatrix-cut-core",
- "indicatrix-dispatch",
- "indicatrix-editor",
- "indicatrix-formats",
- "indicatrix-net",
- "indicatrix-render-jobs",
- "indicatrix-solid",
- "indicatrix-update",
- "indicatrix-vault",
- "postcard",
- "rfd",
- "rustls",
- "serde",
- "serde_json",
- "sha2",
- "slint",
- "slint-build",
- "socket2",
- "toml 1.1.8+spec-1.1.0",
- "tracing",
- "tracing-subscriber",
- "uiprobe",
- "uiprobe-hooks",
- "winresource",
-]
-
-[[package]]
-name = "indicatrix-cut-core"
-version = "0.9.0"
-dependencies = [
- "divan",
- "glam",
- "image",
- "indicatrix",
- "indicatrix-formats",
- "rawler",
- "rusqlite",
- "serde",
- "serde_json",
- "toml 1.1.8+spec-1.1.0",
-]
-
-[[package]]
-name = "indicatrix-dispatch"
-version = "0.9.0"
-dependencies = [
- "divan",
- "glam",
- "indicatrix",
- "indicatrix-net",
-]
-
-[[package]]
-name = "indicatrix-editor"
-version = "0.9.0"
-dependencies = [
- "glam",
- "image",
- "indicatrix",
- "indicatrix-cut-core",
- "indicatrix-formats",
- "indicatrix-solid",
- "tracing",
-]
-
-[[package]]
-name = "indicatrix-formats"
-version = "0.9.0"
-dependencies = [
- "serde",
- "sha2",
- "toml 1.1.8+spec-1.1.0",
-]
-
-[[package]]
-name = "indicatrix-mobile-android"
-version = "0.9.0"
-dependencies = [
- "android_logger",
- "image",
- "indicatrix",
- "indicatrix-cut-core",
- "indicatrix-editor",
- "indicatrix-formats",
- "indicatrix-mobile-core",
- "indicatrix-solid",
- "jni 0.22.4",
- "log",
- "log-panics",
- "rfd",
- "slint",
- "slint-build",
- "tracing",
- "tracing-subscriber",
- "zeroize",
-]
-
-[[package]]
-name = "indicatrix-mobile-core"
-version = "0.9.0"
-dependencies = [
- "glam",
- "indicatrix",
- "indicatrix-cut-core",
- "indicatrix-editor",
- "indicatrix-formats",
- "indicatrix-net",
- "indicatrix-solid",
- "indicatrix-vault",
- "indicatrix-web-core",
- "rustls",
- "rustls-pemfile",
- "serde",
- "serde_json",
- "sha2",
- "toml 1.1.8+spec-1.1.0",
- "tracing",
- "zeroize",
-]
-
-[[package]]
-name = "indicatrix-net"
-version = "0.9.0"
-dependencies = [
- "bytemuck",
- "glam",
- "indicatrix",
- "lz4_flex",
- "png",
- "postcard",
- "rustls",
- "rustls-pemfile",
- "serde",
- "serde_json",
- "sha2",
- "tracing",
- "zeroize",
- "zstd",
-]
-
-[[package]]
-name = "indicatrix-render-jobs"
-version = "0.9.0"
-dependencies = [
- "indicatrix",
- "indicatrix-net",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "indicatrix-solid"
-version = "0.9.0"
-dependencies = [
- "glam",
- "image",
- "indicatrix",
- "indicatrix-cut-core",
- "indicatrix-formats",
-]
-
-[[package]]
-name = "indicatrix-update"
-version = "0.9.0"
-dependencies = [
- "semver",
- "serde",
- "serde_json",
- "ureq",
-]
-
-[[package]]
-name = "indicatrix-vault"
-version = "0.9.0"
-dependencies = [
- "anyhow",
- "indicatrix",
- "indicatrix-formats",
- "rusqlite",
- "serde",
- "serde_json",
- "tracing",
-]
-
-[[package]]
-name = "indicatrix-web"
-version = "0.9.0"
-dependencies = [
- "console_error_panic_hook",
- "image",
- "indicatrix",
- "indicatrix-cut-core",
- "indicatrix-editor",
- "indicatrix-formats",
- "indicatrix-solid",
- "indicatrix-web-core",
- "js-sys",
- "rfd",
- "serde",
- "serde_json",
- "slint",
- "slint-build",
- "tracing",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
-name = "indicatrix-web-compute"
-version = "0.9.0"
-dependencies = [
- "console_error_panic_hook",
- "indicatrix-web-core",
- "js-sys",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
-name = "indicatrix-web-core"
-version = "0.9.0"
-dependencies = [
- "futures-channel",
- "glam",
- "indicatrix",
- "indicatrix-cut-core",
- "indicatrix-editor",
- "indicatrix-formats",
- "js-sys",
- "postcard",
- "serde",
- "serde_json",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
-name = "indicatrix-web-gpu"
-version = "0.9.0"
-dependencies = [
- "console_error_panic_hook",
- "futures-channel",
- "futures-util",
- "glam",
- "indicatrix",
- "indicatrix-web-core",
- "js-sys",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "wgpu",
-]
-
-[[package]]
-name = "indicatrix-worker"
-version = "0.9.0"
-dependencies = [
- "anyhow",
- "bytemuck",
- "glam",
- "image",
- "indicatrix",
- "indicatrix-dispatch",
- "indicatrix-formats",
- "indicatrix-net",
- "indicatrix-render-jobs",
- "indicatrix-update",
- "indicatrix-vault",
- "lz4_flex",
- "postcard",
- "rcgen",
- "ring",
- "rustls",
- "serde_json",
- "sha2",
- "socket2",
- "subtle",
- "time",
- "tracing",
- "tracing-subscriber",
- "winresource",
- "zeroize",
- "zstd",
-]
-
-[[package]]
 name = "input"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3426,13 +3110,15 @@ checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 
 [[package]]
 name = "ksni"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "814b44c24cd2cb236c3b8a41c7f08237b452a8e76ecaa81f1cec40b5b678215b"
+checksum = "1bcc1cb43797140f74b711f1c4a49f48a7a7429f211c5fb78264e7bcd1e99caf"
 dependencies = [
+ "arc-swap",
  "async-executor",
  "async-io",
  "async-lock",
+ "crossbeam-queue",
  "futures-channel",
  "futures-lite",
  "futures-util",
@@ -3622,9 +3308,9 @@ dependencies = [
 
 [[package]]
 name = "lyon_algorithms"
-version = "1.0.21"
+version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdfa8785f95e57914ddb35e3b59994aeba6f5e79e9cfd03da1c269f010f36009"
+checksum = "f3a6b9d4e8b48acd531fbf1241ad9b270df6e60b6b92bdea1469f4f40899d805"
 dependencies = [
  "lyon_path",
  "num-traits",
@@ -3642,9 +3328,9 @@ dependencies = [
 
 [[package]]
 name = "lyon_geom"
-version = "1.0.19"
+version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4336502e29e32af93cf2dad2214ed6003c17ceb5bd499df77b1de663b9042b92"
+checksum = "d82dd26aa4dc0b5b70b9115de59824842bcb43cf4a28e1b1e6d0ad148c93f93e"
 dependencies = [
  "arrayvec",
  "euclid",
@@ -3693,9 +3379,9 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "memmap2"
-version = "0.9.11"
+version = "0.9.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
+checksum = "6b0ca1155a9ecc25aa12e8313a119f32edf0255fea2f44839c4ac0a12b2ac157"
 dependencies = [
  "libc",
 ]
@@ -3766,9 +3452,9 @@ dependencies = [
 
 [[package]]
 name = "multiversion"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7edb7f0ff51249dfda9ab96b5823695e15a052dc15074c9dbf3d118afaf2c201"
+checksum = "eb8a68be21d0755f83bfe47e79b896cc732687cf1903f0e50585e8d6ecc53076"
 dependencies = [
  "multiversion-macros",
  "target-features",
@@ -3776,9 +3462,9 @@ dependencies = [
 
 [[package]]
 name = "multiversion-macros"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b093064383341eb3271f42e381cb8f10a01459478446953953c75d24bd339fc0"
+checksum = "a05e0c3c3e4edaa21d87c645852ed0b0c3663752bcc6ec43353bd6189dce35e1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4640,6 +4326,349 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
+name = "pleochroma"
+version = "0.10.0"
+dependencies = [
+ "bytemuck",
+ "divan",
+ "futures-channel",
+ "glam",
+ "image",
+ "js-sys",
+ "naga",
+ "pleochroma-formats",
+ "pollster 1.0.1",
+ "rusqlite",
+ "serde",
+ "toml 1.1.8+spec-1.1.0",
+ "tracing",
+ "tracing-subscriber",
+ "wasm-bindgen",
+ "web-time",
+ "wgpu",
+]
+
+[[package]]
+name = "pleochroma-cli"
+version = "0.10.0"
+dependencies = [
+ "pleochroma",
+ "pleochroma-cut",
+ "pleochroma-cut-core",
+ "pleochroma-editor",
+ "pleochroma-formats",
+ "pleochroma-net",
+ "pleochroma-render-jobs",
+ "pleochroma-update",
+ "pleochroma-vault",
+ "serde_json",
+]
+
+[[package]]
+name = "pleochroma-cut"
+version = "0.10.0"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "glam",
+ "image",
+ "pleochroma",
+ "pleochroma-cut-core",
+ "pleochroma-dispatch",
+ "pleochroma-editor",
+ "pleochroma-formats",
+ "pleochroma-net",
+ "pleochroma-render-jobs",
+ "pleochroma-solid",
+ "pleochroma-update",
+ "pleochroma-vault",
+ "postcard",
+ "rfd",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "slint",
+ "slint-build",
+ "socket2",
+ "toml 1.1.8+spec-1.1.0",
+ "tracing",
+ "tracing-subscriber",
+ "uiprobe",
+ "uiprobe-hooks",
+ "winresource",
+]
+
+[[package]]
+name = "pleochroma-cut-core"
+version = "0.10.0"
+dependencies = [
+ "divan",
+ "glam",
+ "image",
+ "num-bigint",
+ "num-rational",
+ "pleochroma",
+ "pleochroma-formats",
+ "rawler",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "toml 1.1.8+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
+name = "pleochroma-dispatch"
+version = "0.10.0"
+dependencies = [
+ "divan",
+ "glam",
+ "pleochroma",
+ "pleochroma-net",
+]
+
+[[package]]
+name = "pleochroma-editor"
+version = "0.10.0"
+dependencies = [
+ "divan",
+ "glam",
+ "image",
+ "pleochroma",
+ "pleochroma-cut-core",
+ "pleochroma-formats",
+ "pleochroma-solid",
+ "tracing",
+]
+
+[[package]]
+name = "pleochroma-formats"
+version = "0.10.0"
+dependencies = [
+ "serde",
+ "sha2",
+ "toml 1.1.8+spec-1.1.0",
+]
+
+[[package]]
+name = "pleochroma-mobile-android"
+version = "0.10.0"
+dependencies = [
+ "android_logger",
+ "image",
+ "jni 0.22.4",
+ "log",
+ "log-panics",
+ "pleochroma",
+ "pleochroma-cut-core",
+ "pleochroma-editor",
+ "pleochroma-formats",
+ "pleochroma-mobile-core",
+ "pleochroma-solid",
+ "rfd",
+ "slint",
+ "slint-build",
+ "tracing",
+ "tracing-subscriber",
+ "zeroize",
+]
+
+[[package]]
+name = "pleochroma-mobile-core"
+version = "0.10.0"
+dependencies = [
+ "glam",
+ "pleochroma",
+ "pleochroma-cut-core",
+ "pleochroma-editor",
+ "pleochroma-formats",
+ "pleochroma-net",
+ "pleochroma-solid",
+ "pleochroma-vault",
+ "pleochroma-web-core",
+ "rustls",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml 1.1.8+spec-1.1.0",
+ "tracing",
+ "zeroize",
+]
+
+[[package]]
+name = "pleochroma-net"
+version = "0.10.0"
+dependencies = [
+ "bytemuck",
+ "glam",
+ "lz4_flex",
+ "pleochroma",
+ "png",
+ "postcard",
+ "rustls",
+ "rustls-pemfile",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tracing",
+ "zeroize",
+ "zstd",
+]
+
+[[package]]
+name = "pleochroma-render-jobs"
+version = "0.10.0"
+dependencies = [
+ "pleochroma",
+ "pleochroma-net",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "pleochroma-solid"
+version = "0.10.0"
+dependencies = [
+ "glam",
+ "image",
+ "pleochroma",
+ "pleochroma-cut-core",
+ "pleochroma-formats",
+]
+
+[[package]]
+name = "pleochroma-update"
+version = "0.10.0"
+dependencies = [
+ "semver",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
+name = "pleochroma-vault"
+version = "0.10.0"
+dependencies = [
+ "anyhow",
+ "pleochroma",
+ "pleochroma-formats",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "toml 1.1.8+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
+name = "pleochroma-web"
+version = "0.10.0"
+dependencies = [
+ "console_error_panic_hook",
+ "image",
+ "js-sys",
+ "pleochroma",
+ "pleochroma-cut-core",
+ "pleochroma-editor",
+ "pleochroma-formats",
+ "pleochroma-solid",
+ "pleochroma-vault",
+ "pleochroma-web-core",
+ "rfd",
+ "serde",
+ "serde_json",
+ "slint",
+ "slint-build",
+ "tracing",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "pleochroma-web-compute"
+version = "0.10.0"
+dependencies = [
+ "console_error_panic_hook",
+ "js-sys",
+ "pleochroma-web-core",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "pleochroma-web-core"
+version = "0.10.0"
+dependencies = [
+ "futures-channel",
+ "glam",
+ "js-sys",
+ "pleochroma",
+ "pleochroma-cut-core",
+ "pleochroma-editor",
+ "pleochroma-formats",
+ "pleochroma-solid",
+ "pleochroma-vault",
+ "postcard",
+ "serde",
+ "serde_json",
+ "sha2",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "pleochroma-web-gpu"
+version = "0.10.0"
+dependencies = [
+ "console_error_panic_hook",
+ "futures-channel",
+ "futures-util",
+ "glam",
+ "js-sys",
+ "pleochroma",
+ "pleochroma-web-core",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "wgpu",
+]
+
+[[package]]
+name = "pleochroma-worker"
+version = "0.10.0"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "glam",
+ "image",
+ "lz4_flex",
+ "pleochroma",
+ "pleochroma-dispatch",
+ "pleochroma-formats",
+ "pleochroma-net",
+ "pleochroma-render-jobs",
+ "pleochroma-update",
+ "pleochroma-vault",
+ "postcard",
+ "rcgen",
+ "ring",
+ "rustls",
+ "serde_json",
+ "sha2",
+ "socket2",
+ "subtle",
+ "time",
+ "tracing",
+ "tracing-subscriber",
+ "winresource",
+ "zeroize",
+ "zstd",
+]
+
+[[package]]
 name = "png"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4777,9 +4806,9 @@ checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
 
 [[package]]
 name = "pulldown-cmark"
-version = "0.13.4"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9f068eba8e7071c5f9511831b44f32c740d5adf574e990f946ddb53db2f314e"
+checksum = "278e9268c93b9e498a2da46c34d90ba93a3255eb99009646398f34bc73ab36eb"
 dependencies = [
  "bitflags 2.13.2",
  "memchr",
@@ -5230,9 +5259,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -5586,9 +5615,9 @@ dependencies = [
 
 [[package]]
 name = "smol_str"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4aaa7368fcf4852a4c2dd92df0cace6a71f2091ca0a23391ce7f3a31833f1523"
+checksum = "eeb7109d23f319619d4cc0de5464613c8b7b1a09db2774a58101459cf6be2f10"
 dependencies = [
  "borsh",
  "serde_core",
@@ -6072,9 +6101,9 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "tokio"
-version = "1.53.3"
+version = "1.54.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce3335fa71841cda333a58d7615b03901380ecf09d59b3296d21f8bbac0dde4e"
+checksum = "b52fd3255258d26fac7264ab5a76b53c13367136dc011d3d6ad4f8ed070396a3"
 dependencies = [
  "pin-project-lite",
 ]
@@ -6385,9 +6414,9 @@ checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
 
 [[package]]
 name = "ureq"
-version = "3.4.2"
+version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a7ac20be9b7726e0bbdbf974c059676d9acb1cd414961f570a4e8231cacd7fc"
+checksum = "cde93ff05758a36a851a398a772b0b79a82fbe3c186a46f2696baaeaf84c966b"
 dependencies = [
  "base64",
  "log",
@@ -6744,9 +6773,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]

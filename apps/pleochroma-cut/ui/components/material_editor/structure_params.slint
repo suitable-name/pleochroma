@@ -1,0 +1,240 @@
+import { ComboBox, Slider, CheckBox } from "std-widgets.slint";
+import { Theme } from "../../theme.slint";
+import { FormRow } from "../editor_inspector/form_row.slint";
+import { WarningLine } from "../warning_line.slint";
+import { GuideModel } from "../../models/guide.slint";
+import { ActionButton } from "../chip_toggle.slint";
+
+// The state of the Play-of-Color section. It lives in this global: Rust fills it when the dialog's
+// pre-fill is pushed and reads it when Save runs (`gui::optics::custom_materials::inclusions`).
+export global StructureParamsModel {
+    // Whether the material has a play-of-color structure at all.
+    in-out property <bool> enabled: false;
+    // 0 = Opal, 1 = Labradorite, 2 = a stored choice that names no kind (kept, not rendered).
+    in-out property <int> kind: 0;
+    // 0 = Pinfire, 1 = Harlequin, 2 = Broad Flash.
+    in-out property <int> pattern: 1;
+    // Whether the cell size below replaces the pattern's own.
+    in-out property <bool> use_size: false;
+    in-out property <float> size: 0.2;
+    // The shortest and longest color at normal incidence, nanometres.
+    in-out property <float> color_low: 440;
+    in-out property <float> color_high: 680;
+    in-out property <float> purity: 0.05;
+    in-out property <float> coverage: 0.8;
+    // The seed of the pattern; a whole number (the bits of an unsigned seed).
+    in-out property <int> seed: 12345;
+    // Loads the defaults of a kind (0 = Opal, 1 = Labradorite) into the fields above.
+    callback load_defaults(int);
+    // Draws a new seed.
+    callback reseed();
+}
+
+// The Play-of-Color section of the Gem Material Editor: a pattern of tiny domains that flash color
+// the way a precious opal or a labradorite does. A custom material imitates one of the two kinds;
+// without a kind the choice is kept but never rendered. Hidden in the Simple interface unless the
+// material already has a structure.
+export component MaterialStructureParams inherits VerticalLayout {
+    spacing: 8px;
+
+    property <bool> shown: GuideModel.shows_advanced() || StructureParamsModel.enabled;
+    // The longest color must not be shorter than the shortest.
+    out property <bool> save_ok: !StructureParamsModel.enabled
+        || StructureParamsModel.color_high >= StructureParamsModel.color_low;
+    out property <string> signature: StructureParamsModel.enabled
+        ? "p|\{StructureParamsModel.kind}|\{StructureParamsModel.pattern}|\{StructureParamsModel.use_size ? "s" : "-"}|\{StructureParamsModel.size}|\{StructureParamsModel.color_low}|\{StructureParamsModel.color_high}|\{StructureParamsModel.purity}|\{StructureParamsModel.coverage}|\{StructureParamsModel.seed}"
+        : "n";
+    property <string> baseline_signature: "n";
+    out property <bool> dirty: root.signature != root.baseline_signature;
+
+    init => {
+        root.baseline_signature = root.signature;
+    }
+
+    if root.shown : VerticalLayout {
+        spacing: 8px;
+
+        CheckBox {
+            text: "Play-of-Color";
+            checked: StructureParamsModel.enabled;
+            accessible-description: "Give the material a pattern of tiny domains that flash color, like a precious opal or a labradorite.";
+            toggled => {
+                StructureParamsModel.enabled = self.checked;
+                if (self.checked) {
+                    StructureParamsModel.load_defaults(StructureParamsModel.kind == 1 ? 1 : 0);
+                }
+            }
+        }
+
+        if StructureParamsModel.enabled : VerticalLayout {
+            spacing: 8px;
+
+            FormRow {
+                label: "Imitates";
+                tooltip: "Opal flashes in random patches whose direction differs from patch to patch. Labradorite flashes across the whole stone at one angle, fixed in the crystal.";
+                label_width: 70px;
+                ComboBox {
+                    model: StructureParamsModel.kind == 2
+                        ? ["Opal", "Labradorite", "Stored, Not Rendered"]
+                        : ["Opal", "Labradorite"];
+                    current-index: StructureParamsModel.kind;
+                    accessible-label: "Play-of-Color Imitates";
+                    selected(value) => { StructureParamsModel.kind = self.current-index; }
+                }
+            }
+            if StructureParamsModel.kind == 2 : Text {
+                text: "This structure names no kind, so it is saved but not rendered. Pick Opal or Labradorite to render it.";
+                font-size: 9px;
+                color: Theme.text-muted;
+                wrap: word-wrap;
+            }
+
+            FormRow {
+                label: "Pattern";
+                tooltip: "Pinfire is many tiny points of color, Harlequin medium patches, Broad Flash a few large flashes.";
+                label_width: 70px;
+                ComboBox {
+                    model: ["Pinfire", "Harlequin", "Broad Flash"];
+                    current-index: StructureParamsModel.pattern;
+                    accessible-label: "Play-of-Color Pattern";
+                    selected(value) => { StructureParamsModel.pattern = self.current-index; }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                CheckBox {
+                    text: "Custom Size";
+                    checked: StructureParamsModel.use_size;
+                    accessible-description: "Replace the pattern's own patch size.";
+                    toggled => { StructureParamsModel.use_size = self.checked; }
+                }
+            }
+            if StructureParamsModel.use_size : FormRow {
+                label: "Size";
+                tooltip: "The patch size in model units. Smaller patches look finer.";
+                label_width: 70px;
+                Slider {
+                    minimum: 0.02;
+                    maximum: 1.0;
+                    value <=> StructureParamsModel.size;
+                    accessible-label: "Play-of-Color Size";
+                }
+                Text {
+                    width: 40px;
+                    text: "\{Math.round(StructureParamsModel.size * 100) / 100}";
+                    font-size: 10px;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                }
+            }
+
+            FormRow {
+                label: "Shortest Color";
+                tooltip: "The bluest wavelength the domains flash at normal incidence, in nanometres.";
+                label_width: 70px;
+                Slider {
+                    minimum: 380;
+                    maximum: 780;
+                    value <=> StructureParamsModel.color_low;
+                    accessible-label: "Play-of-Color Shortest Wavelength";
+                }
+                Text {
+                    width: 40px;
+                    text: "\{Math.round(StructureParamsModel.color_low)} nm";
+                    font-size: 10px;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                }
+            }
+            FormRow {
+                label: "Longest Color";
+                tooltip: "The reddest wavelength the domains flash at normal incidence, in nanometres.";
+                label_width: 70px;
+                Slider {
+                    minimum: 380;
+                    maximum: 780;
+                    value <=> StructureParamsModel.color_high;
+                    accessible-label: "Play-of-Color Longest Wavelength";
+                }
+                Text {
+                    width: 40px;
+                    text: "\{Math.round(StructureParamsModel.color_high)} nm";
+                    font-size: 10px;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                }
+            }
+            if StructureParamsModel.color_high < StructureParamsModel.color_low : WarningLine {
+                text: "The longest color must not be shorter than the shortest.";
+                tint: Theme.danger;
+                font_size: 10px;
+                font_weight: 600;
+            }
+
+            FormRow {
+                label: "Purity";
+                tooltip: "How narrow each flash is. A low value gives pure spectral colors, a high one washed-out colors.";
+                label_width: 70px;
+                Slider {
+                    minimum: 0.01;
+                    maximum: 0.5;
+                    value <=> StructureParamsModel.purity;
+                    accessible-label: "Play-of-Color Purity";
+                }
+                Text {
+                    width: 40px;
+                    text: "\{Math.round(StructureParamsModel.purity * 100)} %";
+                    font-size: 10px;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                }
+            }
+            FormRow {
+                label: "Coverage";
+                tooltip: "The share of the stone's patches that flash at all.";
+                label_width: 70px;
+                Slider {
+                    minimum: 0.05;
+                    maximum: 1.0;
+                    value <=> StructureParamsModel.coverage;
+                    accessible-label: "Play-of-Color Coverage";
+                }
+                Text {
+                    width: 40px;
+                    text: "\{Math.round(StructureParamsModel.coverage * 100)} %";
+                    font-size: 10px;
+                    color: Theme.text-muted;
+                    vertical-alignment: center;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                ActionButton {
+                    width: 90px;
+                    height: 24px;
+                    text: "Reseed";
+                    hint: "Draw a new random layout of patches. The colors and sizes stay.";
+                    fill: Theme.surface-raised;
+                    hover_fill: Theme.surface-control-hover;
+                    font_size: 10px;
+                    clicked => { StructureParamsModel.reseed(); }
+                }
+                ActionButton {
+                    width: 120px;
+                    height: 24px;
+                    text: "Reset To Defaults";
+                    hint: "Load the usual values of the kind this material imitates.";
+                    fill: Theme.surface-raised;
+                    hover_fill: Theme.surface-control-hover;
+                    font_size: 10px;
+                    enabled: StructureParamsModel.kind != 2;
+                    clicked => { StructureParamsModel.load_defaults(StructureParamsModel.kind); }
+                }
+            }
+        }
+    }
+}

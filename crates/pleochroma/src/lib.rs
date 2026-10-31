@@ -1,0 +1,63 @@
+//! `pleochroma` is a physically-based spectral gemstone renderer.
+//!
+//! Turns GemCAD-style cutting instructions (facet angles and index positions)
+//! into rendered output: spectral analytical / Monte-Carlo raytracing through
+//! faceted gemstone geometry, plus brilliance / fire / scintillation metrics.
+//!
+//! No UI toolkit or data-source dependency: callers supply plain
+//! [`FacetSpec`] rows (or hand-built [`geometry::GpuFacetPlane`] sets) and a
+//! [`optics::materials::GemMaterial`], and get back pixels and/or metrics.
+
+// `wgpu`'s type nesting overflows the default recursion limit when proving
+// `Send` for the closure `renderer::gpu::hybrid` spawns onto a scoped thread.
+// 256 clears current nesting with headroom; raise only if a future `wgpu`
+// upgrade nests deeper.
+#![recursion_limit = "256"]
+
+/// color science: CIE 1931 color matching, gamut mapping, tone mapping, and the
+/// brilliance/fire/scintillation optical metrics.
+pub mod color;
+/// Faceted gemstone solid geometry: the plane-arrangement B-rep, standard cut
+/// tables, girdle classification, and the meet-point solver.
+pub mod geometry;
+/// Physically-based optics: materials, dispersion, birefringence, polarization, and
+/// the spectral raytracer itself.
+pub mod optics;
+/// Pure render-setup helpers shared by every renderer built on this crate.
+///
+/// Material resolution and overrides, the backdrop mapping, plane-set identity,
+/// girdle-width measurement, ICC/PNG export encoding, and the samples-slider exponent
+/// mapping -- see this module's own doc comment.
+pub mod render_setup;
+/// CPU and (behind the `gpu` feature) GPU rendering backends, buffer encoding,
+/// denoising, and tone mapping.
+pub mod renderer;
+/// SIMD-accelerated plane-arena intersection kernels shared by the CPU raytracer.
+pub mod simd;
+
+pub use geometry::cuts::FacetSpec;
+
+/// Build identity used by `pleochroma-net`'s handshake: 16 lowercase hex chars, the
+/// 64-bit FNV-1a hash of this crate's version string.
+///
+/// Keyed on the version so a worker and a viewer built from the same release pair
+/// across platforms and checkouts. The physics-parity guarantee this handshake
+/// exists for (two implementations summed together render a plausible wrong image)
+/// therefore depends on the release rule: bump the version whenever anything under
+/// `src/` that affects a traced sample changes. Compare [`SOURCE_HASH`] when in doubt.
+pub const BUILD_ID: &str = env!("PLEOCHROMA_BUILD_ID");
+
+/// This crate's version, as the handshake identity is derived from it.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Deterministic content hash of this crate's source tree.
+///
+/// Covers `src/**/*.rs`, `src/**/*.wgsl` and `Cargo.toml`; 16 lowercase hex chars,
+/// stable across OS, toolchain, line endings and `.git` state for byte-identical
+/// source. Reveals a physics-affecting edit that didn't bump [`VERSION`] (which
+/// [`BUILD_ID`] is keyed on, and [`BUILD_ID`] disagreeing is always a hard handshake
+/// refusal). `pleochroma_net::handshake` sends this value in the `HELLO`/`WELCOME`, but
+/// `verify_compatible` compares only the protocol version and [`BUILD_ID`]: a
+/// `SOURCE_HASH` mismatch does not refuse the connection, so the value is
+/// diagnostic only. See that module's own doc comment.
+pub const SOURCE_HASH: &str = env!("PLEOCHROMA_SOURCE_HASH");

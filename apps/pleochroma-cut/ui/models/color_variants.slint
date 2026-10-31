@@ -1,0 +1,44 @@
+// State of the material editor's "Color Variants" section
+// (`components/material_editor/color_variants_section.slint`). Rust fills it
+// (`gui::optics::color_variants_section`): the variants of one material, the ones that ship with the
+// program (read-only) and the ones the cutter saved (rename, delete). Duplicate makes an editable
+// saved copy of any row.
+
+// One row of the list.
+export struct ColorVariantRow {
+    // The variant's name ("Padparadscha").
+    label: string,
+    // Where the color comes from: the first source line of a built-in variant, "The material's own
+    // color" or "Saved by you".
+    detail: string,
+    // The face-up color of the variant.
+    swatch: color,
+    // Saved by the cutter (Rename and Delete are offered) rather than built in.
+    saved: bool,
+    // A built-in variant whose numbers are an estimate, not a fit to measured spectra.
+    estimated: bool,
+    // The tooltip: the color of each direction, and the estimate note.
+    tip: string,
+}
+
+export global ColorVariantsModel {
+    // The materials whose variants can be managed: custom materials, then the built-in ones.
+    in property <[string]> materials: [];
+    // The material shown; Rust sets it when the section opens.
+    in-out property <int> material_index: 0;
+    in property <[ColorVariantRow]> rows: [];
+    // A sentence under the material: why the list is empty or short.
+    in property <string> note: "";
+
+    // The section was mounted: the name of the material the live render shows. Rust lists the
+    // materials, selects that one (the first when it is not listed) and fills the rows.
+    callback opened(string);
+    // Another material was chosen in the section's material combo.
+    callback material_selected(int);
+    // Rename saved row `i` to the text. Returns false when the name was refused (a toast says why).
+    callback rename_requested(int, string) -> bool;
+    // Delete saved row `i`. Designs that picked it keep their own copy of its color.
+    callback delete_requested(int);
+    // Save an editable copy of row `i` (built in or saved) under a new name.
+    callback duplicate_requested(int);
+}
