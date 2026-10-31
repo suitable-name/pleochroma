@@ -87,6 +87,8 @@ jobs:
 
       - name: Install Rust toolchain and inspect native SDK
         run: |
+          echo "Source commit: $(git rev-parse HEAD)"
+          shasum -a 256 scripts/package-macos.sh
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --target "$RUST_TARGET"
           rustc --version
           xcrun --find clang
@@ -103,6 +105,21 @@ jobs:
       - name: Package unsigned application
         id: bundle
         run: bash scripts/package-macos.sh "$RUST_TARGET" "$APP_VERSION"
+
+      - name: Archive executable if packaging fails
+        if: failure() && steps.bundle.outcome == 'failure'
+        run: |
+          tar -czf "$RUNNER_TEMP/pleochroma-cut-$RUST_TARGET-unpackaged.tar.gz" \
+            -C "target/$RUST_TARGET/release" pleochroma-cut
+
+      - name: Preserve executable if packaging fails
+        if: failure() && steps.bundle.outcome == 'failure'
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: pleochroma-cut-${{ matrix.arch }}-unpackaged
+          path: ${{ runner.temp }}/pleochroma-cut-${{ matrix.target }}-unpackaged.tar.gz
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload architecture-specific app archive
         uses: actions/upload-artifact@v7.0.2
