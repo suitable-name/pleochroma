@@ -104,7 +104,10 @@ jobs:
 
       - name: Package unsigned application
         id: bundle
-        run: bash scripts/package-macos.sh "$RUST_TARGET" "$APP_VERSION"
+        run: |
+          echo "Packaging source commit: $(git rev-parse HEAD)"
+          shasum -a 256 scripts/package-macos.sh
+          bash -x scripts/package-macos.sh "$RUST_TARGET" "$APP_VERSION"
 
       - name: Archive executable if packaging fails
         if: failure() && steps.bundle.outcome == 'failure'
