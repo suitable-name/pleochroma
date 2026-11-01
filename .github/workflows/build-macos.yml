@@ -1,76 +1,121 @@
-name: Build macOS desktop app
+name: Build macOS Cut and Worker
 
 on:
-  workflow_dispatch:
-    inputs:
-      package_from_run:
-        description: 'Optional failed run ID: repackage its preserved executables without rebuilding'
-        type: string
-        required: false
-        default: ''
-      package_version:
-        description: 'Original executable version (required with package_from_run, e.g. 0.10.0)'
-        type: string
-        required: false
-        default: ''
-  # A release published on the GitHub website (not a draft) builds both apps and attaches them
-  # to that release. A manual run only uploads them as workflow artifacts.
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      attach_to_release:
+        description: 'Attach archives to a published release (otherwise artifacts only)'
+        type: boolean
+        default: true
+      release_tag:
+        description: 'Release tag; empty selects the latest published release'
+        type: string
+        default: ''
+      publish_from_run:
+        description: 'Optional run ID: attach its completed ZIPs without building or repackaging'
+        type: string
+        default: ''
+      package_from_run:
+        description: 'Optional failed run ID: repackage preserved executables without building'
+        type: string
+        default: ''
+      package_version:
+        description: 'Original binary version, required when reusing a run (e.g. 0.10.0)'
+        type: string
+        default: ''
+  # The manual entry points call this workflow so build/recovery logic stays shared.
+  workflow_call:
+    inputs:
+      product:
+        type: string
+        default: both
+      attach_to_release:
+        type: boolean
+        default: true
+      release_tag:
+        type: string
+        default: ''
+      publish_from_run:
+        type: string
+        default: ''
+      package_from_run:
+        type: string
+        default: ''
+      package_version:
+        type: string
+        default: ''
 
 permissions:
-  # Write is needed to attach the archives to the release; checkout keeps no credentials.
   contents: write
-  # Manual recovery may download preserved executables from an earlier run.
   actions: read
 
-# Serialize separate manual/tag runs as well as the two matrix entries below.
+# Shared by all three entry points. Callers deliberately have no second lock.
 concurrency:
-  group: pleochroma-cut-macos-build
+  group: pleochroma-macos-build
   cancel-in-progress: false
+  queue: max
 
 jobs:
+  prepare:
+    name: Resolve products and release destination
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      version: ${{ steps.plan.outputs.version }}
+      mode: ${{ steps.plan.outputs.mode }}
+      source_run: ${{ steps.plan.outputs.source_run }}
+      release_tag: ${{ steps.plan.outputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate inputs and pin release destination before building
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCT: ${{ inputs.product || 'both' }}
+          ATTACH_TO_RELEASE: ${{ inputs.attach_to_release }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          PACKAGE_FROM_RUN: ${{ inputs.package_from_run }}
+          PUBLISH_FROM_RUN: ${{ inputs.publish_from_run }}
+          PACKAGE_VERSION: ${{ inputs.package_version }}
+        run: python3 scripts/prepare-macos-workflow.py
+
   build:
-    name: macOS ${{ matrix.arch }}
+    name: ${{ matrix.product }} macOS ${{ matrix.arch }}
+    needs: prepare
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 300
     strategy:
       fail-fast: false
       max-parallel: 1
-      matrix:
-        include:
-          - runner: macos-15
-            target: aarch64-apple-darwin
-            arch: arm64
-            rustflags: ''
-          - runner: macos-15-intel
-            target: x86_64-apple-darwin
-            arch: x86_64
-            rustflags: '-C target-cpu=x86-64'
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     defaults:
       run:
         shell: bash
     env:
+      PRODUCT: ${{ matrix.product }}
       RUST_TARGET: ${{ matrix.target }}
-      # rust-version is a compatibility floor, not a compiler pin.
       RUSTUP_TOOLCHAIN: stable
       CARGO_BUILD_JOBS: '1'
       CARGO_TARGET_DIR: target
       CARGO_INCREMENTAL: '0'
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '1'
-      # The workspace enables fat LTO; avoid its extra link-time memory in CI.
       CARGO_PROFILE_RELEASE_LTO: 'off'
       CARGO_PROFILE_RELEASE_DEBUG: '0'
       RUSTC_WRAPPER: ''
       RUSTC_WORKSPACE_WRAPPER: ''
-      # Keep Rust's Apple ARM64 baseline: generic omits features required by ring.
-      # Intel overrides .cargo/config.toml's x86-64-v3 baseline for older Macs.
+      # Keep Apple's ARM64 baseline; Intel overrides the workspace AVX2 baseline.
       RUSTFLAGS: ${{ matrix.rustflags }}
       MACOSX_DEPLOYMENT_TARGET: '13.0'
-      # Use the bundled winit renderer, without a runner-local Qt dependency.
       SLINT_NO_QT: '1'
-      PACKAGE_FROM_RUN: ${{ inputs.package_from_run }}
-      PACKAGE_VERSION: ${{ inputs.package_version }}
+      APP_VERSION: ${{ needs.prepare.outputs.version }}
+      MODE: ${{ needs.prepare.outputs.mode }}
+      SOURCE_RUN: ${{ needs.prepare.outputs.source_run }}
+      ARCHIVE_NAME: ${{ matrix.archive }}
 
     steps:
       - name: Check out source
@@ -78,132 +123,120 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Read application version
-        run: |
-          python3 - <<'PY' >> "$GITHUB_ENV"
-          import os
-          import re
-          import tomllib
-          import sys
-          from pathlib import Path
-
-          package = tomllib.loads(Path("Cargo.toml").read_text())["workspace"]["package"]
-          run_id = os.environ.get("PACKAGE_FROM_RUN", "")
-          original_version = os.environ.get("PACKAGE_VERSION", "")
-          if run_id:
-              if not re.fullmatch(r"[1-9][0-9]*", run_id):
-                  sys.exit("package_from_run must be a positive GitHub Actions run ID")
-              if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?", original_version):
-                  sys.exit("Recovery requires package_version from the original build log")
-          elif original_version:
-              sys.exit("package_version is only valid with package_from_run")
-          print(f"APP_VERSION={original_version if run_id else package['version']}")
-          print(f"Declared minimum Rust: {package['rust-version']}", file=sys.stderr)
-          PY
-
-      - name: Check the release tag against the application version
-        if: github.event_name == 'release'
-        env:
-          TAG: ${{ github.event.release.tag_name }}
-        run: |
-          if [ "${TAG#v}" != "$APP_VERSION" ]; then
-            echo "::error::Release tag $TAG does not match the workspace version $APP_VERSION"
-            exit 1
-          fi
-
-      # Re-run jobs uses the original commit. Start a new workflow on the branch
-      # containing BOTH this workflow and the corrected packaging script.
+      # Re-run jobs uses the old SHA. Start a new run on the updated branch for fixes.
       - name: Check packaging before compiling
+        if: env.MODE != 'publish'
         run: |
           echo "Source commit: $(git rev-parse HEAD)"
           shasum -a 256 scripts/package-macos.sh
           bash -n scripts/package-macos.sh
-          bash scripts/package-macos.sh --preflight "$RUST_TARGET" "$APP_VERSION"
+          bash scripts/package-macos.sh --preflight "$RUST_TARGET" "$APP_VERSION" "$PRODUCT"
 
       - name: Install Rust toolchain and inspect native SDK
-        if: env.PACKAGE_FROM_RUN == ''
+        if: env.MODE == 'build'
         run: |
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --target "$RUST_TARGET"
           rustc --version
           xcrun --find clang
           xcrun --sdk macosx --show-sdk-path
 
-      - name: Build only the desktop app with one Cargo worker
-        if: env.PACKAGE_FROM_RUN == ''
+      - name: Build the selected product with one Cargo worker
+        if: env.MODE == 'build'
+        env:
+          BUILD_FEATURES: ${{ matrix.features }}
         run: |
-          # Encoded flags take precedence over RUSTFLAGS if a runner defines them.
           unset CARGO_ENCODED_RUSTFLAGS
+          # Match the Linux pgo-bolt-build.sh GPU production feature set.
+          # UI harnesses, benchmarks and experimental color UI are not release features.
           cargo build --locked --release --jobs 1 \
-            -p pleochroma-cut --bin pleochroma-cut --features gpu \
-            --target "$RUST_TARGET"
+            -p "pleochroma-$PRODUCT" --bin "pleochroma-$PRODUCT" \
+            --features "$BUILD_FEATURES" --target "$RUST_TARGET"
+
+      - name: Download preserved executable
+        if: env.MODE == 'package'
+        uses: actions/download-artifact@v8
+        with:
+          name: pleochroma-${{ matrix.product }}-${{ matrix.arch }}-unpackaged
+          run-id: ${{ needs.prepare.outputs.source_run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/macos-recovery
 
       - name: Restore preserved executable without rebuilding
-        if: env.PACKAGE_FROM_RUN != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ARTIFACT_NAME: pleochroma-cut-${{ matrix.arch }}-unpackaged
+        if: env.MODE == 'package'
         run: |
-          echo "Recovering executable version $APP_VERSION from run $PACKAGE_FROM_RUN"
-          gh run view "$PACKAGE_FROM_RUN" --repo "$GITHUB_REPOSITORY" \
-            --json headSha,url
-          recovery_dir="$RUNNER_TEMP/pleochroma-macos-recovery"
-          gh run download "$PACKAGE_FROM_RUN" --repo "$GITHUB_REPOSITORY" \
-            --name "$ARTIFACT_NAME" --dir "$recovery_dir"
-          binary_dir="$CARGO_TARGET_DIR/$RUST_TARGET/release"
-          mkdir -p "$binary_dir"
-          python3 - "$recovery_dir/pleochroma-cut-$RUST_TARGET-unpackaged.tar.gz" \
-            "$binary_dir/pleochroma-cut" <<'PY'
+          python3 - <<'PY'
+          import os
           import shutil
-          import sys
           import tarfile
           from pathlib import Path
 
-          destination = Path(sys.argv[2])
-          with tarfile.open(sys.argv[1], "r:gz") as archive:
-              member = archive.getmember("pleochroma-cut")
+          binary = "pleochroma-" + os.environ["PRODUCT"]
+          target = os.environ["RUST_TARGET"]
+          archive_path = Path(os.environ["RUNNER_TEMP"]) / "macos-recovery" / f"{binary}-{target}-unpackaged.tar.gz"
+          destination = Path(os.environ["CARGO_TARGET_DIR"]) / target / "release" / binary
+          destination.parent.mkdir(parents=True, exist_ok=True)
+          with tarfile.open(archive_path, "r:gz") as archive:
+              member = archive.getmember(binary)
               if not member.isfile():
-                  sys.exit("Preserved executable must be a regular file, not an archive link")
+                  raise ValueError("Preserved executable must be a regular file, not a link")
               with archive.extractfile(member) as source, destination.open("wb") as output:
                   shutil.copyfileobj(source, output)
           destination.chmod(0o755)
           PY
 
       - name: Package unsigned application
+        if: env.MODE != 'publish'
         id: bundle
         run: |
           echo "Packaging source commit: $(git rev-parse HEAD)"
           shasum -a 256 scripts/package-macos.sh
-          bash -x scripts/package-macos.sh "$RUST_TARGET" "$APP_VERSION"
+          bash -x scripts/package-macos.sh "$RUST_TARGET" "$APP_VERSION" "$PRODUCT"
 
-      - name: Archive executable if packaging fails
-        if: failure() && steps.bundle.outcome == 'failure'
+      - name: Download completed ZIP without rebuilding
+        if: env.MODE == 'publish'
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ matrix.archive }}
+          run-id: ${{ needs.prepare.outputs.source_run }}
+          github-token: ${{ github.token }}
+          path: dist
+          # Previous builds upload a raw ZIP with archive:false. Preserve its bytes.
+          skip-decompress: true
+
+      - name: Verify archive selected for publication
+        id: archive
+        run: python3 scripts/verify-macos-archive.py
+
+      - name: Archive executable if packaging or archive verification fails
+        if: failure() && env.MODE != 'publish' && (steps.bundle.outcome == 'failure' || steps.archive.outcome == 'failure')
         run: |
-          tar -czf "$RUNNER_TEMP/pleochroma-cut-$RUST_TARGET-unpackaged.tar.gz" \
-            -C "target/$RUST_TARGET/release" pleochroma-cut
+          tar -czf "$RUNNER_TEMP/pleochroma-$PRODUCT-$RUST_TARGET-unpackaged.tar.gz" \
+            -C "$CARGO_TARGET_DIR/$RUST_TARGET/release" "pleochroma-$PRODUCT"
 
-      - name: Preserve executable if packaging fails
-        if: failure() && steps.bundle.outcome == 'failure'
+      - name: Preserve executable if packaging or archive verification fails
+        if: failure() && env.MODE != 'publish' && (steps.bundle.outcome == 'failure' || steps.archive.outcome == 'failure')
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: pleochroma-cut-${{ matrix.arch }}-unpackaged
-          path: ${{ runner.temp }}/pleochroma-cut-${{ matrix.target }}-unpackaged.tar.gz
+          name: pleochroma-${{ matrix.product }}-${{ matrix.arch }}-unpackaged
+          path: ${{ runner.temp }}/pleochroma-${{ matrix.product }}-${{ matrix.target }}-unpackaged.tar.gz
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload architecture-specific app archive
+      - name: Upload architecture-specific archive
+        if: env.MODE != 'publish'
         uses: actions/upload-artifact@v7.0.2
         with:
-          path: ${{ steps.bundle.outputs.archive }}
-          # Upload the app zip directly; its filename includes version and architecture.
+          path: ${{ steps.archive.outputs.archive }}
           archive: false
           if-no-files-found: error
           retention-days: 14
 
-      - name: Attach the app archive to the release
-        if: github.event_name == 'release'
+      - name: Attach archive to the resolved release
+        if: needs.prepare.outputs.release_tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name }}
-          ARCHIVE: ${{ steps.bundle.outputs.archive }}
-        # --clobber replaces an archive of the same name when a run is repeated.
-        run: gh release upload "$TAG" "$ARCHIVE" --clobber --repo "$GITHUB_REPOSITORY"
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          ARCHIVE: ${{ steps.archive.outputs.archive }}
+        run: |
+          gh release upload "$RELEASE_TAG" "$ARCHIVE" --clobber --repo "$GITHUB_REPOSITORY"
+          printf 'Attached `%s` to release `%s`.\n' "$ARCHIVE_NAME" "$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"

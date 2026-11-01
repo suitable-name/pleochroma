@@ -1,0 +1,40 @@
+name: Build macOS Cut
+
+on:
+  workflow_dispatch:
+    inputs:
+      attach_to_release:
+        description: 'Attach archives to a published release (otherwise artifacts only)'
+        type: boolean
+        default: true
+      release_tag:
+        description: 'Release tag; empty selects the latest published release'
+        type: string
+        default: ''
+      publish_from_run:
+        description: 'Optional run ID: attach its completed ZIPs without building or repackaging'
+        type: string
+        default: ''
+      package_from_run:
+        description: 'Optional failed run ID: repackage preserved executables without building'
+        type: string
+        default: ''
+      package_version:
+        description: 'Original binary version, required when reusing a run (e.g. 0.10.0)'
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-macos.yml
+    with:
+      product: cut
+      attach_to_release: ${{ inputs.attach_to_release }}
+      release_tag: ${{ inputs.release_tag }}
+      publish_from_run: ${{ inputs.publish_from_run }}
+      package_from_run: ${{ inputs.package_from_run }}
+      package_version: ${{ inputs.package_version }}
