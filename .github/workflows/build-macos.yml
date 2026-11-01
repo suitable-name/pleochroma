@@ -2,6 +2,17 @@ name: Build macOS desktop app
 
 on:
   workflow_dispatch:
+    inputs:
+      package_from_run:
+        description: 'Optional failed run ID: repackage its preserved executables without rebuilding'
+        type: string
+        required: false
+        default: ''
+      package_version:
+        description: 'Original executable version (required with package_from_run, e.g. 0.10.0)'
+        type: string
+        required: false
+        default: ''
   # A release published on the GitHub website (not a draft) builds both apps and attaches them
   # to that release. A manual run only uploads them as workflow artifacts.
   release:
@@ -10,6 +21,8 @@ on:
 permissions:
   # Write is needed to attach the archives to the release; checkout keeps no credentials.
   contents: write
+  # Manual recovery may download preserved executables from an earlier run.
+  actions: read
 
 # Serialize separate manual/tag runs as well as the two matrix entries below.
 concurrency:
@@ -56,6 +69,8 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: '13.0'
       # Use the bundled winit renderer, without a runner-local Qt dependency.
       SLINT_NO_QT: '1'
+      PACKAGE_FROM_RUN: ${{ inputs.package_from_run }}
+      PACKAGE_VERSION: ${{ inputs.package_version }}
 
     steps:
       - name: Check out source
@@ -66,12 +81,23 @@ jobs:
       - name: Read application version
         run: |
           python3 - <<'PY' >> "$GITHUB_ENV"
+          import os
+          import re
           import tomllib
           import sys
           from pathlib import Path
 
           package = tomllib.loads(Path("Cargo.toml").read_text())["workspace"]["package"]
-          print(f"APP_VERSION={package['version']}")
+          run_id = os.environ.get("PACKAGE_FROM_RUN", "")
+          original_version = os.environ.get("PACKAGE_VERSION", "")
+          if run_id:
+              if not re.fullmatch(r"[1-9][0-9]*", run_id):
+                  sys.exit("package_from_run must be a positive GitHub Actions run ID")
+              if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.+-]+)?", original_version):
+                  sys.exit("Recovery requires package_version from the original build log")
+          elif original_version:
+              sys.exit("package_version is only valid with package_from_run")
+          print(f"APP_VERSION={original_version if run_id else package['version']}")
           print(f"Declared minimum Rust: {package['rust-version']}", file=sys.stderr)
           PY
 
@@ -85,22 +111,62 @@ jobs:
             exit 1
           fi
 
-      - name: Install Rust toolchain and inspect native SDK
+      # Re-run jobs uses the original commit. Start a new workflow on the branch
+      # containing BOTH this workflow and the corrected packaging script.
+      - name: Check packaging before compiling
         run: |
           echo "Source commit: $(git rev-parse HEAD)"
           shasum -a 256 scripts/package-macos.sh
+          bash -n scripts/package-macos.sh
+          bash scripts/package-macos.sh --preflight "$RUST_TARGET" "$APP_VERSION"
+
+      - name: Install Rust toolchain and inspect native SDK
+        if: env.PACKAGE_FROM_RUN == ''
+        run: |
           rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --target "$RUST_TARGET"
           rustc --version
           xcrun --find clang
           xcrun --sdk macosx --show-sdk-path
 
       - name: Build only the desktop app with one Cargo worker
+        if: env.PACKAGE_FROM_RUN == ''
         run: |
           # Encoded flags take precedence over RUSTFLAGS if a runner defines them.
           unset CARGO_ENCODED_RUSTFLAGS
           cargo build --locked --release --jobs 1 \
             -p pleochroma-cut --bin pleochroma-cut --features gpu \
             --target "$RUST_TARGET"
+
+      - name: Restore preserved executable without rebuilding
+        if: env.PACKAGE_FROM_RUN != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: pleochroma-cut-${{ matrix.arch }}-unpackaged
+        run: |
+          echo "Recovering executable version $APP_VERSION from run $PACKAGE_FROM_RUN"
+          gh run view "$PACKAGE_FROM_RUN" --repo "$GITHUB_REPOSITORY" \
+            --json headSha,url
+          recovery_dir="$RUNNER_TEMP/pleochroma-macos-recovery"
+          gh run download "$PACKAGE_FROM_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name "$ARTIFACT_NAME" --dir "$recovery_dir"
+          binary_dir="$CARGO_TARGET_DIR/$RUST_TARGET/release"
+          mkdir -p "$binary_dir"
+          python3 - "$recovery_dir/pleochroma-cut-$RUST_TARGET-unpackaged.tar.gz" \
+            "$binary_dir/pleochroma-cut" <<'PY'
+          import shutil
+          import sys
+          import tarfile
+          from pathlib import Path
+
+          destination = Path(sys.argv[2])
+          with tarfile.open(sys.argv[1], "r:gz") as archive:
+              member = archive.getmember("pleochroma-cut")
+              if not member.isfile():
+                  sys.exit("Preserved executable must be a regular file, not an archive link")
+              with archive.extractfile(member) as source, destination.open("wb") as output:
+                  shutil.copyfileobj(source, output)
+          destination.chmod(0o755)
+          PY
 
       - name: Package unsigned application
         id: bundle

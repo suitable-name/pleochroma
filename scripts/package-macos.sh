@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # Package an already-built desktop executable; this script never invokes Cargo.
+# --preflight checks the packaging tools before a workflow spends time compiling.
 set -euo pipefail
 
 if [[ "$(uname -s)" != Darwin ]]; then
     echo "Packaging requires macOS (sips, iconutil, plutil, lipo and ditto)." >&2
     exit 1
 fi
+preflight=false
+if [[ "${1:-}" == --preflight ]]; then
+    preflight=true
+    shift
+fi
 if [[ $# -ne 2 ]]; then
-    echo "Usage: bash scripts/package-macos.sh <apple-darwin target> <version>" >&2
+    echo "Usage: bash scripts/package-macos.sh [--preflight] <apple-darwin target> <version>" >&2
     exit 1
 fi
 
@@ -31,13 +37,44 @@ fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+
+binary_architectures() {
+    # Apple's -verify_arch consumes every following argument as an architecture.
+    # -archs is explicitly intended for scripts and has no variable argument list.
+    # https://github.com/apple-oss-distributions/cctools/blob/main/man/lipo.1
+    xcrun lipo -archs "$1"
+}
+
+if [[ "$preflight" == true ]]; then
+    for tool in xcrun sips iconutil plutil ditto install awk; do
+        command -v "$tool" >/dev/null
+    done
+    xcrun --find lipo
+    xcrun --find otool
+    test -r LICENSE
+    test -r apps/pleochroma-cut/assets/icon.png
+    # Exercise the same query used below on a real Mach-O without building one.
+    # A system executable may be universal or arm64e, regardless of our target.
+    probe_archs="$(binary_architectures /usr/bin/true)"
+    test -n "$probe_archs"
+    printf 'Packaging preflight passed: target=%s version=%s system-slices=%s\n' \
+        "$target" "$version" "$probe_archs"
+    exit 0
+fi
+
 binary="${CARGO_TARGET_DIR:-target}/$target/release/pleochroma-cut"
 test -f "$binary"
-lipo -verify_arch "$arch" "$binary"
+# These archives are architecture-specific, so require exactly the requested slice.
+actual_archs="$(binary_architectures "$binary")"
+printf 'Package architecture: expected=%s actual=%s binary=%s\n' "$arch" "$actual_archs" "$binary"
+if [[ "$actual_archs" != "$arch" ]]; then
+    echo "Expected a single $arch executable, found: $actual_archs" >&2
+    exit 1
+fi
 
 # Reject accidental Homebrew/Qt/rust-toolchain dylib dependencies rather than ship
 # an app that only runs on the build runner. Apple framework/system dylibs are allowed.
-otool -L "$binary" | awk '
+xcrun otool -L "$binary" | awk '
     NR > 1 && $1 !~ /^\/System\/Library\// && $1 !~ /^\/usr\/lib\// {
         print "Unbundled dynamic dependency: " $0 > "/dev/stderr"
         invalid = 1
