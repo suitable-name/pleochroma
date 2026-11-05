@@ -186,6 +186,7 @@ fn cached_slot_finishes_while_an_unrelated_teacher_probe_is_pending() {
             StagedLimits {
                 threads: 2,
                 pending: 3,
+                shared: None,
             },
             stages,
             Some(&pool(2)),
@@ -240,6 +241,7 @@ fn bounded_staged_work_keeps_every_probe_and_canonical_order_across_pool_widths(
             StagedLimits {
                 threads: width,
                 pending,
+                shared: None,
             },
             stages,
             Some(&pool(width)),
@@ -275,6 +277,7 @@ fn an_empty_probe_plan_preserves_nested_work_and_serial_fallback() {
             StagedLimits {
                 threads: width,
                 pending: 1,
+                shared: None,
             },
             stages,
             pool.as_ref(),
@@ -314,11 +317,145 @@ fn a_worker_panic_reaches_the_caller_instead_of_stranding_dependencies() {
             StagedLimits {
                 threads: 1,
                 pending: 1,
+                shared: None,
             },
             stages,
             Some(&pool(1)),
         )
     }));
     assert!(result.is_err());
+    assert_eq!(counters.live.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn ticket_polling_backs_off_to_a_millisecond_and_resets_on_progress() {
+    let mut backoff = PollBackoff::new();
+    let mut waits = Vec::new();
+    for _ in 0..7 {
+        waits.push(backoff.wait);
+        backoff.grow();
+    }
+    assert_eq!(
+        waits,
+        [50, 100, 200, 400, 800, 1000, 1000].map(Duration::from_micros)
+    );
+    backoff.reset();
+    assert_eq!(backoff.wait, PollBackoff::FIRST);
+}
+
+#[test]
+fn shared_budget_borrows_idle_capacity_and_reserves_entry() {
+    let budget = PendingBudget::new(8);
+    let mut busy = budget.register();
+    let mut idle = budget.register();
+    for _ in 0..7 {
+        assert!(busy.acquire());
+    }
+    assert!(!busy.acquire());
+    assert!(idle.acquire());
+    assert!(!busy.acquire());
+    idle.release();
+    assert!(!busy.acquire());
+    drop(idle);
+    assert!(busy.acquire());
+    assert!(!busy.acquire());
+}
+
+#[test]
+fn rollout_width_can_borrow_up_to_the_shared_limit() {
+    let budget = PendingBudget::new(128);
+    let mut leases: Vec<_> = (0..27).map(|_| budget.register()).collect();
+    for _ in 0..102 {
+        assert!(leases[0].acquire());
+    }
+    assert!(!leases[0].acquire());
+    for lease in &mut leases[1..] {
+        assert!(lease.acquire());
+    }
+    assert!(!leases[0].acquire());
+    drop(leases);
+    let mut fresh = budget.register();
+    for _ in 0..128 {
+        assert!(fresh.acquire());
+    }
+    assert!(!fresh.acquire());
+}
+
+#[test]
+fn shared_budget_makes_progress_with_more_participants_than_capacity() {
+    let budget = PendingBudget::new(1);
+    let mut first = budget.register();
+    let mut second = budget.register();
+    assert!(first.acquire());
+    assert!(!second.acquire());
+    first.release();
+    assert!(second.acquire());
+    assert!(!first.acquire());
+}
+
+#[test]
+fn shared_budget_allows_streams_to_finish_and_tail_to_borrow_capacity() {
+    let budget = Arc::new(PendingBudget::new(8));
+    {
+        let mut first = budget.register();
+        let mut second = budget.register();
+        for _ in 0..4 {
+            assert!(first.acquire());
+            assert!(second.acquire());
+        }
+        assert!(!first.acquire());
+        assert!(!second.acquire());
+        drop(second);
+        for _ in 0..4 {
+            assert!(first.acquire());
+        }
+        assert!(!first.acquire());
+    }
+    let counters = Counters::default();
+    let cpu = pool(4);
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let budget = Arc::clone(&budget);
+                let counters = &counters;
+                let cpu = &cpu;
+                scope.spawn(move || {
+                    let mut items = [0, 1];
+                    let plans: Vec<_> = (0..2)
+                        .map(|_| ProbePlan {
+                            probes: (0..8).collect(),
+                            probe_cost: 1,
+                            finish_cost: 1,
+                        })
+                        .collect();
+                    let outputs = run_with_pool(
+                        &mut items,
+                        &plans,
+                        StagedLimits {
+                            threads: 4,
+                            pending: 8,
+                            shared: Some(budget),
+                        },
+                        Synthetic {
+                            counters,
+                            gated_item: None,
+                            cancel_on_cached: false,
+                            panic_probe: false,
+                        },
+                        Some(cpu),
+                    );
+                    assert_eq!(items, [1000, 1001]);
+                    assert_eq!(outputs.len(), 2);
+                    assert!(outputs.iter().all(|output| output.probes.len() == 8));
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().unwrap();
+        }
+    });
+    assert!(counters.peak.load(Ordering::Relaxed) <= 8);
+    assert_eq!(counters.prepared.load(Ordering::Relaxed), 64);
+    assert_eq!(counters.completed.load(Ordering::Relaxed), 64);
     assert_eq!(counters.live.load(Ordering::Relaxed), 0);
 }

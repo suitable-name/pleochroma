@@ -1,17 +1,23 @@
 //! [`SheetLayout`]: the blocks of a printed cutting sheet as plain data, in the order of the
-//! owner's fantasy-cut template -- header, Facet Data, Size Data, Design Data, comments, then
-//! a Pavilion and a Crown section of rows.
+//! official cutting-instructions template -- header, Facet Data, Size Data, Design Data, the
+//! four views, comments, then a Pavilion and a Crown section of rows.
 //!
-//! The HTML sheet ([`super::html`]) and the plain-text sheet ([`SheetLayout::to_text`]) are
-//! both written from this one value, so they cannot disagree about a count, a ratio or a
-//! row. Building it is pure: no clock, no file, no dialog.
+//! The HTML sheet ([`super::html`]), the PDF sheet ([`super::pdf`]) and the plain-text sheet
+//! ([`SheetLayout::to_text`]) are all written from this one value, so they cannot disagree
+//! about a count, a ratio or a row. Building it is pure: no clock, no file, no dialog.
 
-use super::details::SheetDetails;
+use super::{
+    details::SheetDetails,
+    summary::{CARAT_CAVEAT, StoneSummary},
+};
 use pleochroma::{
     geometry::meet_solver::{Block, SolvedTier, classify_blocks},
     optics::materials::GemMaterial,
 };
-use pleochroma_cut_core::{CrystalOrientation, CutSheetRow, CuttingSheet, Design, design::TierRef};
+use pleochroma_cut_core::{
+    CrystalOrientation, CutSheetRow, CuttingSheet, Design, design::TierRef,
+    format_sheet_indices_on_gear,
+};
 use std::fmt::Write as _;
 
 /// The heading a sheet gets when its design has no title.
@@ -92,6 +98,38 @@ impl FacetData {
     pub fn crown_facets_text(&self) -> String {
         with_table(self.crown.facets, self.table.facets)
     }
+
+    /// The Facet Data block as the template prints it: four rows of `(facet label, facets,
+    /// tier label, tiers)` -- pavilion, girdle, crown (`N+1` with a table) and the totals.
+    #[must_use]
+    pub fn template_rows(&self) -> [(&'static str, String, &'static str, String); 4] {
+        [
+            (
+                "Pavilion facets",
+                self.pavilion.facets.to_string(),
+                "Pavilion tiers",
+                self.pavilion.tiers.to_string(),
+            ),
+            (
+                "Girdle facets",
+                self.girdle.facets.to_string(),
+                "Girdle tiers",
+                self.girdle.tiers.to_string(),
+            ),
+            (
+                "Crown facets",
+                self.crown_facets_text(),
+                "Crown tiers",
+                self.crown_tiers_text(),
+            ),
+            (
+                "Total facets",
+                self.total_facets().to_string(),
+                "Total tiers",
+                self.total_tiers().to_string(),
+            ),
+        ]
+    }
 }
 
 /// `count`, or `count+table` when there is a table.
@@ -170,7 +208,7 @@ impl SizeData {
 }
 
 /// A number with at most two decimals and no trailing zeros (`6.5`, `12`).
-fn trimmed(value: f64) -> String {
+pub(super) fn trimmed(value: f64) -> String {
     let text = format!("{value:.2}");
     text.trim_end_matches('0').trim_end_matches('.').to_string()
 }
@@ -188,41 +226,99 @@ pub(super) fn material_label(design: &Design, n_d: f64) -> Option<String> {
     crate::material_lookup::material_for_refractive_index(n_d).map(|(name, _)| format!("{name}?"))
 }
 
-/// The Design Data rows as `(label, value)`: the RI range (else the design's own RI with its
-/// material), the size range when given, symmetry, index gear and the shape when given.
+/// What a Design Data cell prints when there is nothing to print: never a guess.
+pub const NO_VALUE: &str = "-";
+
+/// The Design Data rows as `(label, value)`, the template's five rows in its order:
+///
+/// - RI range: `1.43 to 2.62` when a range is given, else the design's own index with its
+///   material (`1.540 (Quartz?)`);
+/// - Size range: `4 - 12.5 mm` when a range is given, else the design's own size (its girdle
+///   diameter, `6.5 mm`), else `-` -- a range is never invented;
+/// - Symmetry: `8-fold, mirror` or `8-fold`;
+/// - Index gear: `96 Index`;
+/// - Shape: the given shape, else `-`.
 fn design_data(design: &Design, n_d: f64, details: &SheetDetails) -> Vec<(String, String)> {
-    let mut rows = Vec::new();
-    if let Some((low, high)) = details.ri_range {
-        rows.push(("RI range".to_string(), format!("{low:.2} - {high:.2}")));
-    } else {
-        let value = material_label(design, n_d).map_or_else(
-            || format!("{n_d:.3}"),
-            |material| format!("{n_d:.3} ({material})"),
-        );
-        rows.push(("RI".to_string(), value));
-    }
-    if let Some((small, large)) = details.size_range_mm {
-        rows.push((
-            "Size range".to_string(),
-            format!("{} - {} mm", trimmed(small), trimmed(large)),
-        ));
-    }
-    rows.push((
-        "Symmetry".to_string(),
-        format!(
-            "{}-fold{}",
-            design.meta.symmetry_order,
-            if design.meta.mirror { ", mirror" } else { "" }
+    let ri = details.ri_range.map_or_else(
+        || {
+            material_label(design, n_d).map_or_else(
+                || format!("{n_d:.3}"),
+                |material| format!("{n_d:.3} ({material})"),
+            )
+        },
+        |(low, high)| format!("{low:.2} to {high:.2}"),
+    );
+    let size = details.size_range_mm.map_or_else(
+        || {
+            design
+                .girdle_diameter_mm
+                .map_or_else(|| NO_VALUE.to_string(), |mm| format!("{} mm", trimmed(mm)))
+        },
+        |(small, large)| format!("{} - {} mm", trimmed(small), trimmed(large)),
+    );
+    let shape = details.shape.trim();
+    vec![
+        ("RI range".to_string(), ri),
+        ("Size range".to_string(), size),
+        (
+            "Symmetry".to_string(),
+            format!(
+                "{}-fold{}",
+                design.meta.symmetry_order,
+                if design.meta.mirror { ", mirror" } else { "" }
+            ),
         ),
-    ));
-    rows.push((
-        "Index gear".to_string(),
-        format!("{} index", design.meta.gear_teeth_abs()),
-    ));
-    if !details.shape.trim().is_empty() {
-        rows.push(("Shape".to_string(), details.shape.trim().to_string()));
-    }
-    rows
+        (
+            "Index gear".to_string(),
+            format!("{} Index", design.meta.gear_teeth_abs()),
+        ),
+        (
+            "Shape".to_string(),
+            if shape.is_empty() {
+                NO_VALUE.to_string()
+            } else {
+                shape.to_string()
+            },
+        ),
+    ]
+}
+
+/// One printed line of a Pavilion or Crown section of the template: its four columns and its
+/// band.
+///
+/// A flat tier is one line: code, angle, index list (`Table` for the table) and instruction. A
+/// concave tier is two: its facet line, then its tool line (`CYL`, `+10.00°`, the displacement,
+/// the tool's size and motion), both in the tier's band.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SectionLine {
+    /// The code column (`P1`, `T`, a tool's `CYL`).
+    pub code: String,
+    /// The angle column, two decimals with a degree sign (`40.00°`; a tool line's θ, `+10.00°`).
+    pub angle: String,
+    /// The index column (`96-24-48-72`, `Table`; a tool line's displacement).
+    pub indices: String,
+    /// The instruction column (`Meet P1, P2, G1`; a tool line's `D/W = 0.400, reciprocating`).
+    pub instruction: String,
+    /// Whether the line sits on a grey band: the first tier of a section is shaded, then every
+    /// other tier, and a concave tier's two lines share one band.
+    pub shaded: bool,
+    /// Whether this is the tool line of a concave tier.
+    pub tool: bool,
+}
+
+/// The instruction column of `row` on the template.
+///
+/// It is the meet instruction, with the frosting note [`CutSheetRow::instruction`] adds, but
+/// without the tier's name in front (the template has no name column; the name is printed in
+/// the mast table of the HTML sheet's extras).
+#[must_use]
+pub fn template_instruction(row: &CutSheetRow) -> String {
+    let full = row.instruction();
+    let Some(name) = row.descriptive_name() else {
+        return full;
+    };
+    full.strip_prefix(&format!("{name}: "))
+        .map_or_else(|| full.clone(), str::to_string)
 }
 
 /// One [`Block`] per row of `design`'s cutting sheet, in the sheet's own row order.
@@ -258,11 +354,17 @@ pub struct SheetLayout {
     pub facets: FacetData,
     /// Size Data.
     pub sizes: SizeData,
-    /// Design Data as `(label, value)`.
+    /// Design Data as `(label, value)`: the template's five rows (see `design_data`).
     pub design_data: Vec<(String, String)>,
-    /// The girdle diameter and carat estimate lines printed after Design Data, as
-    /// `(label, value)`; empty when the design has neither.
+    /// The girdle diameter and carat estimate lines, as `(label, value)`; empty when the design
+    /// has neither. The text sheet prints them after Design Data; the template itself has no
+    /// place for them, and the HTML sheet gives the same figures in [`Self::summary`].
     pub extras: Vec<(String, String)>,
+    /// The Stone summary of the HTML sheet's additional information: the size in millimetres,
+    /// the proportions, the material and the carat estimate with its scaling.
+    pub summary: StoneSummary,
+    /// The index gear's tooth count, which the index lists print in place of index 0.
+    pub gear_teeth: u32,
     /// The cutting sheet: every row in cutting order.
     pub sheet: CuttingSheet,
     /// The block of each row of [`Self::sheet`].
@@ -323,18 +425,20 @@ impl SheetLayout {
         if let Some(carat) = yield_report.carat_weight {
             extras.push((
                 "Carat weight (estimate)".to_string(),
-                format!(
-                    "{carat:.3} ct -- assumes the authored facets reach the preform's own walls"
-                ),
+                format!("{carat:.3} ct -- {CARAT_CAVEAT}"),
             ));
         }
+        let sizes = SizeData::measure(design, solved);
+        let summary = StoneSummary::build(design, solved, &sizes, n_d, yield_report.carat_weight);
 
         Self {
             details: details.clone(),
             facets,
-            sizes: SizeData::measure(design, solved),
+            sizes,
             design_data: design_data(design, n_d, details),
             extras,
+            summary,
+            gear_teeth: design.meta.gear_teeth_abs(),
             sheet,
             blocks,
             mm_per_unit: yield_report.mm_per_unit,
@@ -374,6 +478,58 @@ impl SheetLayout {
             .collect()
     }
 
+    /// `row`'s index list as the template prints it: index 0 as the gear's tooth count
+    /// (`96-24-48-72`), `-` for an empty list.
+    #[must_use]
+    pub fn index_text(&self, row: &CutSheetRow) -> String {
+        format_sheet_indices_on_gear(&row.indices, self.gear_teeth)
+    }
+
+    /// The printed lines of the Pavilion section of the template, in cutting order.
+    #[must_use]
+    pub fn pavilion_lines(&self) -> Vec<SectionLine> {
+        self.section_lines(&self.pavilion_rows())
+    }
+
+    /// The printed lines of the Crown section of the template, in cutting order, the table last.
+    #[must_use]
+    pub fn crown_lines(&self) -> Vec<SectionLine> {
+        self.section_lines(&self.crown_rows())
+    }
+
+    /// The template lines of `rows`: one per flat tier, two per concave tier, banded per tier.
+    fn section_lines(&self, rows: &[(&CutSheetRow, Block)]) -> Vec<SectionLine> {
+        let mut lines = Vec::new();
+        for (position, &(row, block)) in rows.iter().enumerate() {
+            let shaded = position % 2 == 0;
+            let is_table = block == Block::Crown && row.concave.is_none() && row.code == TABLE_CODE;
+            lines.push(SectionLine {
+                code: row.label().to_string(),
+                angle: format!("{:.2}\u{b0}", row.angle_deg.abs()),
+                indices: if is_table {
+                    "Table".to_string()
+                } else {
+                    self.index_text(row)
+                },
+                instruction: template_instruction(row),
+                shaded,
+                tool: false,
+            });
+            if let Some(concave) = &row.concave {
+                let [code, theta, displacement, details] = concave.second_line_fields();
+                lines.push(SectionLine {
+                    code,
+                    angle: theta,
+                    indices: displacement,
+                    instruction: details,
+                    shaded,
+                    tool: true,
+                });
+            }
+        }
+        lines
+    }
+
     /// Whether any row carries a cheater/azimuth offset (then the table gets its column).
     #[must_use]
     pub fn has_cheater_column(&self) -> bool {
@@ -384,7 +540,8 @@ impl SheetLayout {
     }
 
     /// The sheet as plain text: the same blocks as the HTML sheet, with plain headings. The
-    /// four diagram views are pictures and appear only on the web page.
+    /// four diagram views are pictures and appear only on the web page and in the PDF. The index
+    /// lists print index 0 as the gear's tooth count, as the template does.
     #[must_use]
     pub fn to_text(&self) -> String {
         let mut out = String::new();
@@ -468,7 +625,7 @@ impl SheetLayout {
             }
             let _ = writeln!(out, "\n{heading}");
             for (row, _) in rows {
-                row.write_text(&mut out);
+                row.write_text_on_gear(&mut out, self.gear_teeth);
             }
         }
         out

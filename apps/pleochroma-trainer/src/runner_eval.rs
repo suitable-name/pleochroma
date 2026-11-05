@@ -1,17 +1,17 @@
-//! Parallel evaluation of the model on a set of designs, in up to three passes (review TQ-16).
+//! Parallel evaluation on a fixed cohort with model-independent references.
 //!
 //! Every design is played from its base state by the same machinery, [`EvalJob::play`], with a
 //! different [`Pilot`] choosing the action of each step:
 //!
 //! - the **model** (always): the policy mean, projected, stepped with the run's line search;
-//! - the **sampled** pass: one stochastic episode, the exploration policy of the run (the lower
-//!   bound a trained model must beat);
+//! - the **sampled** pass: one stochastic episode using the run's exploration policy;
+//! - the **noise** pass: zero-mean exploration with identical projection and line search;
 //! - the **oracle** pass: the teacher's verified best action among coordinate probes,
 //!   gradient line search and bounded rescue probes, replayed at its measured scale. This
 //!   finite search is a reference policy, not a guaranteed upper bound.
 //!
-//! All three score the same stone against the same target under the same objective weights, so
-//! `model / oracle` is the figure to watch. The end-of-run test evaluation and every in-training
+//! Every pass scores the same stone against the same target under the same objective weights.
+//! The end-of-run test evaluation and every in-training
 //! validation pass previously played designs one after another on one core. Designs are
 //! independent, so they are handed to the persistent bounded CPU pool (a design with many free
 //! tiers costs many times a small one) and every outcome is written into the slot of its entry;
@@ -29,6 +29,8 @@ pub(super) use dispatch::evaluate_designs;
 #[cfg(test)]
 use dispatch::reduce;
 
+#[path = "runner_eval_episode.rs"]
+mod episode;
 #[path = "runner_eval_recovery.rs"]
 mod recovery;
 #[path = "runner_eval_work.rs"]
@@ -107,6 +109,10 @@ pub(super) struct OracleKey {
     objective_sweep: bool,
     #[serde(default = "cpu_environment_math")]
     environment_math: String,
+    #[serde(default)]
+    evaluation_revision: u32,
+    #[serde(default)]
+    noise_std: Option<f32>,
 }
 
 fn cpu_environment_math() -> String {
@@ -132,6 +138,8 @@ impl OracleKey {
             validation_fidelity: cfg.validation_fidelity,
             objective_sweep: cfg.objective_sweep,
             environment_math: cpu_environment_math(),
+            evaluation_revision: 3,
+            noise_std: (cfg.algo == Algorithm::Imitation).then_some(cfg.explore_std),
         }
     }
 
@@ -148,7 +156,11 @@ impl OracleKey {
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(super) struct OracleCache {
     pub(super) key: OracleKey,
-    pub(super) drop: f32,
+    pub(super) drop: Option<f32>,
+    #[serde(default)]
+    pub(super) noise_drop: Option<f32>,
+    #[serde(default)]
+    pub(super) cases: Vec<EvalCase>,
 }
 
 /// Figures of one evaluated design.
@@ -184,12 +196,15 @@ enum DesignResult {
 type DesignOutcome = Result<DesignResult, RunnerError>;
 
 /// Who chooses the action of each step of an episode.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 enum Pilot {
     /// The policy mean.
     Model,
     /// One draw per step. `explore_std` is the exploration noise around the mean (imitation
     /// runs); `None` draws from the policy's own distribution (PPO runs).
     Sampled { rng: Prng, explore_std: Option<f32> },
+    /// Same exploration distribution without a learned mean; imitation only.
+    Noise { rng: Prng, std: f32 },
     /// The finite-difference oracle.
     Oracle,
 }
@@ -199,6 +214,7 @@ impl Pilot {
         match self {
             Self::Model => "model",
             Self::Sampled { .. } => "sampled",
+            Self::Noise { .. } => "zero-mean noise",
             Self::Oracle => "oracle",
         }
     }
@@ -226,12 +242,20 @@ struct Played {
     steps: usize,
     /// Candidates the steps and any teacher search scored (not reset/endpoint scoring).
     evaluations: usize,
+    accepted: usize,
+    rejections: std::collections::BTreeMap<String, usize>,
+    action_rms_sum: f64,
+    base: Optics,
+    seconds: f64,
+    restored_complete: bool,
 }
 
 struct ReplayScore {
     score: f32,
     evaluations: usize,
     steps: usize,
+    seconds: f64,
+    restored_complete: bool,
 }
 
 /// What every pass of one design shares: the target it is judged against and the objective
@@ -285,6 +309,10 @@ impl EvalJob<'_> {
         let raw = match pilot {
             Pilot::Oracle => return Ok(self.oracle_action(env, max_step, progress)),
             Pilot::Model => self.policy(obs, scratch)?.mean,
+            Pilot::Noise { rng, std } => {
+                let free = obs.free_tier_mask();
+                explore_raw(&vec![0.0; free.len()], &free, *std, rng)
+            }
             Pilot::Sampled { rng, explore_std } => {
                 let policy = self.policy(obs, scratch)?;
                 let free = obs.free_tier_mask();
@@ -318,82 +346,6 @@ impl EvalJob<'_> {
         }
     }
 
-    /// Plays one episode from `obs` to its end and returns how it went: every step is proposed
-    /// by `pilot`; model actions use rollout projection and line search. Oracle actions replay
-    /// the exact measured input at unit scale. Counts include the oracle's teacher search.
-    ///
-    /// The oracle stops as soon as a step is not accepted: the environment is greedy and
-    /// deterministic, a refused step leaves the design as it was, and the oracle's action
-    /// depends on the design alone, so every later step would repeat the refusal. The final
-    /// score is the same as if the episode were played out, at a fraction of the cost.
-    fn play(
-        &self,
-        env: &mut EnvKind,
-        mut obs: GemstoneObservation,
-        mut pilot: Pilot,
-        scratch: &mut InferenceScratch,
-        progress: &CaseProgress<'_>,
-    ) -> Result<Played, RunnerError> {
-        let (mut steps, mut evaluations) = (0, 0);
-        loop {
-            self.check_execution()?;
-            let max_step = env.max_step_deg();
-            let backend = if matches!(pilot, Pilot::Oracle) {
-                "CPU oracle"
-            } else {
-                self.backend
-            };
-            progress.stage(&format!(
-                "{} step {}: propose on {backend}",
-                pilot.name(),
-                steps + 1
-            ));
-            let (mut action, teacher_evaluations) =
-                self.propose(env, &obs, &mut pilot, scratch, progress)?;
-            self.check_execution()?;
-            let oracle = matches!(pilot, Pilot::Oracle);
-            if !oracle {
-                GemstoneSetAttentionNetwork::project_actions(
-                    &mut action,
-                    &obs.tiers,
-                    obs.global.target_critical_angle_deg,
-                    max_step,
-                );
-            }
-            // The teacher already selected the scale and evaluated environment projection.
-            // Re-scaling or projecting through rounded observation bounds changes its action.
-            let scales: &[f64] = if oracle {
-                &[1.0]
-            } else {
-                &self.cfg.line_search
-            };
-            let environment_backend = if self.execution.is_some() {
-                "CUDA"
-            } else {
-                "CPU"
-            };
-            progress.stage(&format!(
-                "{} step {}: geometry and optical scoring on {environment_backend}",
-                pilot.name(),
-                steps + 1
-            ));
-            let step = work::step(env, &action, scales, progress.tail);
-            self.check_execution()?;
-            steps += 1;
-            evaluations += teacher_evaluations + usize::from(step.info.evaluations);
-            let done = step.terminated || step.truncated;
-            let stalled = matches!(pilot, Pilot::Oracle) && step.info.scale.is_none();
-            obs = step.observation;
-            if done || stalled {
-                return Ok(Played {
-                    obs,
-                    steps,
-                    evaluations,
-                });
-            }
-        }
-    }
-
     /// Plays `pilot` from the base design again and returns the final score.
     ///
     /// Every step, observation and acceptance decision uses this job's evaluation fidelity.
@@ -403,14 +355,15 @@ impl EvalJob<'_> {
         pilot: Pilot,
         scratch: &mut InferenceScratch,
         progress: &CaseProgress<'_>,
+        journal: Option<&recovery::CaseJournal>,
     ) -> Result<ReplayScore, RunnerError> {
-        progress.stage(&format!("{}: reset episode", pilot.name()));
-        let obs = env.reset(self.seed);
-        let played = self.play(env, obs, pilot, scratch, progress)?;
+        let played = self.play(env, pilot, scratch, progress, journal)?;
         Ok(ReplayScore {
             score: env.current_score(),
             evaluations: played.evaluations,
             steps: played.steps,
+            seconds: played.seconds,
+            restored_complete: played.restored_complete,
         })
     }
 
@@ -424,8 +377,18 @@ impl EvalJob<'_> {
         objective_override: Option<ObjectiveWeights>,
         progress: &CaseProgress<'_>,
     ) -> DesignOutcome {
+        self.evaluate_design_with_recovery(entry, objective_override, progress, None, None)
+    }
+
+    fn evaluate_design_with_recovery(
+        &self,
+        entry: usize,
+        objective_override: Option<ObjectiveWeights>,
+        progress: &CaseProgress<'_>,
+        journal: Option<&recovery::CaseJournal>,
+        references: Option<&recovery::CaseJournal>,
+    ) -> DesignOutcome {
         self.check_execution()?;
-        let started = Instant::now();
         let item = &self.split.entries[entry];
         let salted = self.seed ^ (entry as u64).wrapping_mul(0x9E37_79B9);
         let target = pick_target(
@@ -437,24 +400,69 @@ impl EvalJob<'_> {
         let weights =
             objective_override.unwrap_or_else(|| draw_weights(self.cfg.objectives, salted));
         let mut case = new_case(item, target.as_ref(), weights, salted)?;
-        progress.stage("build environment and score baseline on selected physics backend");
-        let result = build_env(
-            self.cfg,
-            &item.design,
-            target.as_ref(),
-            weights,
-            (Some(objective_fidelity(self.fidelity)), self.execution),
-            salted,
-            item.authored_material.as_ref(),
-        );
+        let references = references.or(journal);
+        let baseline: Option<pleochroma_ai::env::recovery::EpisodeSnapshot> = journal
+            .map(|journal| journal.load("baseline"))
+            .transpose()?
+            .flatten();
+        let baseline = match baseline {
+            Some(saved) => Some(saved),
+            None => references
+                .map(|journal| journal.load("baseline"))
+                .transpose()?
+                .flatten(),
+        };
+        progress.stage(if baseline.is_some() {
+            "restore validation baseline without optical rescoring"
+        } else {
+            "build environment and score baseline on selected physics backend"
+        });
+        let result = if let Some(saved) = &baseline {
+            super::envs::build_eval_env_from_episode(
+                self.cfg,
+                &item.design,
+                target.as_ref(),
+                weights,
+                salted,
+                item.authored_material.as_ref(),
+                saved,
+                (objective_fidelity(self.fidelity), self.execution),
+            )
+        } else {
+            build_env(
+                self.cfg,
+                &item.design,
+                target.as_ref(),
+                weights,
+                (Some(objective_fidelity(self.fidelity)), self.execution),
+                salted,
+                item.authored_material.as_ref(),
+            )
+        };
         self.check_execution()?;
         let mut env = match result {
             Ok(env) => env,
             Err(e) => {
+                if baseline.is_some() {
+                    // A stale/corrupt recovery record is an error, not a failed design that
+                    // could quietly poison an otherwise valid validation cohort.
+                    return Err(e.into());
+                }
                 case.failure = Some(format!("'{}': {e}", item.title));
                 return Ok(DesignResult::Failed(case));
             }
         };
+        let baseline = if let Some(saved) = baseline {
+            saved
+        } else {
+            env.snapshot_episode()?
+        };
+        if let Some(journal) = journal {
+            journal.save("baseline", &baseline)?;
+        }
+        if let Some(references) = references {
+            references.save("baseline", &baseline)?;
+        }
         let ctx = DesignContext {
             target,
             source: env.source_material().clone(),
@@ -463,16 +471,12 @@ impl EvalJob<'_> {
         };
         let mut scratch = InferenceScratch::default();
 
-        progress.stage("model: reset episode");
-        let obs = env.reset(self.seed);
-        let base_optics = Optics::from_global(&obs.global);
-        let model_started = Instant::now();
-        let model = self.play(&mut env, obs, Pilot::Model, &mut scratch, progress)?;
+        let model = self.play(&mut env, Pilot::Model, &mut scratch, progress, journal)?;
         let final_optics = Optics::from_global(&model.obs.global);
         let (base_score, final_score, base, fin) = (
             env.base_score(),
             env.current_score(),
-            base_optics,
+            model.base,
             final_optics,
         );
         let mut figures = DesignFigures {
@@ -486,27 +490,20 @@ impl EvalJob<'_> {
             model_evaluations: model.evaluations,
             model_steps: model.steps,
         };
-        figures.case.model_seconds = Some(model_started.elapsed().as_secs_f32());
+        figures.case.model_seconds = Some(model.seconds as f32);
+        figures.case.accepted_steps = model.accepted;
+        figures.case.rejections = model.rejections;
+        figures.case.mean_action_rms_deg =
+            (model.steps > 0).then(|| model.action_rms_sum / model.steps as f64);
 
-        // The same environment, back at the base design: every extra pass starts from the very
-        // stone, target and weights the model's episode did.
-        if self.passes.sampled {
-            let pilot = Pilot::Sampled {
-                rng: Prng::new(salted),
-                explore_std: self.explore_std(),
-            };
-            let replay = self.replay(&mut env, pilot, &mut scratch, progress)?;
-            figures.sampled_final_score = Some(replay.score);
-        }
-        if self.passes.oracle {
-            let oracle_started = Instant::now();
-            let replay = self.replay(&mut env, Pilot::Oracle, &mut scratch, progress)?;
-            figures.oracle_final_score = Some(replay.score);
-            figures.case.oracle_final_score = Some(replay.score);
-            figures.case.oracle_evaluations = Some(replay.evaluations);
-            figures.case.oracle_steps = Some(replay.steps);
-            figures.case.oracle_seconds = Some(oracle_started.elapsed().as_secs_f32());
-        }
+        let reference_seconds = self.reference_passes(
+            &mut env,
+            salted,
+            &mut scratch,
+            progress,
+            &mut figures,
+            (journal, references),
+        )?;
         figures.case.base_score = Some(figures.base_score);
         figures.case.final_score = Some(figures.final_score);
         figures.case.score_drop = Some(figures.base_score - figures.final_score);
@@ -514,12 +511,61 @@ impl EvalJob<'_> {
         figures.case.evaluations = figures.model_evaluations;
         figures.case.steps = figures.model_steps;
         // Keep model throughput separate from the optional comparator's CPU time.
-        figures.case.elapsed_seconds = Some(started.elapsed().as_secs_f32());
+        figures.case.elapsed_seconds = Some((model.seconds + reference_seconds) as f32);
         if let Some(budget) = self.cfg.classical_budget {
             progress.stage("classical optimizer comparison on CPU");
             self.classical_comparison(item, &ctx, budget, &mut figures.case);
         }
         Ok(DesignResult::Figures(figures))
+    }
+
+    /// Every reference starts from the model pass's identical stone, material and objective.
+    fn reference_passes(
+        &self,
+        env: &mut EnvKind,
+        salted: u64,
+        scratch: &mut InferenceScratch,
+        progress: &CaseProgress<'_>,
+        figures: &mut DesignFigures,
+        journals: (
+            Option<&recovery::CaseJournal>,
+            Option<&recovery::CaseJournal>,
+        ),
+    ) -> Result<f64, RunnerError> {
+        let mut seconds = 0.0;
+        if self.passes.sampled {
+            let pilot = Pilot::Sampled {
+                rng: Prng::new(salted),
+                explore_std: self.explore_std(),
+            };
+            let replay = self.replay(env, pilot, scratch, progress, journals.0)?;
+            seconds += replay.seconds;
+            figures.sampled_final_score = Some(replay.score);
+            figures.case.sampled_final_score = Some(replay.score);
+        }
+        if self.passes.noise {
+            let pilot = Pilot::Noise {
+                rng: Prng::new(salted),
+                std: self.cfg.explore_std,
+            };
+            let replay = self.replay(env, pilot, scratch, progress, journals.1)?;
+            seconds += replay.seconds;
+            figures.case.noise_final_score = Some(replay.score);
+            figures.case.noise_reference_cached = replay.restored_complete;
+        }
+        if self.passes.oracle {
+            let replay = self.replay(env, Pilot::Oracle, scratch, progress, journals.1)?;
+            seconds += replay.seconds;
+            figures.oracle_final_score = Some(replay.score);
+            figures.case.oracle_final_score = Some(replay.score);
+            figures.case.oracle_evaluations = Some(replay.evaluations);
+            figures.case.oracle_steps = Some(replay.steps);
+            figures.case.oracle_seconds = Some(replay.seconds as f32);
+            figures.case.oracle_reference_cached = replay.restored_complete;
+        }
+        figures.case.references_cached =
+            figures.case.noise_reference_cached || figures.case.oracle_reference_cached;
+        Ok(seconds)
     }
 
     /// Runs the core optimizer in the episode's material, weights, lighting and shape context.
@@ -583,15 +629,17 @@ impl EvalJob<'_> {
                     shape_target,
                 )
                 .map_err(|error| error.to_string());
-                let candidate = if result.outcome.changes.is_empty()
-                    && result.mast_changes.is_empty()
-                {
-                    Ok(item.design.clone())
-                } else {
-                    pleochroma_cut_core::optimize::materialize_outcome(&item.design, &result.outcome)
+                let candidate =
+                    if result.outcome.changes.is_empty() && result.mast_changes.is_empty() {
+                        Ok(item.design.clone())
+                    } else {
+                        pleochroma_cut_core::optimize::materialize_outcome(
+                            &item.design,
+                            &result.outcome,
+                        )
                         .map(|(design, _, _)| design)
                         .map_err(|error| error.to_string())
-                };
+                    };
                 match (baseline, candidate) {
                     (Ok(baseline), Ok(design)) => match score_design_at_fidelity(
                         &design,
@@ -668,6 +716,8 @@ fn new_case(
         source_material: source_name,
         seed: salted,
         material_augmentation: augmentation,
+        physical_size_mm: item.design.girdle_diameter_mm,
+        physical_size_augmented: item.physical_size_augmented,
         target_augmentation: target
             .map_or_else(|| "none".to_owned(), |target| target.augmentation.clone()),
         lighting: format!("{lighting:?}"),

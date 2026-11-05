@@ -1,8 +1,10 @@
 //! Sharing and printing the cutting sheet, and sharing the diagram picture.
 //!
-//! Building either takes a moment, so the state is copied into a `SheetJob` on the UI
-//! thread, the bytes are made on a worker thread, and the platform (share sheet, print
-//! dialog) is called back on the UI thread.
+//! The sheet is shared in both formats: the HTML page (the standard template, then the
+//! renderings and further details) and the PDF (the standard template alone). Building either
+//! takes a moment, so the state is copied into a `SheetJob` on the UI thread, the bytes are
+//! made on a worker thread, and the platform (share sheet, print dialog) is called back on the
+//! UI thread.
 
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
@@ -23,6 +25,8 @@ use crate::{AppWindow, design::Shared, push::toast};
 pub(super) enum Kind {
     /// The cutting sheet HTML, offered through the share sheet.
     Sheet,
+    /// The cutting sheet PDF, offered through the share sheet.
+    SheetPdf,
     /// The cutting sheet HTML, handed to the print dialog.
     Print,
     /// The diagram PNG, offered through the share sheet.
@@ -55,7 +59,7 @@ pub(super) fn start(window: &AppWindow, state: &Shared, kind: Kind) {
     toast::show(
         window,
         match kind {
-            Kind::Sheet | Kind::Print => "Preparing the cutting sheet...",
+            Kind::Sheet | Kind::SheetPdf | Kind::Print => "Preparing the cutting sheet...",
             Kind::Diagram => "Drawing the diagram...",
         },
     );
@@ -86,6 +90,15 @@ fn build(job: &SheetJob, kind: Kind) -> Result<Ready, String> {
             mime: mime::HTML.to_owned(),
             bytes: job.html().into_bytes(),
         })),
+        // A design that does not close to a solid has no drawings for the template: the
+        // builder's reason is shown instead.
+        Kind::SheetPdf => job.pdf().map(|pdf| {
+            Ready::Share(OutgoingFile {
+                suggested_name: cutting::file_name(job.title(), "_cutting_sheet.pdf"),
+                mime: mime::PDF.to_owned(),
+                bytes: pdf,
+            })
+        }),
         Kind::Print => Ok(Ready::Print {
             title: format!("{} Cutting Sheet", job.title()),
             html: job.html(),

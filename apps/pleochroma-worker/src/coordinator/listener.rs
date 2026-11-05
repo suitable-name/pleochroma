@@ -160,8 +160,9 @@ fn register_worker(
         .and_then(<[_]>::first)
         .and_then(|der| crate::pki::worker_label_of_certificate(der.as_ref()));
     let worker_id = registry.allocate_id();
-    // A worker connection is not a viewer: nothing to advertise to it. A coordinator does
-    // not forward zones to its joined workers (`Welcome::new` sets the zoning bit false).
+    // A worker connection is not a viewer: nothing to advertise to it (`Welcome::new` sets
+    // the zoning bit false). The coordinator still sends zones ahead of a zoned chunk: the
+    // worker runs the same protocol version and release, so it reads them (v36).
     let welcome = Welcome::new(
         local_hello.build_hash,
         local_hello.source_hash,

@@ -95,7 +95,8 @@ pub fn run(args: &JoinArgs) -> Result<(), String> {
         ..crate::serve::local_render_capability(&gpu, args.threads)
     };
     tracing::info!(
-        "pleochroma-worker join: joining {} with {} slot(s) as {:?} (HDR environments: {})",
+        "pleochroma-worker join: protocol v{}, joining {} with {} slot(s) as {:?} (HDR environments: {})",
+        pleochroma_net::messages::PROTOCOL_VERSION,
         args.coordinator,
         args.slots,
         capability.backend,

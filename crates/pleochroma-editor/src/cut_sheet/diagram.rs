@@ -7,7 +7,9 @@ use pleochroma::geometry::{
     stone_metrics::{SolidStatus, build_solid_mesh},
 };
 use pleochroma_cut_core::Design;
-use pleochroma_solid::diagram2d::{self, DiagramConfig, DiagramFrame, DiagramStyle, PanelKind};
+use pleochroma_solid::diagram2d::{
+    self, DiagramConfig, DiagramFrame, DiagramStyle, PanelKind, VectorView,
+};
 
 /// A rendered 2D faceting diagram, already PNG-encoded.
 ///
@@ -61,7 +63,10 @@ pub fn render_cut_diagram(
     frame_image(&frame)
 }
 
-/// The four views a printed cutting sheet shows, each a single-panel diagram.
+/// The four views of a printed cutting sheet as shaded pictures, each a single-panel diagram.
+///
+/// They are the HTML sheet's renderings after the template; [`render_vector_cut_views`] draws
+/// the same four views as the template's line drawings.
 ///
 /// The labels are the cutting-instructions template's, and they name the side the stone is
 /// seen from. The template's axes are the stone's own (`Z` along the stone's axis); the
@@ -90,7 +95,7 @@ pub struct CutViews {
 ///
 /// `None` under the same condition as [`render_cut_diagram`]: the design's planes do not
 /// close to a solid. Facet labels are the same canonical tier codes the three-panel diagram
-/// prints.
+/// prints, drawn at the frame's text scale ([`diagram2d::text_scale`]) like its tooth numbers.
 ///
 /// # Panics
 ///
@@ -108,7 +113,10 @@ pub fn render_cut_views(
         return None;
     };
     let config = diagram_config(design, width, height);
-    let style = diagram_style(design, solved);
+    let mut style = diagram_style(design, solved);
+    // The facet labels grow with the frame like the tooth numbers do: at the sheet's
+    // 1600 x 1257 the original 5x7 labels would be specks.
+    style.label_scale = diagram2d::text_scale(height);
     let single = |panel| {
         frame_image(&diagram2d::render_diagram_single_panel(
             &mesh, &config, &style, panel,
@@ -120,6 +128,43 @@ pub fn render_cut_views(
         end: frame_image(&diagram2d::render_diagram_end_view(&mesh, &config, &style))?,
         bottom: single(PanelKind::Pavilion)?,
     })
+}
+
+/// `design`'s four sheet views as line drawings ([`diagram2d::render_vector_views`]).
+///
+/// Each is `width` x `height` drawing units, in the order `down +Z`, `down +X`, `down -Y`,
+/// `down -Z` (the fields of [`CutViews`] in that order).
+///
+/// The facet labels are the tier codes alone (`P1`, `C2`, `T`): the raster views' labels with
+/// the facet's index left off (`P1 24` becomes `P1`), since the template's line drawings are
+/// small and their index lists already name the positions. `None` under the same condition as
+/// [`render_cut_diagram`]: the design's planes do not close to a solid.
+///
+/// # Panics
+///
+/// Same alignment contract as [`Design::planes_from_solved`].
+#[must_use]
+pub fn render_vector_cut_views(
+    design: &Design,
+    solved: &[SolvedTier],
+    width: u32,
+    height: u32,
+) -> Option<[VectorView; 4]> {
+    let planes = design.planes_from_solved(solved);
+    let SolidStatus::Closed(mesh) = build_solid_mesh(&planes) else {
+        return None;
+    };
+    let config = diagram_config(design, width, height);
+    let mut style = diagram_style(design, solved);
+    for label in &mut style.facet_labels {
+        let code = label
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        *label = code;
+    }
+    diagram2d::render_vector_views(&mesh, &config, &style)
 }
 
 /// The diagram's frame size and index wheel for `design`.

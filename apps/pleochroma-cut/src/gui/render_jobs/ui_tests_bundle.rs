@@ -241,8 +241,12 @@ fn still_labels_and_summaries_use_the_plain_wording() {
 #[test]
 fn video_labels_and_summaries_use_the_plain_wording() {
     assert_eq!(
-        video_label("Barion Oval", 45.0),
+        video_label("Barion Oval", &[45.0]),
         "Barion Oval \u{b7} tilt video \u{b7} axis 45\u{b0}"
+    );
+    assert_eq!(
+        video_label("Barion Oval", &[0.0, 90.0]),
+        "Barion Oval \u{b7} tilt video \u{b7} axes 0\u{b0} + 90\u{b0}"
     );
     let facts = VideoFacts {
         start_deg: -90.0,

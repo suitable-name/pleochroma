@@ -388,6 +388,7 @@ fn generalization_gap_requires_matching_training_and_validation_fidelity() {
     runner.stats.recent_improvements.push_back(0.4);
     runner.stats.last_validation = Some(EvalReport {
         designs: MIN_GAP_DESIGNS,
+        distinct_families: MIN_GAP_DESIGNS,
         mean_improvement: 0.2,
         mean_improvement_sampled: Some(0.1),
         ..EvalReport::default()
@@ -396,6 +397,122 @@ fn generalization_gap_requires_matching_training_and_validation_fidelity() {
 
     runner.cfg.validation_fidelity = EvalFidelity::Full;
     assert_eq!(runner.generalization_gap(), None);
+}
+
+#[test]
+fn generalization_gap_counts_distinct_families_not_objective_rows() {
+    let mut runner = fixture_runner_with(|cfg| {
+        cfg.train_fidelity = pleochroma_cut_core::ObjectiveFidelity::Fast;
+        cfg.full_fidelity_frac = 0.0;
+        cfg.validation_fidelity = EvalFidelity::Fast;
+    });
+    runner.stats.recent_improvements.push_back(0.4);
+    runner.stats.last_validation = Some(EvalReport {
+        designs: MIN_GAP_DESIGNS * 7,
+        distinct_entries: MIN_GAP_DESIGNS,
+        distinct_families: MIN_GAP_DESIGNS - 1,
+        mean_improvement_sampled: Some(0.1),
+        ..EvalReport::default()
+    });
+    assert_eq!(runner.generalization_gap(), None);
+    runner
+        .stats
+        .last_validation
+        .as_mut()
+        .unwrap()
+        .distinct_families = MIN_GAP_DESIGNS;
+    assert!((runner.generalization_gap().unwrap() - 0.3).abs() < 1e-6);
+    runner.stats.last_validation.as_mut().unwrap().failed = 1;
+    assert_eq!(runner.generalization_gap(), None);
+}
+
+fn reference_cache_fixture() -> (EvalReport, OracleCache) {
+    let current = EvalCase {
+        design_id: 12,
+        seed: 7,
+        base_score: Some(10.0),
+        final_score: Some(9.0),
+        accepted_steps: 2,
+        ..EvalCase::default()
+    };
+    let mut saved = current.clone();
+    saved.final_score = Some(1.0);
+    saved.accepted_steps = 77;
+    saved.oracle_final_score = Some(7.0);
+    saved.noise_final_score = Some(8.0);
+    let cfg = config_with(|_| {});
+    (
+        EvalReport {
+            designs: 1,
+            cases: vec![current],
+            ..EvalReport::default()
+        },
+        OracleCache {
+            key: eval::OracleKey::new(&cfg, &[0], 7, 0.5),
+            drop: Some(3.0),
+            noise_drop: Some(2.0),
+            cases: vec![saved],
+        },
+    )
+}
+
+#[test]
+fn cached_references_preserve_current_model_results_and_require_exact_context() {
+    let (original, cache) = reference_cache_fixture();
+    let mut report = original.clone();
+    validation::restore_references(&mut report, &cache);
+    assert_eq!(report.mean_improvement_oracle, Some(3.0));
+    assert_eq!(report.mean_improvement_noise, Some(2.0));
+    assert!(report.oracle_cached && report.noise_cached && report.cases[0].references_cached);
+    assert_eq!(report.cases[0].oracle_final_score, Some(7.0));
+    assert_eq!(report.cases[0].noise_final_score, Some(8.0));
+    assert_eq!(report.cases[0].final_score, Some(9.0));
+    assert_eq!(report.cases[0].accepted_steps, 2);
+
+    // A cached oracle does not authorize overwriting a freshly measured noise reference.
+    let mut oracle_only = cache.clone();
+    oracle_only.noise_drop = None;
+    let mut fresh_noise = original.clone();
+    fresh_noise.mean_improvement_noise = Some(1.0);
+    fresh_noise.cases[0].noise_final_score = Some(9.0);
+    validation::restore_references(&mut fresh_noise, &oracle_only);
+    assert_eq!(fresh_noise.mean_improvement_noise, Some(1.0));
+    assert_eq!(fresh_noise.cases[0].noise_final_score, Some(9.0));
+    assert!(fresh_noise.oracle_cached && !fresh_noise.noise_cached);
+
+    let changes: [fn(&mut EvalCase); 13] = [
+        |case| case.design_id += 1,
+        |case| case.seed += 1,
+        |case| case.objective.push('x'),
+        |case| case.target_material.push('x'),
+        |case| case.source_material.push('x'),
+        |case| case.material_augmentation.push('x'),
+        |case| case.target_augmentation.push('x'),
+        |case| case.lighting.push('x'),
+        |case| case.shape_target.push('x'),
+        |case| case.base_score = Some(10.5),
+        |case| case.failure = Some("failed".into()),
+        |case| case.oracle_final_score = None,
+        |case| case.noise_final_score = None,
+    ];
+    for change in changes {
+        let mut damaged = cache.clone();
+        change(&mut damaged.cases[0]);
+        let mut report = original.clone();
+        validation::restore_references(&mut report, &damaged);
+        assert_eq!(report.mean_improvement_oracle, None);
+        assert_eq!(report.mean_improvement_noise, None);
+        assert!(!report.cases[0].references_cached);
+    }
+    let mut failed = original.clone();
+    failed.failed = 1;
+    validation::restore_references(&mut failed, &cache);
+    assert_eq!(failed.mean_improvement_noise, None);
+    let mut invalid_mean = cache;
+    invalid_mean.noise_drop = Some(f32::NAN);
+    let mut report = original;
+    validation::restore_references(&mut report, &invalid_mean);
+    assert_eq!(report.mean_improvement_noise, None);
 }
 
 #[test]
@@ -727,7 +844,7 @@ fn validation_reports_the_model_the_sampled_and_the_oracle_drop_and_caches_the_o
         .oracle_cache
         .as_ref()
         .expect("the oracle drop is cached");
-    assert_eq!(cache.drop, oracle);
+    assert_eq!(cache.drop, Some(oracle));
 }
 
 /// Five 60-step episodes of the fixture at `Fast` fidelity: about 0.26 s per step with the
@@ -743,6 +860,7 @@ fn evaluation_gives_the_same_figures_for_one_and_for_four_copies_of_a_design() {
     let sampled = EvalPasses {
         sampled: true,
         oracle: false,
+        noise: false,
     };
 
     let one = runner

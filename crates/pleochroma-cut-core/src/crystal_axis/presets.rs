@@ -345,8 +345,9 @@ fn compute_color_presets(material: &GemMaterial) -> Vec<ColorPreset> {
                 .unwrap_or_default()
         }
         "Andalusite" => {
-            // Only a direction that is green: after the measured refit no Andalusite ray is
-            // (alpha is a brownish red-orange, beta and gamma pale yellow), so the stone has none.
+            // Only a direction that is green. The built-in (since 2026-11-03 0.65 x the Fe-Ti
+            // crystal plus 0.35 x the Greener variant) has one: through alpha, beta and gamma show
+            // a pale yellow-green; the Fe-Ti crystal alone had none.
             let all = choices(material);
             all.iter()
                 .filter(|choice| {
@@ -468,9 +469,12 @@ mod tests {
         let alexandrite = color_presets(&material("Alexandrite"));
         assert_eq!(alexandrite.len(), 1);
         assert_eq!(alexandrite[0].id, ColorPresetId::StrongestColorChange);
-        // Andalusite's measured rays are a brownish red-orange and two pale yellows: none is
-        // green, so it offers no "Best Green Face-Up" (the name would be wrong for every stone).
-        assert!(color_presets(&material("Andalusite")).is_empty());
+        // Andalusite (since 2026-11-03): alpha a brownish red-orange, beta and gamma a pale
+        // yellow-green, so looking along alpha is green (swatch C* 25 h 119) and it offers one
+        // "Best Green Face-Up"; the other two directions are a brownish yellow (h 88-89).
+        let andalusite = color_presets(&material("Andalusite"));
+        assert_eq!(andalusite.len(), 1);
+        assert_eq!(andalusite[0].id, ColorPresetId::BestGreenFaceUp);
         // Peridot's pleochroism is weak, uniaxial and isotropic materials have no frame.
         for name in ["Peridot", "Sapphire", "Tourmaline", "Diamond", "Topaz"] {
             assert!(color_presets(&material(name)).is_empty(), "{name}");

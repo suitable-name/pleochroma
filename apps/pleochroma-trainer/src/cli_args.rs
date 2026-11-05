@@ -57,8 +57,9 @@ OPTIONS:
                                   (default: 2 for imitation; 0 for PPO, whose loss does not use them)
     --label-h <X>                 Probe size of the labels in degrees, above 0
                                   (default: the step limit)
-    --label-capacity <N>          Labelled states the imitation aggregate keeps (the oldest are
-                                  dropped first), 1-1000000 (default: 50000); also capped at 512 MiB
+    --label-memory-mib <N>        Host replay payload budget in MiB (default: 512).
+    --label-capacity <N>          Maximum replay rows, 1-1000000 (default: 50000); also capped
+                                  by the host replay memory budget
     --explore-std <X>             Exploration noise on the policy mean in imitation rollouts,
                                   pre-squash units, 0 or more (default: 0.3)
     --max-rejected-steps <N>      Imitation training: restart an episode after N consecutive
@@ -71,16 +72,18 @@ OPTIONS:
                                   seven presets (including tone), or presets 70 % plus random
                                   weights 30 % (default: mixed)
     --same-material-frac <X>      Share of retarget episodes targeting their sampled source
-                                  material, 0 to 1 (default: 0.25; native sources remain authored)
+                                  material, 0 to 1 (default: 0.25; authored sources are preserved)
     --imitation-lr <X>            Imitation peak learning rate, decayed linearly over the run's
                                   updates: iterations x updates-per-round, or, with
                                   --updates-per-round 0, the updates a full aggregate allows
                                   (default: 3e-4)
-    --cosine-coeff <X>            Weight of the direction-cosine loss term, 0 or more
+    --cosine-coeff <X>            Weight of bounded direction discrepancy, 0 or more
                                   (default: 0.5)
-    --action-coeff <X>            Weight of verified-action Huber loss, 0 or more (default: 1)
+    --action-coeff <X>            Weight of moving/stationary balanced action Huber loss (default: 1)
     --gain-coeff <X>              Weight of the gain-regression loss term, 0 or more
                                   (default: 0.1)
+    --max-grad-norm <X>           Imitation: cap of the global gradient norm before each optimizer
+                                  step, above 0 (default: 1)
     --lr <X>                      PPO peak learning rate, decayed linearly to 0 over the run
                                   (default: the built-in PPO value, shown in the banner)
     --max-step-deg <X>            Step limit per tier and step, in degrees, above 0
@@ -107,7 +110,12 @@ OPTIONS:
     --no-update-check             Do not ask GitHub for a newer release before starting (also
                                   off when PLEOCHROMA_NO_UPDATE_CHECK is set)
     --resume <RUN>                Continue the latest complete recovery snapshot of RUN; restores
-                                  configuration and state. Only --device may override the run.
+                                  configuration and state. Only --device, --save-every,
+                                  --imitation-lr, --max-grad-norm and --relabel may be added; each
+                                  applied override is printed
+    --relabel                     With --resume: accept a changed environment backend (CUDA
+                                  arithmetic or device); replay labels are cleared and relabelled.
+                                  Without it such a resume is refused
     --warm-start <PATH>           Start a new run from model weights; configure the new run as
                                   usual. Optimizer, replay, RNG and reward scale start fresh.
     --save-stats <PATH>           Telemetry JSON output (default: training_stats.json)
@@ -118,6 +126,10 @@ OPTIONS:
 
 The design library is found through the DIAGRAM_DB_PATH environment variable, or as
 facet_diagrams.sqlite in the working directory or up to three directories above it.
+
+Ctrl-C (SIGINT) or SIGTERM stops a run cleanly: the iteration in progress finishes and is
+committed, then the CLI exits with status 130 (continue with --resume). A second one exits at
+once; the last committed recovery stays valid.
 ";
 
 /// PPO mini-batch size when `--mini-batch` is absent (the runner's own default).
@@ -154,6 +166,9 @@ pub struct CliArgs {
     pub label_h_deg: Option<f64>,
     /// Capacity of the imitation aggregate; `None` keeps the built-in value.
     pub label_capacity: Option<usize>,
+    /// Host replay payload budget in MiB.
+    #[serde(default)]
+    pub label_memory_mib: Option<usize>,
     /// Exploration noise of the imitation rollouts; `None` keeps the built-in value.
     pub explore_std: Option<f32>,
     /// Consecutive rejected imitation steps before restarting a training episode.
@@ -165,12 +180,15 @@ pub struct CliArgs {
     pub same_material_frac: Option<f32>,
     /// Imitation peak learning rate; `None` keeps the built-in value.
     pub imitation_lr: Option<f32>,
-    /// Weight of the direction-cosine loss term; `None` keeps the built-in value.
+    /// Weight of the bounded direction discrepancy; `None` keeps the built-in value.
     pub cosine_coeff: Option<f32>,
-    /// Weight of verified-action Huber loss; `None` keeps the built-in value.
+    /// Weight of moving/stationary balanced action Huber loss; `None` keeps the built-in value.
     pub action_coeff: Option<f32>,
     /// Weight of the gain-regression loss term; `None` keeps the built-in value.
     pub gain_coeff: Option<f32>,
+    /// Imitation global gradient-norm cap; `None` keeps the built-in value.
+    #[serde(default)]
+    pub max_grad_norm: Option<f32>,
     /// PPO peak learning rate; `None` keeps the built-in PPO value.
     pub learning_rate: Option<f32>,
     /// Step limit in degrees; `None` keeps each environment's own.
@@ -193,6 +211,10 @@ pub struct CliArgs {
     pub design_dir: Option<String>,
     pub include_library: bool,
     pub resume: Option<String>,
+    /// Resume only: a changed environment backend may relabel the replay. A permission of one
+    /// invocation, never saved with the run.
+    #[serde(default, skip_serializing)]
+    pub relabel: bool,
     pub warm_start: Option<String>,
     pub stats_path: String,
     pub weights_path: Option<String>,
@@ -363,6 +385,10 @@ impl CliArgs {
             "--label-h" => {
                 self.label_h_deg = Some(parse_decimal(flag, take(args, i, flag)?, false)?);
             }
+            "--label-memory-mib" => {
+                self.label_memory_mib =
+                    Some(parse_range(flag, take(args, i, flag)?, 1, 1_048_576)?);
+            }
             "--label-capacity" => {
                 self.label_capacity = Some(parse_range(flag, take(args, i, flag)?, 1, 1_000_000)?);
             }
@@ -397,6 +423,9 @@ impl CliArgs {
             "--gain-coeff" => {
                 self.gain_coeff = Some(parse_decimal_f32(flag, take(args, i, flag)?, true)?);
             }
+            "--max-grad-norm" => {
+                self.max_grad_norm = Some(parse_decimal_f32(flag, take(args, i, flag)?, false)?);
+            }
             _ => return Ok(false),
         }
         Ok(true)
@@ -420,6 +449,7 @@ impl CliArgs {
             label_every: None,
             label_h_deg: None,
             label_capacity: None,
+            label_memory_mib: None,
             explore_std: None,
             max_rejected_steps: None,
             line_search: None,
@@ -429,6 +459,7 @@ impl CliArgs {
             cosine_coeff: None,
             action_coeff: None,
             gain_coeff: None,
+            max_grad_norm: None,
             learning_rate: None,
             max_step_deg: None,
             entropy_coeff: None,
@@ -448,6 +479,7 @@ impl CliArgs {
             design_dir: None,
             include_library: false,
             resume: None,
+            relabel: false,
             warm_start: None,
             stats_path: "training_stats.json".to_owned(),
             weights_path: None,
@@ -477,6 +509,9 @@ impl CliArgs {
     pub(super) fn validate(&self) -> Result<(), String> {
         if self.resume.is_some() && self.warm_start.is_some() {
             return Err("--resume and --warm-start are mutually exclusive".into());
+        }
+        if self.relabel && self.resume.is_none() {
+            return Err("--relabel applies only to --resume".into());
         }
         if self.fixture && (self.design_dir.is_some() || self.include_library) {
             return Err(
@@ -525,6 +560,7 @@ impl CliArgs {
                     ("--cosine-coeff", self.cosine_coeff.is_some()),
                     ("--action-coeff", self.action_coeff.is_some()),
                     ("--gain-coeff", self.gain_coeff.is_some()),
+                    ("--max-grad-norm", self.max_grad_norm.is_some()),
                     ("--updates-per-round", self.updates_per_round.is_some()),
                     ("--max-rejected-steps", self.max_rejected_steps.is_some()),
                 ],
@@ -625,6 +661,7 @@ pub fn parse_args(args: &[String]) -> Result<Parsed, String> {
                 take(args, &mut i, flag)?.clone_into(&mut parsed.target_material);
             }
             "--resume" => parsed.resume = Some(take(args, &mut i, flag)?.to_owned()),
+            "--relabel" => parsed.relabel = true,
             "--warm-start" => parsed.warm_start = Some(take(args, &mut i, flag)?.to_owned()),
             "--save-stats" => take(args, &mut i, flag)?.clone_into(&mut parsed.stats_path),
             "--save-weights" => parsed.weights_path = Some(take(args, &mut i, flag)?.to_owned()),
@@ -695,6 +732,9 @@ fn apply_imitation(config: &mut RunConfig, args: &CliArgs) {
     if let Some(coeff) = args.gain_coeff {
         imitation.gain_coeff = coeff;
     }
+    if let Some(norm) = args.max_grad_norm {
+        imitation.max_grad_norm = norm;
+    }
     if let Some(updates) = args.updates_per_round {
         imitation.updates_per_round = updates;
     }
@@ -743,6 +783,9 @@ pub fn build_config(args: &CliArgs) -> RunConfig {
         Algorithm::Ppo => 0,
     });
     config.label_h_deg = args.label_h_deg;
+    if let Some(memory) = args.label_memory_mib {
+        config.label_memory_mib = memory;
+    }
     if let Some(capacity) = args.label_capacity {
         config.label_capacity = capacity;
     }

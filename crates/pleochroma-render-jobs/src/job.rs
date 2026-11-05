@@ -325,8 +325,15 @@ pub struct StillJob {
 /// The settings of a tilt video job.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TiltVideoJob {
-    /// The tilt axis, as the index the tilt section uses.
+    /// The tilt axis, as the index the tilt section uses. With [`Self::more_axes`], the
+    /// first of the video's axes.
     pub axis_index: u32,
+    /// Further axes after `axis_index`, in the order the video shows them. Empty for a
+    /// one-axis video, which is one `start -> end` pass (every job written before several
+    /// axes existed). With any, the video rocks each axis through face-up in turn,
+    /// `0 -> end -> start -> 0`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub more_axes: Vec<u32>,
     /// The first tilt angle, in degrees.
     pub start_deg: f64,
     /// The last tilt angle, in degrees.
@@ -344,9 +351,14 @@ pub struct TiltVideoJob {
     /// Which metric overlays are drawn.
     #[serde(default)]
     pub overlay: OverlaySelection,
-    /// The frozen metric curves, present when an overlay is selected.
+    /// The frozen metric curves, present when an overlay is selected. With
+    /// [`Self::more_axes`], those of the first axis.
     #[serde(default)]
     pub curves: Option<MetricCurvesData>,
+    /// The frozen metric curves of [`Self::more_axes`], one per axis in the same order;
+    /// present when an overlay is selected.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub more_curves: Vec<MetricCurvesData>,
     /// Whether the frames stay on disk after the video is made.
     #[serde(default)]
     pub keep_frames: bool,
@@ -388,6 +400,16 @@ impl OverlaySelection {
         .into_iter()
         .filter(|on| *on)
         .count()
+    }
+}
+
+impl TiltVideoJob {
+    /// Every axis of the video in order: `axis_index`, then `more_axes`.
+    #[must_use]
+    pub fn axes(&self) -> Vec<u32> {
+        std::iter::once(self.axis_index)
+            .chain(self.more_axes.iter().copied())
+            .collect()
     }
 }
 
@@ -605,7 +627,15 @@ fn validate_video(video: &TiltVideoJob) -> Result<(), JobFileError> {
     if !(video.step_deg.is_finite() && video.step_deg > 0.0) {
         return Err(invalid("The tilt step must be a number above zero."));
     }
-    if let Some(curves) = &video.curves {
+    let axes = video.axes();
+    if axes
+        .iter()
+        .enumerate()
+        .any(|(i, axis)| axes[..i].contains(axis))
+    {
+        return Err(invalid("A tilt video names the same axis twice."));
+    }
+    for curves in video.curves.iter().chain(&video.more_curves) {
         let short = [&curves.brilliance, &curves.windowing, &curves.extinction]
             .into_iter()
             .any(|curve| curve.len() < CURVE_POINTS);
@@ -615,9 +645,11 @@ fn validate_video(video: &TiltVideoJob) -> Result<(), JobFileError> {
             )));
         }
     }
-    if video.overlay.count() > 0 && video.curves.is_none() {
+    if video.overlay.count() > 0
+        && (video.curves.is_none() || video.more_curves.len() != video.more_axes.len())
+    {
         return Err(invalid(
-            "The video overlay needs the metric curves, but the job holds none.",
+            "The video overlay needs the metric curves of every axis, but the job holds fewer.",
         ));
     }
     Ok(())
@@ -749,6 +781,7 @@ pub(crate) mod test_support {
             output: "frames".to_string(),
             kind: JobKind::TiltVideo(TiltVideoJob {
                 axis_index: 2,
+                more_axes: Vec::new(),
                 start_deg: -90.0,
                 end_deg: 90.0,
                 step_deg: 1.0,
@@ -762,6 +795,7 @@ pub(crate) mod test_support {
                     ..OverlaySelection::default()
                 },
                 curves: Some(curves()),
+                more_curves: Vec::new(),
                 keep_frames: true,
                 video_name: "Round tilt".to_string(),
             }),

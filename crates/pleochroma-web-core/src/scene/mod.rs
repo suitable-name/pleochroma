@@ -446,12 +446,25 @@ impl LightingSpec {
         Backdrop::from_index(self.backdrop_index)
     }
 
+    /// The exposure the studio rig renders with: [`Self::exposure`] (the compensation) on top
+    /// of the rig's incident-light meter at the light pose, as the desktop meters its live
+    /// view (`pleochroma::optics::raytracer::metered_exposure`).
+    #[must_use]
+    pub fn metered_exposure(&self) -> f32 {
+        pleochroma::optics::raytracer::metered_exposure(
+            self.exposure,
+            self.preset(),
+            self.light_yaw,
+            self.light_pitch,
+        )
+    }
+
     /// The analytic studio environment the desktop builds for these settings (the
-    /// render thread's order: backdrop, surface glare, head shadow).
+    /// render thread's order: backdrop, surface glare, head shadow), at the metered exposure.
     #[must_use]
     pub fn studio_environment(&self) -> EnvironmentSource<'static> {
         self.preset()
-            .studio(self.exposure, self.light_yaw, self.light_pitch)
+            .studio(self.metered_exposure(), self.light_yaw, self.light_pitch)
             .with_backdrop(
                 self.backdrop()
                     .resolve(self.preset(), self.light_yaw, self.light_pitch),

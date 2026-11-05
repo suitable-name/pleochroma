@@ -56,8 +56,8 @@ pub use lighting_values::{EXPOSURE_RANGE, FORMAT_VERSION, LightingValues, PITCH_
 pub use local_compute::LocalComputeTarget;
 pub use output_settings::{
     BOUNCE_LADDER, EXPORT_SAMPLES_EXPONENT_RANGE, LIVE_SAMPLES_EXPONENT_RANGE, OutputSettings,
-    PREVIEW_SAMPLES_RANGE, PREVIEW_SIZE_RANGE, RemoteAvailability, StillOutput, TiltVideoOutput,
-    bounce_index, clamp_exponent, nearest_bounce_cap,
+    PREVIEW_SAMPLES_RANGE, PREVIEW_SIZE_RANGE, RemoteAvailability, StillOutput,
+    TILT_STEP_HUNDREDTHS_RANGE, TiltVideoOutput, bounce_index, clamp_exponent, nearest_bounce_cap,
 };
 pub use parameter_defaults::{LegacyStoneDefaults, ParameterTab, reset_tab};
 pub use radv_workaround::{RadvWorkaroundChoice, should_ask as should_ask_radv_workaround};

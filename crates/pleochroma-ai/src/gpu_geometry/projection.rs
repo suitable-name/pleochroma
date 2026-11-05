@@ -3,7 +3,7 @@
 use super::{
     GatePhase, GpuGeometry, ProjectionMissReason, RequestCache,
     certificate::{Certificates, requested_shape_holds},
-    network::{Network, Plane, Probe, scratch_per_probe, surfaces},
+    network::{Network, Plane, Probe, scratch_per_probe},
     projection_step,
 };
 use pleochroma::geometry::meet_solver::{MeetConstraint, SolvedTier};
@@ -37,11 +37,38 @@ pub(crate) struct Projection {
     misses: RequestCache<ProjectionMissReason>,
     #[cfg(feature = "cuda")]
     device: OnceLock<Result<super::cuda::DeviceNetwork, String>>,
+    // Rejection proofs use a CPU-captured baseline: production's clustering
+    // and slack are discrete, and GPU capture parity cannot be inferred from
+    // numerical closeness near its identify threshold.
+    #[cfg(feature = "cuda")]
+    proof_network: Option<Network>,
+    #[cfg(feature = "cuda")]
+    proof_device: OnceLock<Result<super::cuda::DeviceNetwork, String>>,
+    #[cfg(feature = "cuda")]
+    arrangement_refutations: super::certificate::ArrangementRefutations,
+    /// In-budget arrangement proofs run for this episode, and how many refuted.
+    #[cfg(feature = "cuda")]
+    proof_runs: std::sync::atomic::AtomicU64,
+    #[cfg(feature = "cuda")]
+    proof_refuted: std::sync::atomic::AtomicU64,
     #[cfg(feature = "cuda")]
     parity: OnceLock<bool>,
     #[cfg(feature = "cuda")]
     failed: AtomicBool,
 }
+
+#[cfg(feature = "cuda")]
+const ARRANGEMENT_REFUSAL: &str =
+    "An original junction has no possible candidate arrangement point.";
+
+/// Completed arrangement proofs an episode runs before judging whether they pay off.
+#[cfg(feature = "cuda")]
+const PROOF_TRIAL_RUNS: u64 = 64;
+
+/// Proofs keep running only while at least one in this many refutes. A refutation
+/// saves a ~50 ms CPU gate; a witnessed proof only adds its round trip.
+#[cfg(feature = "cuda")]
+const PROOF_MIN_REFUTATION_RATIO: u64 = 32;
 
 #[derive(Clone, Copy)]
 struct TrustRegion<'a> {
@@ -49,6 +76,17 @@ struct TrustRegion<'a> {
     limits: &'a [f64],
     bounds: &'a BTreeMap<usize, (f64, f64)>,
     legal: &'a [(f64, f64)],
+}
+
+#[cfg(feature = "cuda")]
+fn same_plane_bits(left: &[Plane], right: &[Plane]) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|((a, ad), (b, bd))| {
+            a.x.to_bits() == b.x.to_bits()
+                && a.y.to_bits() == b.y.to_bits()
+                && a.z.to_bits() == b.z.to_bits()
+                && ad.to_bits() == bd.to_bits()
+        })
 }
 
 impl std::fmt::Debug for Projection {
@@ -76,9 +114,10 @@ impl Projection {
             backend.unsupported("concave authored tiers require the original geometry projection");
             return None;
         }
+        let solid = backend.solid.as_deref();
         let prepared = match original_solved.map_or_else(
-            || Network::capture_with_solid(original, backend.solid.as_deref()),
-            |solved| Network::capture_prepared(original, backend.solid.as_deref(), solved),
+            || Network::capture_with_solid(original, solid),
+            |solved| Network::capture_prepared(original, solid, solved),
         ) {
             Ok(prepared) => prepared,
             Err(error) => {
@@ -112,6 +151,8 @@ impl Projection {
             })
             .collect();
         backend.counters.prepared.fetch_add(1, Ordering::Relaxed);
+        #[cfg(feature = "cuda")]
+        let proof_network = Network::capture_with_solid(original, None).ok().flatten();
         Some(Arc::new(Self {
             backend,
             network,
@@ -124,6 +165,16 @@ impl Projection {
             misses: RequestCache::default(),
             #[cfg(feature = "cuda")]
             device: OnceLock::new(),
+            #[cfg(feature = "cuda")]
+            proof_network,
+            #[cfg(feature = "cuda")]
+            proof_device: OnceLock::new(),
+            #[cfg(feature = "cuda")]
+            arrangement_refutations: super::certificate::ArrangementRefutations::default(),
+            #[cfg(feature = "cuda")]
+            proof_runs: std::sync::atomic::AtomicU64::new(0),
+            #[cfg(feature = "cuda")]
+            proof_refuted: std::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "cuda")]
             parity: OnceLock::new(),
             #[cfg(feature = "cuda")]
@@ -139,20 +190,30 @@ impl Projection {
         self.backend
             .check()
             .map_err(|_| ProjectionMissReason::ExecutionFailure)?;
-        if !self.network.direct_masts {
-            self.backend
-                .counters
-                .authoring
-                .fetch_add(candidates.len() as u64, Ordering::Relaxed);
-        }
+        let authored_count = candidates
+            .iter()
+            .filter(|design| !super::network::direct_masts(design))
+            .count();
+        self.backend
+            .counters
+            .authoring
+            .fetch_add(authored_count as u64, Ordering::Relaxed);
         // The authored solve remains exact and independent per probe. Nested Rayon
         // uses the existing rollout pool instead of creating another thread pool.
         let authoring_started = std::time::Instant::now();
-        let valid: Vec<_> = candidates
-            .par_iter()
-            .enumerate()
-            .filter_map(|(i, d)| surfaces(d).map(|p| (i, p)))
-            .collect();
+        let valid: Vec<_> = if authored_count == 0 {
+            candidates
+                .iter()
+                .enumerate()
+                .filter_map(|(i, d)| Network::surfaces_for_probe(d).map(|p| (i, p)))
+                .collect()
+        } else {
+            candidates
+                .par_iter()
+                .enumerate()
+                .filter_map(|(i, d)| Network::surfaces_for_probe(d).map(|p| (i, p)))
+                .collect()
+        };
         super::elapsed(&self.backend.counters.authoring_ns, authoring_started);
         let (indices, planes): (Vec<_>, Vec<_>) = valid.into_iter().unzip();
         if planes.iter().any(|p| p.len() != self.network.surfaces) {
@@ -179,6 +240,24 @@ impl Projection {
                     })
                     .collect()
             });
+            // A residual's fast pinned-mast plane path is only an optimization;
+            // reject candidates only when it exactly matches production planes.
+            // Authored (non-direct) probes already used the exact solve itself
+            // (`surfaces_for_probe`), so solving them again would only repeat it.
+            #[cfg(feature = "cuda")]
+            let limits = if limits.is_some()
+                && indices[start..start + chunk.len()]
+                    .iter()
+                    .zip(chunk)
+                    .any(|(&i, fast)| {
+                        super::network::direct_masts(&candidates[i])
+                            && super::network::surfaces(&candidates[i])
+                                .is_none_or(|exact| !same_plane_bits(&exact, fast))
+                    }) {
+                None
+            } else {
+                limits
+            };
             for (&i, row) in indices[offset * capacity..].iter().zip(
                 self.residual_chunk(chunk, limits.as_deref())
                     .ok_or(ProjectionMissReason::ExecutionFailure)?,
@@ -192,6 +271,14 @@ impl Projection {
     fn residual_chunk(&self, planes: &[Vec<Plane>], limits: Option<&[f64]>) -> Option<Vec<Probe>> {
         #[cfg(feature = "cuda")]
         if !self.failed.load(Ordering::Relaxed) {
+            // Residuals can use the GPU-captured network independently. A
+            // rejection proof additionally requires exact CPU baseline parity;
+            // clustering and slack can change discontinuously at a boundary.
+            let limits = limits.filter(|_| {
+                self.proof_network
+                    .as_ref()
+                    .is_some_and(|cpu| self.network.same_proof_metadata(cpu))
+            });
             let device = self
                 .device
                 .get_or_init(|| self.backend.runtime.prepare(&self.network));
@@ -369,6 +456,129 @@ impl Projection {
                 .fetch_add(1, Ordering::Relaxed);
             return Err((ProjectionMissReason::OriginalGateRejected, error));
         }
+        #[cfg(feature = "cuda")]
+        {
+            let started = std::time::Instant::now();
+            // A completed refutation depends on exact ordered production planes,
+            // not the authored f64 state that may sit on the same f32 plateau.
+            let over_budget = self
+                .proof_network
+                .as_ref()
+                .is_some_and(|network| network.arrangement_triples_within_budget().is_none());
+            // An episode whose proofs keep witnessing stops proving: each proof is a
+            // synchronous CUDA round trip in front of a CPU gate that then runs anyway.
+            // Its completed refutations stay in the cache below only while proving.
+            let unproductive = !over_budget && self.proofs_unproductive();
+            if unproductive {
+                self.backend
+                    .counters
+                    .arrangement_unproductive
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            // This immutable network cannot have completed proof-cache entries
+            // when over budget; skip the extra authored solve/plane packing too.
+            let planes = self
+                .proof_network
+                .as_ref()
+                .filter(|_| !over_budget && !unproductive)
+                .and_then(|_| super::network::surfaces(candidate));
+            if let Some(planes) = &planes
+                && self.arrangement_refutations.contains(planes)
+            {
+                self.certificates
+                    .insert_rejection(candidate, ARRANGEMENT_REFUSAL.into());
+                self.backend
+                    .counters
+                    .negative_hits
+                    .fetch_add(1, Ordering::Relaxed);
+                super::elapsed(&self.backend.counters.arrangement_ns, started);
+                return Err((
+                    ProjectionMissReason::OriginalGateRejected,
+                    ARRANGEMENT_REFUSAL.into(),
+                ));
+            }
+            self.backend
+                .counters
+                .arrangement_probes
+                .fetch_add(1, Ordering::Relaxed);
+            let mut work = super::cuda::ArrangementWork::default();
+            // Use the production schedule path, not the faster residual-only
+            // approximation, because this result can avoid an authoritative gate.
+            let proof = if over_budget || unproductive {
+                Ok(super::cuda::ArrangementOutcome::Capacity)
+            } else if let (Some(network), Some(planes)) = (&self.proof_network, planes.as_deref()) {
+                // Only an in-budget search prepares immutable proof buffers.
+                let device = self
+                    .proof_device
+                    .get_or_init(|| self.backend.runtime.prepare(network));
+                match device {
+                    Ok(device) => self.backend.runtime.arrangement_proof(
+                        network,
+                        device,
+                        planes,
+                        &mut work,
+                        &|| self.backend.check(),
+                    ),
+                    Err(error) => Err(error.clone()),
+                }
+            } else {
+                Ok(super::cuda::ArrangementOutcome::Uncertain)
+            };
+            super::elapsed(&self.backend.counters.arrangement_ns, started);
+            self.backend
+                .counters
+                .arrangement_tiles
+                .fetch_add(work.tiles, Ordering::Relaxed);
+            self.backend
+                .counters
+                .arrangement_triples
+                .fetch_add(work.triples, Ordering::Relaxed);
+            if work.tiles > 0 {
+                self.proof_runs.fetch_add(1, Ordering::Relaxed);
+            }
+            match proof {
+                Ok(super::cuda::ArrangementOutcome::Refuted) => {
+                    self.proof_refuted.fetch_add(1, Ordering::Relaxed);
+                    if let Some(planes) = &planes {
+                        self.arrangement_refutations.insert_refuted(planes);
+                    }
+                    self.certificates
+                        .insert_rejection(candidate, ARRANGEMENT_REFUSAL.into());
+                    self.backend
+                        .counters
+                        .arrangement_refusals
+                        .fetch_add(1, Ordering::Relaxed);
+                    return Err((
+                        ProjectionMissReason::OriginalGateRejected,
+                        ARRANGEMENT_REFUSAL.into(),
+                    ));
+                }
+                Ok(super::cuda::ArrangementOutcome::Uncertain) => {
+                    self.backend
+                        .counters
+                        .arrangement_uncertain
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+                Ok(super::cuda::ArrangementOutcome::Capacity) => {
+                    if !unproductive {
+                        self.backend
+                            .counters
+                            .arrangement_capacity_bypasses
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                Ok(super::cuda::ArrangementOutcome::Witnessed) => {
+                    self.backend
+                        .counters
+                        .arrangement_witnessed
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+                Err(error) => {
+                    self.backend.fail(error.clone());
+                    return Err((ProjectionMissReason::ExecutionFailure, error));
+                }
+            }
+        }
         let started = std::time::Instant::now();
         let result = self
             .baseline
@@ -396,6 +606,22 @@ impl Projection {
         }
     }
 
+    /// Whether this episode's arrangement proofs have earned their round trips: after
+    /// [`PROOF_TRIAL_RUNS`] completed proofs, at least one in
+    /// [`PROOF_MIN_REFUTATION_RATIO`] must have refuted. Skipping a proof never
+    /// changes an outcome; the CPU gate then decides alone, as for large networks.
+    #[cfg(feature = "cuda")]
+    fn proofs_unproductive(&self) -> bool {
+        let runs = self.proof_runs.load(Ordering::Relaxed);
+        runs >= PROOF_TRIAL_RUNS
+            && self
+                .proof_refuted
+                .load(Ordering::Relaxed)
+                .saturating_mul(PROOF_MIN_REFUTATION_RATIO)
+                < runs
+    }
+
+    #[cfg(test)]
     fn valid(&self, candidate: &Design, requested_travel: f64) -> Result<(), ProjectionMissReason> {
         self.valid_at(candidate, requested_travel, GatePhase::FinalIterate)
     }
@@ -456,8 +682,7 @@ impl Projection {
         result
     }
 
-    /// Return only a fully certified state; callers retain the original CPU
-    /// projection as fallback when the correction cannot obtain one.
+    /// Return only a fully certified state, or refuse this accelerated correction.
     #[cfg(test)]
     pub(crate) fn project(
         &self,
@@ -554,17 +779,29 @@ impl Projection {
                 Err(reason) => return Err(reason),
             }
         }
-        let first = self
-            .batch(std::slice::from_ref(&seed), Some(requested_travel))?
+        let mut first_batch = self.batch(std::slice::from_ref(&seed), Some(requested_travel))?;
+        let first = first_batch
             .pop()
             .ok_or(ProjectionMissReason::UnusableSeedResidual)?;
-        if self.gate_probe(&seed, requested_travel, &first, GatePhase::Seed)? {
-            return Ok(seed);
-        }
-        let current = first
+        // A seed whose rows already rule out acceptance goes straight to correction.
+        let rejection = if first
             .rows
-            .ok_or(ProjectionMissReason::UnusableSeedResidual)?;
-        self.correct(&seed, &origin, current, requested_travel, bounds)
+            .as_deref()
+            .is_some_and(|rows| !self.may_pass_gate(rows))
+        {
+            self.backend.screened_gate();
+            None
+        } else {
+            match self.gate_probe(&seed, requested_travel, &first, GatePhase::Seed)? {
+                GateProbe::Accepted => return Ok(seed),
+                GateProbe::Rejected(reason) => Some(reason),
+                GateProbe::Impossible => None,
+            }
+        };
+        if first.rows.is_none() {
+            return Err(ProjectionMissReason::UnusableSeedResidual);
+        }
+        self.correct(&seed, &origin, first, rejection, requested_travel, bounds)
     }
 
     fn gate_probe(
@@ -573,21 +810,28 @@ impl Projection {
         requested_travel: f64,
         probe: &Probe,
         phase: GatePhase,
-    ) -> Result<bool, ProjectionMissReason> {
+    ) -> Result<GateProbe, ProjectionMissReason> {
         if !probe.possible {
             self.backend
                 .counters
                 .prefilter
                 .fetch_add(1, Ordering::Relaxed);
-            return Ok(false);
+            return Ok(GateProbe::Impossible);
         }
         match self.valid_at(candidate, requested_travel, phase) {
-            Ok(()) => Ok(true),
+            Ok(()) => Ok(GateProbe::Accepted),
             Err(
-                ProjectionMissReason::OriginalGateRejected
-                | ProjectionMissReason::RequestedLimitsRejected,
-            ) => Ok(false),
+                reason @ (ProjectionMissReason::OriginalGateRejected
+                | ProjectionMissReason::RequestedLimitsRejected),
+            ) => Ok(GateProbe::Rejected(reason)),
             Err(reason) => Err(reason),
         }
     }
+}
+
+#[derive(Clone, Copy)]
+enum GateProbe {
+    Accepted,
+    Rejected(ProjectionMissReason),
+    Impossible,
 }

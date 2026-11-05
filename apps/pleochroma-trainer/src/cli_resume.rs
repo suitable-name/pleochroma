@@ -2,7 +2,11 @@
 //!
 //! Payloads live in immutable generation directories. The small `latest.json` manifest is
 //! replaced last, after every file is flushed. A crashed writer therefore never publishes
-//! half a model with a different optimizer/replay state. Keep the latest two generations.
+//! half a model with a different optimizer/replay state. Keep the latest two generations;
+//! a damaged latest one falls back to the previous one.
+//!
+//! A resume restores the recorded configuration. Only the flags of [`validate_resume_flags`]
+//! may change it, and each applied override is printed.
 
 use std::{
     error::Error,
@@ -12,7 +16,12 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{cli_args::CliArgs, cli_run_reporting::RunRecords, dataset, runner::TrainingRunner};
+use crate::{
+    cli_args::{CliArgs, build_config},
+    cli_run_reporting::RunRecords,
+    dataset,
+    runner::{Algorithm, TrainingRunner},
+};
 
 #[path = "cli_resume_io.rs"]
 mod storage;
@@ -75,7 +84,7 @@ impl RecoverySession {
             _ => "cpu-env-v1",
         };
         self.root
-            .join(format!("validation-v2-{route}-{iteration:08}"))
+            .join(format!("validation-v3-{route}-{iteration:08}"))
     }
 
     pub(super) const fn is_resumed(&self) -> bool {
@@ -88,6 +97,12 @@ impl RecoverySession {
 
     pub(super) fn take_records(&mut self) -> RunRecords {
         std::mem::take(&mut self.records)
+    }
+
+    /// Removes validation journals older than `finished`, the latest validation whose result
+    /// is committed; returns warnings.
+    pub(super) fn prune_validation_journals(&self, finished: usize) -> Vec<String> {
+        storage::prune_validation_journals(&self.root, finished)
     }
 
     pub(super) fn restore_runner(&self, runner: &mut TrainingRunner) -> ResumeResult<()> {
@@ -124,8 +139,14 @@ impl RecoverySession {
             database: self.database.clone(),
             records: records.clone(),
         };
-        storage::write_json(&pending.path().join("resume.json"), &state)?;
-        storage::publish(pending, &self.root, &self.manifest, iteration)?;
+        let resume = storage::write_json_stamped(&pending.path().join("resume.json"), &state)?;
+        storage::publish(
+            pending,
+            &self.root,
+            &self.manifest,
+            iteration,
+            Some(&resume),
+        )?;
         self.phase = phase;
         Ok(())
     }
@@ -137,19 +158,22 @@ pub(super) fn prepare(
     raw: &[String],
 ) -> ResumeResult<(CliArgs, RecoverySession)> {
     if let Some(target) = &parsed.resume {
-        validate_resume_flags(raw)?;
+        let overrides = validate_resume_flags(raw)?;
         let prefix = resume_prefix(Path::new(target))?;
         let mut session = open_session(prefix)?;
         let bundle = storage::read_committed(&session.root, &session.manifest)?;
+        for warning in storage::sweep_stale_generations(&session.root, &session.manifest) {
+            eprintln!("warning: {warning}");
+        }
         let state: RunState = storage::read_json(&bundle.join("resume.json"))?;
         validate_state(&state)?;
         let mut args = state.args;
-        // A hardware choice is the sole training override. Omission keeps the recorded backend.
-        if raw.iter().any(|flag| flag == "--device") {
-            args.device = parsed.device;
-        }
         args.resume = Some(session.prefix.to_string_lossy().into_owned());
         args.warm_start = None;
+        // Omitted overrides keep the recorded values, the backend included.
+        for note in apply_resume_overrides(&mut args, &parsed, &overrides)? {
+            println!("{note}");
+        }
         session.database = state.database;
         session.phase = state.phase;
         session.records = state.records;
@@ -166,6 +190,10 @@ pub(super) fn prepare(
             "run {} already has a recovery checkpoint; use --resume {} or a new --save-weights name",
             session.prefix.display(), session.prefix.display()
         ).into());
+    }
+    // A killed first save of an earlier attempt can leave an unpublished generation.
+    for warning in storage::sweep_stale_generations(&session.root, &session.manifest) {
+        eprintln!("warning: {warning}");
     }
     if !parsed.fixture && (parsed.design_dir.is_none() || parsed.include_library) {
         session.database = Some(fs::canonicalize(dataset::find_db_path()?)?);
@@ -221,18 +249,88 @@ fn validate_state(state: &RunState) -> ResumeResult<()> {
     Ok(())
 }
 
-fn validate_resume_flags(raw: &[String]) -> ResumeResult<()> {
+/// The flags a resume may add to `--resume <run>`, in command-line order: the device, the save
+/// cadence, the imitation learning rate and gradient clip (the recovery configuration identity
+/// ignores both) and `--relabel`. Every other training flag is refused.
+fn validate_resume_flags(raw: &[String]) -> ResumeResult<Vec<&'static str>> {
+    let mut given = Vec::new();
     let mut index = 0;
     while index < raw.len() {
-        match raw[index].as_str() {
-            "--resume" | "--device" => index += 2,
-            "--no-update-check" => index += 1,
+        let (flag, width) = match raw[index].as_str() {
+            "--resume" => (None, 2),
+            "--no-update-check" => (None, 1),
+            "--relabel" => (Some("--relabel"), 1),
+            "--device" => (Some("--device"), 2),
+            "--save-every" => (Some("--save-every"), 2),
+            "--imitation-lr" => (Some("--imitation-lr"), 2),
+            "--max-grad-norm" => (Some("--max-grad-norm"), 2),
+            "--lr" => return Err(
+                "--lr is the PPO learning rate, which a recovered run restores with its optimizer state; an imitation run takes --imitation-lr on resume. Use --warm-start to start a new configuration from weights.".into()
+            ),
             other => return Err(format!(
-                "{other} cannot override a recovered run; use only --resume <run> and optionally --device. Use --warm-start to start a new configuration from weights."
+                "{other} cannot override a recovered run; with --resume <run> only --device, --save-every, --imitation-lr, --max-grad-norm and --relabel may be given. Use --warm-start to start a new configuration from weights."
             ).into()),
+        };
+        if let Some(flag) = flag
+            && !given.contains(&flag)
+        {
+            given.push(flag);
+        }
+        index += width;
+    }
+    Ok(given)
+}
+
+/// Applies the resume flags of [`validate_resume_flags`] from `given` (the parsed command line)
+/// to the restored `args`, before the run configuration is built from them. Returns one line
+/// per applied override with the value before and after.
+fn apply_resume_overrides(
+    args: &mut CliArgs,
+    given: &CliArgs,
+    flags: &[&str],
+) -> ResumeResult<Vec<String>> {
+    let before = build_config(args);
+    let save_every = args.save_every;
+    for &flag in flags {
+        match flag {
+            "--imitation-lr" | "--max-grad-norm" if args.algo != Algorithm::Imitation => {
+                return Err(format!(
+                    "{flag} applies to --algo imitation; this run trains ppo, whose optimizer settings are restored with its state. Use --warm-start to start a new configuration from weights."
+                )
+                .into());
+            }
+            "--device" => args.device = given.device,
+            "--relabel" => args.relabel = true,
+            "--save-every" => args.save_every = given.save_every,
+            "--imitation-lr" => args.imitation_lr = given.imitation_lr,
+            "--max-grad-norm" => args.max_grad_norm = given.max_grad_norm,
+            _ => {}
         }
     }
-    Ok(())
+    let after = build_config(args);
+    Ok(flags
+        .iter()
+        .filter_map(|&flag| {
+            let change = match flag {
+                "--device" => format!("{:?} -> {:?}", before.device, after.device),
+                "--relabel" => {
+                    "a changed environment backend relabels the replay instead of refusing the resume"
+                        .to_owned()
+                }
+                "--save-every" => format!("every {save_every} -> every {} iterations", args.save_every),
+                "--imitation-lr" => format!(
+                    "peak learning rate {:e} -> {:e}",
+                    before.imitation.learning_rate, after.imitation.learning_rate
+                ),
+                "--max-grad-norm" => format!(
+                    "gradient-norm clip {} -> {}",
+                    before.imitation.max_grad_norm, after.imitation.max_grad_norm
+                ),
+                _ => return None,
+            };
+            Some(format!("resume override {flag}: {change}"))
+        })
+        .collect())
 }
 
 fn open_session(prefix: PathBuf) -> ResumeResult<RecoverySession> {
@@ -304,6 +402,7 @@ fn validate_saved_args(args: &CliArgs) -> ResumeResult<()> {
         ("validation-every", Some(args.validation_every), 1, 1000),
         ("label-every", args.label_every, 0, 64),
         ("label-capacity", args.label_capacity, 1, 1_000_000),
+        ("label-memory-mib", args.label_memory_mib, 1, 1_048_576),
         ("max-rejected-steps", args.max_rejected_steps, 0, 100_000),
         (
             "max-tiers",

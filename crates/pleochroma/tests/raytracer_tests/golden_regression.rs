@@ -60,7 +60,9 @@ fn studio_rig_trace_output_is_pinned_to_current_values() {
             // parallel-to-optic-axis limit, where both eigenmodes collapse to a single
             // isotropic response at `n_o`. Re-pinned on 2026-10-19 after the measured
             // sapphire color refit (owner decision; bits from the owner's Windows run).
-            [0x3b1b_2cf1, 0x3ade_bee5, 0x3c0b_3654],
+            // Re-pinned on 2026-11-04 (owner's Windows run 2026-11-04_154834): Sapphire's default
+            // became the Royal Blue strength on 2026-11-03 (owner decision).
+            [0x3ae4_cb15, 0x3a8a_b0e1, 0x3bec_7e4b],
         ),
         (
             Ray {
@@ -88,7 +90,9 @@ fn studio_rig_trace_output_is_pinned_to_current_values() {
             // 2026-10-19 after the measured sapphire color refit (owner's Windows run).
             // Y moved by 2 ULP on 2026-10-22 when Sapphire took its measured
             // extraordinary-index curve (n_e(lambda) instead of n_o + constant delta).
-            [0x3ddc_ddc6, 0x3d38_6679, 0x3f13_264c],
+            // Re-pinned on 2026-11-04 (owner's Windows run 2026-11-04_154834): Sapphire's default
+            // became the Royal Blue strength on 2026-11-03 (owner decision).
+            [0x3d99_78ab, 0x3ccd_1d47, 0x3ed6_3784],
         ),
         (
             Ray {
@@ -109,7 +113,9 @@ fn studio_rig_trace_output_is_pinned_to_current_values() {
             // Re-pinned on 2026-10-19 after the measured sapphire color refit, and on
             // 2026-10-22 when Sapphire took its measured extraordinary-index curve (this
             // extraordinary-mode ray separates by color slightly differently).
-            [0x3acb_dc7f, 0x3a2c_6f20, 0x3bf3_5094],
+            // Re-pinned on 2026-11-04 (owner's Windows run 2026-11-04_154834): Sapphire's default
+            // became the Royal Blue strength on 2026-11-03 (owner decision).
+            [0x3a8a_b475, 0x39a9_05b6, 0x3bae_bfbb],
         ),
         (
             Ray {
@@ -129,7 +135,9 @@ fn studio_rig_trace_output_is_pinned_to_current_values() {
             // 2026-09-28 for the same reason as the seed=42 case (the degenerate
             // uniaxial entry now takes the general partial-Fresnel path); re-pinned.
             // Re-pinned again on 2026-10-19 after the measured sapphire color refit.
-            [0x3aa6_a762, 0x3a17_81a5, 0x3bd5_ba42],
+            // Re-pinned on 2026-11-04 (owner's Windows run 2026-11-04_154834): Sapphire's default
+            // became the Royal Blue strength on 2026-11-03 (owner decision).
+            [0x3a62_10a0, 0x3999_9429, 0x3b97_e2be],
         ),
     ];
 

@@ -63,7 +63,8 @@ __device__ Box meet_box(const double *p,const double *original,const int *m,cons
     IV bc=ivcross(b,c),ca=ivcross(c,a),ab=ivcross(a,b);
     I det=ivdot(a,bc);
     if(!bounded(det)||(det.lo<=0.&&det.hi>=0.)||fmin(fabs(det.lo),fabs(det.hi))<=1e-8) return {initial,1};
-    IV box=ivadd(ivadd(ivmul(ivdiv(bc,det),slab_rhs(p,m[0],initial,bound)),ivmul(ivdiv(ca,det),slab_rhs(p,m[1],initial,bound))),ivmul(ivdiv(ab,det),slab_rhs(p,m[2],initial,bound)));
+    I ra=slab_rhs(p,m[0],initial,bound),rb=slab_rhs(p,m[1],initial,bound),rc=slab_rhs(p,m[2],initial,bound);
+    IV box=ivadd(ivadd(ivmul(ivdiv(bc,det),ra),ivmul(ivdiv(ca,det),rb)),ivmul(ivdiv(ab,det),rc));
     if(!bounded3(box)) return {initial,1};
     box={intersect(initial.x,box.x),intersect(initial.y,box.y),intersect(initial.z,box.z)};
     if(box.x.lo>box.x.hi||box.y.lo>box.y.hi||box.z.lo>box.z.hi) return {initial,0};
@@ -71,7 +72,10 @@ __device__ Box meet_box(const double *p,const double *original,const int *m,cons
     for(int s=0;s<ns;s++) {
         while(member<m[4]&&supports[member]<s) member++;
         bool support=member<m[4]&&supports[member]==s;
-        I lhs=ivdot(ivnormal(p,s),box),rhs=slab_rhs(p,s,initial,bound);
+        IV ns=ivnormal(p,s);
+        I lhs=ivdot(ns,box),rhs=slab_rhs(p,s,initial,bound);
+        I direct=ia(ia(im(idiv(ivdot(ns,bc),det),ra),im(idiv(ivdot(ns,ca),det),rb)),im(idiv(ivdot(ns,ab),det),rc));
+        if(bounded(lhs)&&bounded(direct)) lhs=intersect(lhs,direct);
         if(!bounded(lhs)||!bounded(rhs)) continue;
         if(lhs.lo>rhs.hi || (support&&lhs.hi<rhs.lo)) return {box,0};
     }

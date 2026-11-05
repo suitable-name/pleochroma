@@ -1,6 +1,6 @@
 use glam::Vec3;
 
-use super::{AlphaModel, WhittedDecline, WhittedEnv, WhittedPrep, frost, tint};
+use super::{WhittedDecline, WhittedEnv, WhittedPrep, frost, tint, tint::BinnedAbsorption};
 use crate::{
     color::{
         ColorSpace,
@@ -42,44 +42,61 @@ fn integrated_rgb(spectrum: impl Fn(f32) -> f32) -> Vec3 {
     ColorSpace::Srgb.xyz_to_linear(sum / 106.856)
 }
 
+/// The binned transmission of one mode alone (isotropic), for comparing against spectra.
+fn single_mode(
+    bands: &[AbsorptionBand],
+    path_scale: f32,
+    environment: EnvironmentSource<'_>,
+) -> BinnedAbsorption {
+    BinnedAbsorption::new(&[bands], None, path_scale, environment)
+}
+
+/// The reference: the 5 nm spectral integral of the illuminant through `length` model units,
+/// over the illuminant's white, unclamped (a saturated stone is negative in a channel).
+fn spectral_transmission(
+    bands: &[AbsorptionBand],
+    path_scale: f32,
+    preset: LightingPreset,
+    length: f32,
+) -> Vec3 {
+    let white = integrated_rgb(|w| preset.spectral_power(w));
+    let transmitted = integrated_rgb(|w| {
+        let coefficient: f32 = bands.iter().map(|band| band.evaluate(w)).sum();
+        preset.spectral_power(w) * (-coefficient.max(0.0) * path_scale * length).exp()
+    });
+    transmitted / white
+}
+
+/// The bins follow the full spectrum at every path length, not only the face-up path they
+/// were fitted at: the old three-coefficient fit drifted an emerald 10-25 degrees of hue on
+/// longer paths. 0.02 bounds a 10 nm bin's error over these materials (an estimate of the
+/// same arithmetic gave 0.010 at most, ruby at a quarter path).
 #[test]
-fn the_tint_reproduces_the_body_color_at_the_face_up_path() {
+fn the_binned_tint_follows_the_spectrum_at_every_path_length() {
+    let mut negative_channels = 0;
     for name in ["Ruby", "Sapphire", "Emerald", "Tanzanite", "Peridot"] {
         let material = GemMaterial::by_name(name).expect("built-in material");
+        let scale = material.absorption_path_scale;
         for preset in [LightingPreset::IsoHemisphere, LightingPreset::Incandescent] {
             let environment = preset.studio(1.0, 0.85, 0.95);
-            let white = integrated_rgb(|w| preset.spectral_power(w));
-            let check = |bands: &[AbsorptionBand]| {
-                let alpha = tint::alpha(bands, material.absorption_path_scale, environment);
-                let transmitted = integrated_rgb(|w| {
-                    let coefficient: f32 = bands.iter().map(|band| band.evaluate(w)).sum();
-                    preset.spectral_power(w)
-                        * (-coefficient.max(0.0)
-                            * material.absorption_path_scale
-                            * MODEL_UNIT_FACE_UP_PATH)
-                            .exp()
-                });
-                let expected = (transmitted / white).clamp(Vec3::splat(1.0e-4), Vec3::ONE);
-                let actual = (-alpha * MODEL_UNIT_FACE_UP_PATH).exp();
-                close(actual, expected, 1.0e-4);
-                alpha
-            };
-            let o = check(&material.absorption.o_ray);
-            let e = check(&material.absorption.e_ray);
-            if let Some(beta) = &material.absorption.beta_ray {
-                let b = check(beta);
-                let mean = (o + e + b) / 3.0;
-                close(
-                    (-mean * MODEL_UNIT_FACE_UP_PATH).exp(),
-                    ((-o * MODEL_UNIT_FACE_UP_PATH).exp()
-                        * (-e * MODEL_UNIT_FACE_UP_PATH).exp()
-                        * (-b * MODEL_UNIT_FACE_UP_PATH).exp())
-                    .powf(1.0 / 3.0),
-                    1.0e-4,
-                );
+            let modes = [
+                Some(material.absorption.o_ray.as_slice()),
+                Some(material.absorption.e_ray.as_slice()),
+                material.absorption.beta_ray.as_deref(),
+            ];
+            for bands in modes.into_iter().flatten() {
+                let binned = single_mode(bands, scale, environment);
+                for paths in [0.25_f32, 0.5, 1.0, 2.0, 4.0, 8.0] {
+                    let length = paths * MODEL_UNIT_FACE_UP_PATH;
+                    let expected = spectral_transmission(bands, scale, preset, length);
+                    negative_channels += usize::from(expected.min_element() < -0.01);
+                    close(binned.transmission(length, 0.0), expected, 0.02);
+                }
             }
         }
     }
+    // The unclamped path is exercised: emerald's green lies outside the sRGB gamut.
+    assert!(negative_channels > 0);
 }
 
 /// Independent reference: the physical body color of each eigenmode from
@@ -99,53 +116,83 @@ fn the_tint_matches_the_independent_body_color_reference() {
                 reason = "f64 reference to f32 render"
             )]
             let xyz = Vec3::new(xyz[0] as f32, xyz[1] as f32, xyz[2] as f32);
-            ColorSpace::Srgb
-                .xyz_to_linear(xyz)
-                .clamp(Vec3::splat(1.0e-4), Vec3::ONE)
+            ColorSpace::Srgb.xyz_to_linear(xyz)
         };
         let tinted = |bands: &[AbsorptionBand]| {
-            let alpha = tint::alpha(bands, material.absorption_path_scale, environment);
-            (-alpha * MODEL_UNIT_FACE_UP_PATH).exp()
+            single_mode(bands, material.absorption_path_scale, environment)
+                .transmission(MODEL_UNIT_FACE_UP_PATH, 0.0)
         };
         close(
             tinted(&material.absorption.o_ray),
             reference(colors.o_ray.xyz),
-            2.0e-3,
+            6.0e-3,
         );
         close(
             tinted(&material.absorption.e_ray),
             reference(colors.e_ray.xyz),
-            2.0e-3,
+            6.0e-3,
         );
         if let (Some(beta), Some(color)) = (&material.absorption.beta_ray, colors.beta_ray) {
-            close(tinted(beta), reference(color.xyz), 2.0e-3);
+            close(tinted(beta), reference(color.xyz), 6.0e-3);
         }
     }
 }
 
 #[test]
 fn the_uniaxial_tint_follows_the_axis() {
-    let o = Vec3::new(0.1, 0.3, 0.8);
-    let e = Vec3::new(0.6, 0.4, 0.2);
-    let alpha = AlphaModel::Uniaxial {
-        o,
-        e,
-        axis: Vec3::Y,
-    };
-    close(alpha.at(Vec3::Y), o, 1.0e-7);
-    close(alpha.at(Vec3::NEG_Y), o, 1.0e-7);
-    close(alpha.at(Vec3::X), (o + e) * 0.5, 1.0e-7);
+    let material = GemMaterial::by_name("Emerald").expect("built-in material");
+    let environment = LightingPreset::IsoHemisphere.studio(1.0, 0.85, 0.95);
+    let bands = &material.absorption;
+    let scale = material.absorption_path_scale;
+    let uniaxial = BinnedAbsorption::new(
+        &[&bands.o_ray, &bands.e_ray],
+        Some(Vec3::Y),
+        scale,
+        environment,
+    );
+    let o = single_mode(&bands.o_ray, scale, environment);
+    let e = single_mode(&bands.e_ray, scale, environment);
+    assert!((uniaxial.axial(Vec3::Y, 2.0) - 2.0).abs() < 1.0e-7);
+    assert!((uniaxial.axial(Vec3::NEG_Y, 2.0) - 2.0).abs() < 1.0e-7);
+    assert!(uniaxial.axial(Vec3::X, 2.0).abs() < 1.0e-7);
+    let length = MODEL_UNIT_FACE_UP_PATH;
+    // Along the axis both waves are ordinary; across it the two split the light evenly.
+    close(
+        uniaxial.transmission(length, length),
+        o.transmission(length, 0.0),
+        1.0e-5,
+    );
+    close(
+        uniaxial.transmission(length, 0.0),
+        (o.transmission(length, 0.0) + e.transmission(length, 0.0)) * 0.5,
+        1.0e-5,
+    );
 }
 
 #[test]
 fn a_colorless_material_has_no_tint() {
     let material = GemMaterial::diamond();
-    let alpha = tint::alpha(
+    let absorption = single_mode(
         &material.absorption.o_ray,
         1.0,
         LightingPreset::IsoHemisphere.studio(1.0, 0.85, 0.95),
     );
-    close(alpha, Vec3::ZERO, 1.0e-6);
+    assert_eq!(absorption, BinnedAbsorption::NONE);
+    assert_eq!(absorption.transmission(50.0, 10.0), Vec3::ONE);
+}
+
+/// The bin weights split the illuminant's white exactly: no path, no tint.
+#[test]
+fn an_empty_path_transmits_white() {
+    let material = GemMaterial::by_name("Emerald").expect("built-in material");
+    for preset in [LightingPreset::IsoHemisphere, LightingPreset::Incandescent] {
+        let absorption = single_mode(
+            &material.absorption.o_ray,
+            material.absorption_path_scale,
+            preset.studio(1.0, 0.85, 0.95),
+        );
+        close(absorption.transmission(0.0, 0.0), Vec3::ONE, 1.0e-5);
+    }
 }
 
 #[test]

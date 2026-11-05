@@ -59,6 +59,14 @@ pub(super) fn take(worker: &WorkerSettings) -> Option<(RemoteStream, Welcome)> {
     Some((idle.stream, idle.welcome))
 }
 
+/// Closes every parked connection (each one says goodbye as it drops, see
+/// [`RemoteStream`]). For a process about to exit: the pool is a `static`, which is never
+/// dropped, so a connection left parked would be cut off by the operating system instead.
+pub fn close_idle() {
+    let idle = std::mem::take(&mut *POOL.lock().unwrap_or_else(PoisonError::into_inner));
+    drop(idle);
+}
+
 /// Parks `stream` (whose last request just ended in a clean `DONE`) for the next
 /// [`take`] on the same worker, evicting the oldest parked connection of that worker
 /// when [`MAX_IDLE_PER_WORKER`] would be exceeded.

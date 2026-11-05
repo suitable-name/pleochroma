@@ -13,7 +13,7 @@ use super::{Algorithm, ObjectiveSampling, RunnerError};
 /// hundreds are cheap; the threads that run them follow the core count, not this number.
 pub const MAX_WORKERS: usize = 1024;
 
-/// Maximum retained dense replay payload, in addition to the configured row capacity.
+/// Default retained replay payload budget, independent of accelerator memory.
 pub const MAX_LABEL_BYTES: usize = 512 * 1024 * 1024;
 
 /// Default of [`RunConfig::label_every`]: every second rollout sample gets a label.
@@ -103,8 +103,10 @@ pub struct RunConfig {
     pub label_every: usize,
     /// Probe size of a label in degrees (`None` = the step limit).
     pub label_h_deg: Option<f64>,
-    /// Labelled states the imitation aggregate keeps; past it the oldest leave.
+    /// Maximum labelled replay states; the memory budget may limit this further.
     pub label_capacity: usize,
+    /// Maximum retained replay payload in MiB of host memory.
+    pub label_memory_mib: usize,
     /// Standard deviation (pre-squash units) of the exploration noise of an imitation rollout;
     /// 0 rolls the deterministic policy out.
     pub explore_std: f32,
@@ -182,6 +184,7 @@ impl RunConfig {
             label_every: DEFAULT_LABEL_EVERY,
             label_h_deg: None,
             label_capacity: DEFAULT_LABEL_CAPACITY,
+            label_memory_mib: MAX_LABEL_BYTES / (1024 * 1024),
             explore_std: DEFAULT_EXPLORE_STD,
             max_rejected_steps: 8,
             line_search: DEFAULT_LINE_SEARCH.to_vec(),
@@ -261,6 +264,11 @@ impl RunConfig {
             return Err(RunnerError::Config(format!(
                 "label probe size must be a finite number of degrees above 0 (got {h})"
             )));
+        }
+        if self.label_memory_mib == 0 || self.label_memory_mib.checked_mul(1024 * 1024).is_none() {
+            return Err(RunnerError::Config(
+                "label memory must be a positive representable MiB value".into(),
+            ));
         }
         if self.label_capacity == 0 {
             return Err(RunnerError::Config(

@@ -87,11 +87,12 @@ pub use sampling::{
 
 pub use environment::{
     BACKDROP_GREY, DEFAULT_HEAD_SHADOW_COSINES, DEFAULT_HEAD_SHADOW_DEG, EnvironmentSource,
-    LightingModel, LightingPreset, LightingRigParams, TRAY_ALBEDO_BLACK, TRAY_ALBEDO_GREY,
-    TRAY_ALBEDO_WHITE, TRAY_MODEL_VERSION, TentParams, blackbody_spectrum, head_shadow_cosines,
-    rig_irradiance_over_pi, sample_studio_environment, sample_studio_environment_observed,
-    sample_studio_environment_with_rig, sample_studio_environment_with_rig_shadow,
-    sample_studio_environment_with_rig_shadow_tray, sample_studio_environment_with_rig_spec_power,
+    LightingModel, LightingPreset, LightingRigParams, METERED_PAPER_RADIANCE, TRAY_ALBEDO_BLACK,
+    TRAY_ALBEDO_GREY, TRAY_ALBEDO_WHITE, TRAY_MODEL_VERSION, TentParams, blackbody_spectrum,
+    head_shadow_cosines, metered_exposure, rig_irradiance_over_pi, sample_studio_environment,
+    sample_studio_environment_observed, sample_studio_environment_with_rig,
+    sample_studio_environment_with_rig_shadow, sample_studio_environment_with_rig_shadow_tray,
+    sample_studio_environment_with_rig_spec_power,
     sample_studio_environment_with_rig_spec_power_tray, studio_spec_power, tray_radiance,
 };
 #[cfg(feature = "gpu")]

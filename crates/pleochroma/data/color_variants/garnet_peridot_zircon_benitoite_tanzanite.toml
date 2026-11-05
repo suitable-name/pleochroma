@@ -220,26 +220,26 @@ reference_path_mm = 7.0
 estimated = true
 sources = [
   "Scaled copy of the Tsavorite Material Default (GRR 229) at a chosen strength; no pale stone measured.",
-  "Material Default of Grossular Garnet (Tsavorite) (Caltech GRR 229 fitted 2026-10-19 at 0.5 x the sample's vanadium; docs/chromophores/calibration-records.md#tsavorite) with every peak x 0.36 (= 0.18 x the sample's vanadium, the repo's own pale-tsavorite rule), converted to per mm by the 9.905 mm face-up path; estimated",
-  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.4.1 (V3+ 436 / 606 nm; about 0.33 wt% V2O3)",
+  "Caltech GRR 229 as fitted 2026-10-19 (docs/chromophores/calibration-records.md#tsavorite) at 0.0875 x the sample's vanadium (about 0.16 wt% V2O3), half the Material Default since 2026-11-04 (0.175 x; the earlier 0.18 x Mint had become the default's strength), converted to per mm by the 9.905 mm face-up path; estimated",
+  "docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.4.1 (V3+ 436 / 606 nm; first defined at about 0.33 wt% V2O3)",
 ]
 fit_record = "docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md#f3-06-grossular-garnet-tsavorite-mint"
 
   [variant.absorption]
   pleochroic = false
   o_ray = [
-    { center_nm = 393.00, width_nm = 1583.6, peak = 0.2599, shape = "energy" },
-    { center_nm = 436.00, width_nm = 994.1, peak = 0.2504, shape = "energy" },
-    { center_nm = 490.00, width_nm = 1061.7, peak = 0.04034, shape = "energy" },
-    { center_nm = 606.00, width_nm = 1158.1, peak = 0.1087, shape = "energy" },
-    { center_nm = 666.00, width_nm = 495.2, peak = 0.0241, shape = "energy" },
+    { center_nm = 393.00, width_nm = 1583.6, peak = 0.1263, shape = "energy" },
+    { center_nm = 436.00, width_nm = 994.1, peak = 0.1217, shape = "energy" },
+    { center_nm = 490.00, width_nm = 1061.7, peak = 0.01961, shape = "energy" },
+    { center_nm = 606.00, width_nm = 1158.1, peak = 0.05283, shape = "energy" },
+    { center_nm = 666.00, width_nm = 495.2, peak = 0.01171, shape = "energy" },
   ]
   e_ray = [
-    { center_nm = 393.00, width_nm = 1583.6, peak = 0.2599, shape = "energy" },
-    { center_nm = 436.00, width_nm = 994.1, peak = 0.2504, shape = "energy" },
-    { center_nm = 490.00, width_nm = 1061.7, peak = 0.04034, shape = "energy" },
-    { center_nm = 606.00, width_nm = 1158.1, peak = 0.1087, shape = "energy" },
-    { center_nm = 666.00, width_nm = 495.2, peak = 0.0241, shape = "energy" },
+    { center_nm = 393.00, width_nm = 1583.6, peak = 0.1263, shape = "energy" },
+    { center_nm = 436.00, width_nm = 994.1, peak = 0.1217, shape = "energy" },
+    { center_nm = 490.00, width_nm = 1061.7, peak = 0.01961, shape = "energy" },
+    { center_nm = 606.00, width_nm = 1158.1, peak = 0.05283, shape = "energy" },
+    { center_nm = 666.00, width_nm = 495.2, peak = 0.01171, shape = "energy" },
   ]
 
 # Grossular Garnet (Tsavorite), Hessonite: Fe3+ charge-transfer edge and a weak 440 nm Fe3+ band plus a broad band near 490 nm (assignment estimated).

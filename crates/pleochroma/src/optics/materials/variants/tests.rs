@@ -171,6 +171,54 @@ fn a_per_mm_variant_on_a_model_unit_host_gets_the_default_path_scale() {
     assert!((again.absorption_path_scale - 2.25).abs() < f32::EPSILON);
 }
 
+/// A variant swapped into a material that is already sized for its stone (a render job's
+/// scene) shows at the same width: the scale `render_setup` gives the variant's unit for that
+/// stone, not the 7 mm default.
+#[test]
+fn a_variant_on_a_sized_material_keeps_the_stone_width() {
+    use crate::render_setup::absorption_path_scale_for;
+
+    let (width_mm, model_width) = (9.0_f32, Some(2.2_f64));
+    let ruby = built_in("Ruby");
+    assert_eq!(ruby.absorption_unit, AbsorptionUnit::ModelUnit);
+    let sized_scale = absorption_path_scale_for(AbsorptionUnit::ModelUnit, width_mm, model_width)
+        .expect("a scale");
+    let sized = ruby.with_absorption_path_scale(sized_scale);
+
+    let thai = built_in_variants("Ruby")
+        .into_iter()
+        .find(|v| v.key == "ruby.thai")
+        .expect("the Thai ruby variant");
+    assert_eq!(thai.unit, AbsorptionUnit::PerMm);
+    let swapped = sized
+        .clone()
+        .with_color_variant_resized(&thai, model_width)
+        .expect("a width is recovered");
+    let expected =
+        absorption_path_scale_for(AbsorptionUnit::PerMm, width_mm, model_width).expect("a scale");
+    assert!(
+        (swapped.absorption_path_scale - expected).abs() < 1e-5 * expected,
+        "{} against {expected}",
+        swapped.absorption_path_scale
+    );
+    assert_eq!(swapped.absorption, thai.absorption);
+    assert_eq!(swapped.absorption_unit, AbsorptionUnit::PerMm);
+
+    // The same unit keeps the scale bit for bit.
+    let default = built_in_variants("Ruby")
+        .into_iter()
+        .next()
+        .expect("the Material Default");
+    let same = sized
+        .clone()
+        .with_color_variant_resized(&default, model_width)
+        .expect("same unit");
+    assert_eq!(same.absorption_path_scale.to_bits(), sized_scale.to_bits());
+
+    // A per-millimetre side needs the design's width.
+    assert!(sized.with_color_variant_resized(&thai, None).is_none());
+}
+
 #[test]
 fn a_swatch_is_the_oriented_face_up_color_of_the_hosts_default_axis() {
     let blue = built_in_variants("Zircon")
@@ -680,7 +728,8 @@ fn the_pink_entry_is_a_measured_cr3_tensor_much_weaker_than_the_ruby_default() {
         "pink is fitted to the measured Cr3+ cross sections"
     );
     // Face-up optical depth in the Cr3+ U band (560 nm): the per-mm tensor over the 9.905 mm
-    // face-up path against the Ruby default's model-unit peak sum (one unit at 7 mm).
+    // face-up path against the Ruby default's model-unit peak sum (one unit at 7 mm). The default
+    // carries Cr 400 ppma*cm since 2026-11-03 (it was 800), so pink's 100 is about a quarter.
     let depth = |bands: &[AbsorptionBand], scale: f64| -> f64 {
         bands
             .iter()
@@ -698,7 +747,7 @@ fn the_pink_entry_is_a_measured_cr3_tensor_much_weaker_than_the_ruby_default() {
     );
     assert!(
         (0.05..0.3).contains(&(pink_o / ruby_o)),
-        "pink is about an eighth of the ruby default ({pink_o} vs {ruby_o})"
+        "pink is about a quarter of the ruby default ({pink_o} vs {ruby_o})"
     );
 }
 

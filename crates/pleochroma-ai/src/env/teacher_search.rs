@@ -2,18 +2,21 @@
 
 use super::{
     CoordinateProbe, EnvCore, MEAN_BOUND, TeacherLabel, TierProbe, action_from_direction,
-    assemble_label, direction_from_slopes, score_slopes, usable_scales,
+    assemble_label, direction_from_slopes, on_pool_worker, score_slopes, usable_scales,
 };
 use rayon::prelude::*;
 
 #[path = "teacher_continuation.rs"]
 mod continuation;
 pub use continuation::TeacherLabelWork;
+#[path = "teacher_recovery.rs"]
+mod recovery;
+pub use recovery::{TEACHER_SEARCH_RECOVERY_REVISION, TeacherSearchSnapshot};
 
 /// Additional candidate attempts per label, including refused projections.
 const RESCUE_ATTEMPTS: usize = 8;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Winner {
     raw: Vec<f32>,
     gain: f32,
@@ -214,9 +217,12 @@ impl EnvCore {
         (winner, usize::from(outcome.evaluated))
     }
 
-    /// Evaluate every distinct canonical gradient scale, sharing only spare pool capacity.
+    /// Evaluate every distinct canonical gradient scale.
     ///
-    /// Reduction stays in list order; unlike rollout acceptance the teacher keeps the best.
+    /// Every listed action is evaluated whatever the others return, so a pool worker always
+    /// shares the list ([`on_pool_worker`]); off a pool the remaining suffix is shared once
+    /// `parallel` reports spare capacity. Reduction stays in list order; unlike rollout
+    /// acceptance the teacher keeps the best.
     fn search_raw_actions(
         &self,
         actions: &[Winner],
@@ -225,7 +231,7 @@ impl EnvCore {
     ) -> usize {
         let mut evaluations = 0;
         for (index, action) in actions.iter().enumerate() {
-            if parallel() && actions.len() - index > 1 {
+            if actions.len() - index > 1 && (on_pool_worker() || parallel()) {
                 let outcomes: Vec<_> = actions[index..]
                     .par_iter()
                     .map(|candidate| self.evaluate_raw(candidate))

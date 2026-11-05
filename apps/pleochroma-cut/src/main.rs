@@ -186,6 +186,10 @@ fn main() -> anyhow::Result<()> {
     // is created. The RADV scheduler workaround comes first of all: when this instance
     // replaces another one (a restart) it also waits here until that one is gone.
     let radv_status = pleochroma_cut::gui::radv_workaround::apply_at_startup();
+    // A `ui-harness` build started as the app: real file dialogs, clipboard, opener and
+    // library (the harness itself never runs `main`). Before anything reads the library path.
+    #[cfg(feature = "ui-harness")]
+    pleochroma_cut::harness_support::disarm_seams();
     apply_saved_ui_scale();
     install_tracing_subscriber();
     install_panic_logger();

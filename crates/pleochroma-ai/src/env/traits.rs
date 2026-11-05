@@ -110,7 +110,7 @@ pub struct StepInfo {
     pub candidate_score: Option<f32>,
     /// The reported candidate projects exactly to the current design, whose known valid
     /// score is reused without rescoring. This describes the accepted candidate or, when
-    /// none improved, the first scale; failed projections and speculative later probes
+    /// none improved, the first scale; failed projections and later rejected scales
     /// do not set it. Normal gates still apply; a passing unchanged candidate is
     /// rejected as `NotImproved`.
     #[serde(default)]

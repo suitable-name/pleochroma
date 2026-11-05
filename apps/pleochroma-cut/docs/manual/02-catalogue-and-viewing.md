@@ -87,6 +87,11 @@ the gear/facet count. **Right-click** a card for:
 - **Build This Design** — turn the design into a step-by-step tutorial that
   rebuilds it from an empty design (Chapter 22); the steps button in the detail
   header below does the same.
+- **Add Tag...** — type a tag to put on the design.
+- **Delete...** — remove the design and the files attached to it from your
+  library. You are asked to confirm first; a delete cannot be undone. It works on
+  the local library only. The trash button in the detail header does the same for
+  the selected design.
 
 The same actions are on the three-dot button that appears when you point at a
 card, and in the **Library > Selected Design** menu, which works from the keyboard
@@ -293,15 +298,20 @@ genuine right-drag gesture.)
     The brilliance figures under a Studio rig are measured against that rig's own light
     sources; the Grading tray gives the standard figure.
 
-  At exposure 1× the lit models put their ambient light near middle grey, so only a
-  direct reflection of a light source clips to white; use Exposure to go darker
-  or brighter.
-- **Exposure** (Lighting & Environment tab, "Overall Brightness") — the overall brightness of the picture, a
-  slider from 0.2× to 5× (default 1×, shown next to the label). It scales the light
-  of every built-in lighting rig, the lit models and the Studio rigs alike. It does
-  not apply while an HDR environment map is loaded, which replaces the exposure and
-  light-position controls (the map brings its own brightness). A stored value outside
-  0.2× to 5× is pulled back into that range when the settings are read.
+  The rigs give very different amounts of light: the daylight sky about a fifth of
+  the Grading tray's, a Studio key with its ring lights four to nine times as much.
+  The app meters every rig the way a camera's light meter does, so at exposure 1×
+  white paper under any rig, at any light direction, shows as the same off-white
+  sheet the Grading tray gives it. A black velvet stays black and a grey card mid
+  grey; only a direct reflection of a light source clips to white.
+- **Exposure** (Lighting & Environment tab, "Overall Brightness") — a correction on top of
+  the meter reading, a slider from 0.2× to 5× (default 1×, shown next to the label): 1×
+  is the metered picture, below is darker, above brighter. It works the same for the lit
+  models and the Studio rigs. It does not apply while an HDR environment map is loaded,
+  which replaces the exposure and light-position controls (the map brings its own
+  brightness and is not metered). A stored value outside 0.2× to 5× is pulled back into
+  that range when the settings are read. Exports, render jobs and remote renders use the
+  metered exposure too, so they look like the viewport.
 - **Light Direction** (Lighting & Environment tab, above Exposure) — where the main light
   shines from, as two angles. **Light Azimuth** is the angle around the stone, 0° to
   360° (default 48°). **Light Elevation** is the height above the stone, about 8.6° (low and
@@ -316,24 +326,36 @@ genuine right-drag gesture.)
 - **Views** (Lighting & Environment tab, the **Saved Lighting** list) — one-click saved looks.
   A view is a complete look: it stores the lighting rig *and* the light
   direction (azimuth and elevation), the exposure, the surface glare, the backdrop,
-  the head shadow, the HDR environment map if one is loaded, and the camera distance;
-  for some views also the camera pose. Click a name to apply the view. Applying it
+  the head shadow and the HDR environment map if one is loaded; for some views also
+  the camera pose and zoom. Click a name to apply the view. Applying it
   sets every one of those values, so a view saved without an HDR map also takes a
   loaded map away and returns to its lighting rig; applying one that stores
-  no camera pose leaves your current turn around the stone alone. (Views saved by an
+  no camera pose leaves the camera alone, its turn around the stone and its zoom
+  alike. The built-in **Grading tray** sets its pose and fits the stone in the picture. (Views saved by an
   older version did not store glare, backdrop or head shadow; they open with 100 %
-  glare, the white backdrop and a 16° head shadow.) Seven views come
+  glare, the white backdrop and a 16° head shadow.) Eight views come
   with the app and cannot be renamed or deleted:
 
-  | View | Lighting rig | Light azimuth / elevation | Exposure | Camera |
-  |---|---|---|---|---|
-  | Studio Softbox | Gem Studio Ring Lights | 48° / 54° | 1× | not set |
-  | Daylight Bright | D65 Daylight (6500K) | 30° / 65° | 1.3× | not set |
-  | Dramatic Spotlight | Dramatic Dark Spotlight | 300° / 25° | 0.7× | not set |
-  | Light Tent | Light tent + black cards | 48° / 72° | 1× | not set |
-  | Grading tray | Grading tray (D65 hemisphere + head shadow) | 48° / 72° | 1× | azimuth 20°, elevation 85° (looking almost straight down) |
-  | Daylight Sun | Daylight sky + direct sun | 30° / 55° | 1× | not set |
-  | Window daylight | Window daylight | 40° / 30° | 1.2× | not set |
+  | View | Lighting rig | Light azimuth / elevation | Exposure | Backdrop | Camera |
+  |---|---|---|---|---|---|
+  | Studio Softbox | Gem Studio Ring Lights | 48° / 54° | 1× | Grey | not set |
+  | Daylight Bright | D65 Daylight (6500K) | 30° / 65° | 1.3× | White | not set |
+  | Dramatic Spotlight | Dramatic Dark Spotlight | 300° / 25° | 0.7× | Black | not set |
+  | Light Tent | Light tent + black cards | 48° / 72° | 1× | White | not set |
+  | Grading tray | Grading tray (D65 hemisphere + head shadow) | 48° / 72° | 1× | White | azimuth 0°, elevation 85° (looking almost straight down), fitted to the stone |
+  | Daylight Sun | Daylight sky + direct sun | 30° / 55° | 1.5× | White | not set |
+  | Window daylight | Window daylight | 40° / 30° | 1.2× | White | not set |
+  | Presentation | Gem Studio Ring Lights | 48° / 54° | 1.4× | Black | not set |
+
+  The first seven are viewing setups to judge a stone by. **Presentation** is the showcase
+  look of a jeweler's photo: the studio ring lights over black velvet, half a stop brighter,
+  for the most saturated color and the crispest sparkle when a picture should show the stone
+  off rather than measure it.
+
+  Every view uses the 16° head shadow. Under the Grading tray's evenly lit dome that
+  shadow is the only thing that draws a face-up pattern; a larger one (Head Shadow, about
+  24° for head and shoulders at close inspection) shows more of it, but then the
+  brilliance figures no longer match the ones Optimize scores with.
 
   The **Save Lighting** button on the viewport toolbar (hidden in Simple mode)
   captures your current lighting, light direction, exposure and camera pose; the
@@ -551,7 +573,7 @@ sections:
 - **Exposure** — "Overall Brightness".
 - **Environment** — the **HDR environment map** loader and the **Backdrop**.
 - **Observer** — **Surface Glare** and **Head Shadow**. Both grey out while an HDR map is loaded.
-- **Saved Lighting** — your named looks plus the seven built-in ones: apply, save, rename,
+- **Saved Lighting** — your named looks plus the eight built-in ones: apply, save, rename,
   delete, and the "usable for" switch that offers a look in the export dialog (Chapter 9).
   A saved lighting holds the whole look: rig, light direction, exposure, glare, backdrop,
   head shadow, the HDR map if any, and optionally the camera pose.

@@ -135,7 +135,7 @@ pub fn serve_requests<S: Read + Write + TimeoutRead + TimeoutWrite>(
     let mut watch = ctx.session.and_then(CapabilityWatch::new);
 
     loop {
-        let next = match pending_request.take() {
+        let mut next = match pending_request.take() {
             Some(r) => NextRequest::Render(r),
             None => match read_next_message(stream, ctx.db, watch.as_mut())? {
                 Some(n) => n,
@@ -143,11 +143,11 @@ pub fn serve_requests<S: Read + Write + TimeoutRead + TimeoutWrite>(
                 None => return Ok(()),
             },
         };
-        // A coordinator does not forward zones to its joined workers and never advertises the
-        // zoning capability; a payload that arrives anyway is refused, not dropped silently
-        // (the picture would render as its base zone).
+        // A coordinator re-attaches the zones the viewer sent ahead of a picture request
+        // (v36): its own lane traces the scene as held, and its joined workers get them again
+        // ahead of every chunk (`coordinator::lanes::chunk`).
         #[cfg(feature = "worker")]
-        if ctx.session.is_some() && refuse_zoning_through_coordinator(stream, &next)? {
+        if ctx.session.is_some() && !attach_zoning_on_coordinator(stream, &mut next)? {
             continue;
         }
         // An HDR scene's map is resolved (and pinned for the whole request)
@@ -218,41 +218,38 @@ pub fn serve_requests<S: Read + Write + TimeoutRead + TimeoutWrite>(
     }
 }
 
-/// Refuses `next` with `UNSUPPORTED_REQUEST` when the viewer sent a
-/// `ZoningPayload` for it on a coordinator connection. `Ok(true)` means the request was
-/// refused and must not be served.
+/// Installs the zones the viewer sent ahead of `next` on its scene, on a coordinator
+/// connection; a plain worker does the same in [`serve_one_render`]. `Ok(false)` means the
+/// payload did not fit the scene: the request was refused with `VALIDATION_FAILED` and must
+/// not be served.
+///
+/// A batch is served on the own lane by `batch::serve_batches`, which attaches its own zones;
+/// a tilt-curves request and a job never carry any.
 #[cfg(feature = "worker")]
-fn refuse_zoning_through_coordinator<S: Write>(
+fn attach_zoning_on_coordinator<S: Write>(
     stream: &mut S,
-    next: &NextRequest,
+    next: &mut NextRequest,
 ) -> Result<bool, NetError> {
-    let request_id = match next {
-        NextRequest::Render(r) => r.request_id,
-        NextRequest::FinalImage(r) => r.request_id,
-        NextRequest::TiltCurves(r) => r.request_id,
-        NextRequest::Batch(r) => r.request_id,
-        // A job carries its scene beside no zones (they are not part of a job).
-        NextRequest::Job(_) => return Ok(false),
+    let (request_id, scene) = match next {
+        NextRequest::Render(r) => (r.request_id, &mut r.scene),
+        NextRequest::FinalImage(r) => (r.request_id, &mut r.scene),
+        NextRequest::TiltCurves(_) | NextRequest::Batch(_) | NextRequest::Job(_) => {
+            return Ok(true);
+        }
     };
-    if crate::serve::zoning::take(request_id).is_none() {
-        return Ok(false);
-    }
-    tracing::info!(
-        "refusing request {request_id}: zoned materials are not served through a coordinator"
-    );
+    let Err(message) = crate::serve::zoning::attach_to_render(request_id, scene) else {
+        return Ok(true);
+    };
     pleochroma_net::messages::write_stream_event(
         stream,
         &StreamEvent::Error(ErrorMsg {
-            code: error_codes::UNSUPPORTED_REQUEST,
-            message: format!(
-                "request {request_id}: a coordinator does not serve zoned materials (its WELCOME \
-                 does not advertise the zoning capability); render the picture locally"
-            ),
+            code: VALIDATION_FAILED_CODE,
+            message,
             request_id: Some(request_id),
         }),
         None,
     )?;
-    Ok(true)
+    Ok(false)
 }
 
 /// Validates and streams one `RenderRequest` on the own lane; returns the client's
@@ -590,7 +587,7 @@ fn read_next_message<S: Read + Write + TimeoutRead>(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "worker"))]
 mod zoning_tests {
     use super::*;
     use crate::serve::zoning::{ConnectionGuard, stash};
@@ -604,37 +601,89 @@ mod zoning_tests {
         })
     }
 
-    /// A payload that reaches a coordinator session is answered with `UNSUPPORTED_REQUEST`
-    /// naming the request, and its stash slot is consumed; a request without a payload is
-    /// left alone and nothing is written.
+    fn render(request_id: u32) -> NextRequest {
+        NextRequest::Render(RenderRequest {
+            request_id,
+            scene: crate::serve::tests::fixtures::tiny_scene(),
+            first_sample: 0,
+            samples: 1,
+            stream: crate::serve::tests::fixtures::final_only(0),
+            intent: pleochroma_net::messages::RequestIntent::Batch,
+        })
+    }
+
+    /// A payload that does not fit the request's scene is answered with `VALIDATION_FAILED`
+    /// naming the request, and its stash slot is consumed.
     #[test]
-    fn a_payload_through_a_coordinator_is_refused_loudly() {
+    fn an_unfitting_payload_on_a_coordinator_is_refused_loudly() {
         let _guard = ConnectionGuard::new();
+        // No materials at all: `ZoningPayloadError::Empty`.
         stash(ZoningPayload {
             request_id: 12,
             materials: Vec::new(),
         });
         let mut out = Vec::new();
-        assert!(refuse_zoning_through_coordinator(&mut out, &batch(12)).unwrap());
+        assert!(!attach_zoning_on_coordinator(&mut out, &mut render(12)).unwrap());
         let (event, _) =
             pleochroma_net::messages::read_stream_event(&mut std::io::Cursor::new(out)).unwrap();
         let StreamEvent::Error(error) = event else {
             panic!("expected an error, got {event:?}");
         };
-        assert_eq!(error.code, error_codes::UNSUPPORTED_REQUEST);
+        assert_eq!(error.code, VALIDATION_FAILED_CODE);
         assert_eq!(error.request_id, Some(12));
-        assert!(error.message.contains("coordinator"), "{}", error.message);
-        // The payload was consumed: asking again finds nothing.
+        assert!(error.message.contains("request 12"), "{}", error.message);
+        // The payload was consumed: asking again finds nothing and serves the request.
         let mut again = Vec::new();
-        assert!(!refuse_zoning_through_coordinator(&mut again, &batch(12)).unwrap());
+        assert!(attach_zoning_on_coordinator(&mut again, &mut render(12)).unwrap());
         assert_eq!(again.len(), 0);
     }
 
+    /// The zones the viewer sent are installed on the scene the coordinator then serves;
+    /// nothing is written.
+    ///
+    /// The scene is per-millimetre, as every zoned scene the app sends is (applying a pattern
+    /// switches the material to `PerMm`, zone lengths being millimetres): the fixture's
+    /// Diamond is a model-unit material, which the payload check refuses on purpose.
+    #[test]
+    fn a_coordinator_attaches_the_zones_to_the_scene_it_serves() {
+        let _guard = ConnectionGuard::new();
+        let mut per_mm = crate::serve::tests::fixtures::tiny_scene();
+        per_mm.material.absorption_unit = pleochroma::optics::materials::AbsorptionUnit::PerMm;
+        let mut zoned = per_mm.clone();
+        zoned.material =
+            zoned
+                .material
+                .with_zoning(pleochroma::optics::zoning::ZonedAbsorption::new(
+                    pleochroma::optics::zoning::ZoneAbsorption::per_mm(
+                        pleochroma::optics::absorption::AbsorptionTensor::isotropic(vec![]),
+                    ),
+                ));
+        stash(ZoningPayload::for_scene(5, &zoned).unwrap());
+        let mut next = render(5);
+        if let NextRequest::Render(request) = &mut next {
+            request.scene = per_mm;
+        }
+        let mut out = Vec::new();
+        assert!(attach_zoning_on_coordinator(&mut out, &mut next).unwrap());
+        assert!(out.is_empty());
+        let NextRequest::Render(request) = next else {
+            unreachable!("built as a render request");
+        };
+        assert_eq!(request.scene.material.zoning, zoned.material.zoning);
+    }
+
+    /// A request without a payload, and a batch (served on the own lane, which attaches its
+    /// own zones), pass untouched.
     #[test]
     fn a_request_without_a_payload_passes_a_coordinator_untouched() {
         let _guard = ConnectionGuard::new();
         let mut out = Vec::new();
-        assert!(!refuse_zoning_through_coordinator(&mut out, &batch(3)).unwrap());
+        assert!(attach_zoning_on_coordinator(&mut out, &mut render(3)).unwrap());
+        stash(ZoningPayload {
+            request_id: 4,
+            materials: Vec::new(),
+        });
+        assert!(attach_zoning_on_coordinator(&mut out, &mut batch(4)).unwrap());
         assert_eq!(out.len(), 0);
     }
 }

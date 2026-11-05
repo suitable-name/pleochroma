@@ -2,7 +2,8 @@
 //! [`super::build`]'s `Design` methods, and [`super::diff`]'s [`diff_tiers`].
 
 use super::{
-    ConcaveRowInfo, ConcaveTierDelta, CutSheetRow, CuttingSheet, build::meet_instruction,
+    ConcaveRowInfo, ConcaveTierDelta, CutSheetRow, CuttingSheet,
+    build::{DepthPlacement, meet_instruction},
     diff_concave_tiers, diff_tiers, format_sheet_index, format_sheet_indices,
 };
 use crate::{
@@ -281,7 +282,8 @@ fn to_text_renders_header_and_rows() {
     assert_eq!(text.lines().count(), 3 + 1 + 8);
 
     let lines: Vec<&str> = text.lines().collect();
-    // The girdle is the first tier cut: label G1, its own name in front of the instruction.
+    // The girdle is the first tier cut: label G1, its own name in front of the instruction,
+    // and as the first tier placed by an explicit depth it sets the stone size.
     let girdle = lines[4];
     assert!(girdle.starts_with("  1. G1 "), "{girdle}");
     assert!(
@@ -289,20 +291,228 @@ fn to_text_renders_header_and_rows() {
         "{girdle}"
     );
     assert!(
-        girdle.ends_with("meet: Girdle: Set to mast depth 1.0000"),
+        girdle.ends_with("meet: Girdle: Set stone size."),
         "{girdle}"
     );
-    // The culet is named like its code, so its instruction carries no name.
+    // The culet is named like its code, so its instruction carries no name; in the finished
+    // stone it touches only the pavilion mains.
     let culet = lines[7];
     assert!(culet.starts_with("  4. Culet "), "{culet}");
     assert!(culet.contains("indices [-]"), "{culet}");
-    assert!(culet.ends_with("meet: Set to mast depth 0.8800"), "{culet}");
-    // The table is cut last and its code is T.
+    assert!(culet.ends_with("meet: Meet P1"), "{culet}");
+    // The table is cut last, its code is T, and its corners are the stars' and crown mains'.
     let table = lines[11];
     assert!(table.starts_with("  8. T "), "{table}");
-    assert!(
-        table.ends_with("meet: Table: Set to mast depth 0.3200"),
-        "{table}"
+    assert!(table.ends_with("meet: Table: Meet C1, C2"), "{table}");
+}
+
+/// A design whose tiers are all placed by an explicit depth gets an instruction on every row,
+/// worked out from the finished stone: the girdle (cut first here) sets the stone size, every
+/// later one meets the tiers cut before it whose facets share a vertex with its own, by code
+/// and in cutting order, without a full stop. A tier that nothing cut earlier touches prints
+/// its depth: in this fixture the lower girdles (P2) cut away the pavilion mains' meets with
+/// the girdle, and the stars (C1) are cut before the crown mains, so P1 and C1 print "Cut to
+/// depth .. mm." once a girdle diameter gives millimetres, else their mast. The stars do not
+/// reach the girdle, so no row says "Set girdle width.", and the culet keeps the mains from
+/// ending in one point, so none says "Cut to centerpoint.".
+#[test]
+fn depth_placed_rows_meet_the_tiers_cut_before_them() {
+    let mut design = round_brilliant_design();
+    let solved = design
+        .solve()
+        .expect("every tier is pinned via ScaleReference");
+    let unanchored = design.cutting_sheet(&solved);
+    assert_eq!(unanchored.rows[1].code, "P1");
+    assert_eq!(
+        unanchored.rows[1].meet_instruction,
+        "Set to mast depth 0.6700"
+    );
+
+    design.girdle_diameter_mm = Some(6.5);
+    let sheet = design.cutting_sheet(&solved);
+    assert_eq!(sheet.rows[0].meet_instruction, "Set stone size.");
+    for (position, row) in sheet.rows.iter().enumerate().skip(1) {
+        assert!(row.concave.is_none(), "a planar design");
+        if let Some(list) = row.meet_instruction.strip_prefix("Meet ") {
+            assert!(!list.ends_with('.'), "{}", row.meet_instruction);
+            let earlier: Vec<&str> = sheet.rows[..position]
+                .iter()
+                .map(|earlier| earlier.code.as_str())
+                .collect();
+            for code in list.split(", ") {
+                assert!(
+                    earlier.contains(&code),
+                    "{}: {code} is not cut before it",
+                    row.code
+                );
+            }
+        } else {
+            let mm = row.depth_mm.expect("a girdle diameter gives millimetres");
+            assert_eq!(
+                row.meet_instruction,
+                format!("Cut to depth {mm:.2} mm."),
+                "{}",
+                row.code
+            );
+        }
+    }
+
+    let depth = |code: &str| {
+        let row = sheet
+            .rows
+            .iter()
+            .find(|row| row.code == code)
+            .expect("the row is printed");
+        format!("Cut to depth {:.2} mm.", row.depth_mm.expect("millimetres"))
+    };
+    let (p1, c1) = (depth("P1"), depth("C1"));
+    let texts: Vec<(&str, &str)> = sheet
+        .rows
+        .iter()
+        .map(|row| (row.code.as_str(), row.meet_instruction.as_str()))
+        .collect();
+    assert_eq!(
+        texts,
+        [
+            ("G1", "Set stone size."),
+            ("P1", p1.as_str()),
+            ("P2", "Meet G1, P1"),
+            ("Culet", "Meet P1"),
+            ("C1", c1.as_str()),
+            ("C2", "Meet C1"),
+            ("C3", "Meet G1, C2"),
+            ("T", "Meet C1, C2"),
+        ]
+    );
+    // Computed meets are text only: `meets_tiers` stays the named meets, empty here.
+    assert!(sheet.rows.iter().all(|row| row.meets_tiers.is_empty()));
+}
+
+/// A small explicit-depth stone: 8 girdle facets, 8 pavilion mains meeting in one point (no
+/// culet), 8 crown mains and the table, with the girdle stored first or after the pavilion.
+fn pointed_design(girdle_first: bool) -> Design {
+    const MAINS: [f64; 8] = [0.0, 12.0, 24.0, 36.0, 48.0, 60.0, 72.0, 84.0];
+    let tier = |name: &str, angle_deg: f64, indices: &[f64], mast: f64| ConstraintTier {
+        indices: indices.to_vec(),
+        ..named_tier(name, angle_deg, MeetConstraint::ScaleReference(mast))
+    };
+    let girdle = tier("Girdle", 90.0, &MAINS, 1.0);
+    let pavilion = tier("Pavilion Main", -41.0, &MAINS, 0.67);
+    let first_two = if girdle_first {
+        [girdle, pavilion]
+    } else {
+        [pavilion, girdle]
+    };
+    let mut tiers = Vec::from(first_two);
+    tiers.push(tier("Crown Main", 34.5, &MAINS, 0.59));
+    tiers.push(tier("Table", 0.0, &[], 0.32));
+    Design::new(
+        PreformSpec::block(2.0, 1.0, 2.0),
+        ScheduleMeta::standard_round_brilliant(),
+        tiers,
+    )
+}
+
+/// Each row's code and instruction, in cutting order.
+fn instructions(sheet: &CuttingSheet) -> Vec<(&str, &str)> {
+    sheet
+        .rows
+        .iter()
+        .map(|row| (row.code.as_str(), row.meet_instruction.as_str()))
+        .collect()
+}
+
+/// The first tier in cutting order whose facets all end in one point on the axis (pavilion
+/// mains without a culet) is cut to the centerpoint; the girdle sets the stone size, and the
+/// crown mains, which reach the girdle, set the girdle width. Here the girdle is stored and
+/// cut first.
+#[test]
+fn pavilion_mains_ending_in_one_point_are_cut_to_the_centerpoint() {
+    let design = pointed_design(true);
+    let solved = design.solve().expect("every tier is pinned");
+    let sheet = design.cutting_sheet(&solved);
+    assert_eq!(
+        instructions(&sheet),
+        [
+            ("G1", "Set stone size."),
+            ("P1", "Cut to centerpoint."),
+            ("C1", "Set girdle width."),
+            ("T", "Meet C1"),
+        ]
+    );
+}
+
+/// The fantasy-cut template's convention with the pavilion cut first, as in the template
+/// itself: P1 is cut to the centerpoint, the girdle after it sets the stone size, the first
+/// crown tier sets the girdle width. The `.asc` export names the same sizing tier, so a
+/// re-imported file prints the same rows.
+#[test]
+fn the_girdle_sets_the_stone_size_after_a_pavilion_cut_to_the_centerpoint() {
+    let design = pointed_design(false);
+    assert_eq!(
+        design.sizing_tier(),
+        Some(1),
+        "the girdle, not the first tier"
+    );
+    let solved = design.solve().expect("every tier is pinned");
+    let sheet = design.cutting_sheet(&solved);
+    assert_eq!(
+        instructions(&sheet),
+        [
+            ("P1", "Cut to centerpoint."),
+            ("G1", "Set stone size."),
+            ("C1", "Set girdle width."),
+            ("T", "Meet C1"),
+        ]
+    );
+    let notes: Vec<String> = design
+        .to_asc_schedule_from_solved(&solved)
+        .tiers
+        .into_iter()
+        .map(|tier| tier.notes)
+        .collect();
+    assert_eq!(notes, ["", "Set stone size.", "", ""]);
+}
+
+/// Each placement prints as the cutting-instructions template writes it: full stops on
+/// "Set stone size." and "Cut to centerpoint.", none on a meet list, the depth in millimetres
+/// when known, else the mast.
+#[test]
+fn depth_placements_print_like_the_template() {
+    let tiers = vec![
+        named_tier("1", -41.0, MeetConstraint::ScaleReference(0.5)),
+        named_tier("G", 90.0, MeetConstraint::ScaleReference(1.0)),
+        named_tier("A", 35.0, MeetConstraint::ScaleReference(0.6)),
+    ];
+    let codes = compute_tier_labels(&tiers);
+    assert_eq!(DepthPlacement::SetStoneSize.text(&codes), "Set stone size.");
+    assert_eq!(
+        DepthPlacement::CutToCenterpoint.text(&codes),
+        "Cut to centerpoint."
+    );
+    assert_eq!(
+        DepthPlacement::SetGirdleWidth.text(&codes),
+        "Set girdle width."
+    );
+    assert_eq!(
+        DepthPlacement::Meets(vec![0, 1, 2]).text(&codes),
+        "Meet P1, G1, C1"
+    );
+    assert_eq!(
+        DepthPlacement::Depth {
+            mast: 0.5,
+            depth_mm: Some(2.5)
+        }
+        .text(&codes),
+        "Cut to depth 2.50 mm."
+    );
+    assert_eq!(
+        DepthPlacement::Depth {
+            mast: 0.5,
+            depth_mm: None
+        }
+        .text(&codes),
+        "Set to mast depth 0.5000"
     );
 }
 
@@ -334,6 +544,33 @@ fn sheet_indices_are_dashed_and_zero_padded() {
     );
 }
 
+/// On a gear the template writes index 0 as the tooth count (`96-24-48-72`); every other
+/// position keeps its two-digit form, a gear of zero teeth keeps `00`, and the text line of a
+/// row prints the same list.
+#[test]
+fn sheet_indices_on_a_gear_print_index_zero_as_the_tooth_count() {
+    use super::{format_sheet_index_on_gear, format_sheet_indices_on_gear};
+    assert_eq!(
+        format_sheet_indices_on_gear(&[0.0, 24.0, 48.0, 72.0], 96),
+        "96-24-48-72"
+    );
+    assert_eq!(format_sheet_indices_on_gear(&[0.0, 8.0], 80), "80-08");
+    assert_eq!(format_sheet_indices_on_gear(&[], 96), "-");
+    assert_eq!(format_sheet_index_on_gear(-0.0, 96), "96");
+    assert_eq!(format_sheet_index_on_gear(3.5, 96), "03.50");
+    assert_eq!(format_sheet_index_on_gear(0.0, 0), "00");
+    let row = CutSheetRow {
+        indices: vec![0.0, 24.0, 48.0, 72.0],
+        ..flat_row(1)
+    };
+    let mut on_gear = String::new();
+    row.write_text_on_gear(&mut on_gear, 96);
+    assert!(on_gear.contains("indices [96-24-48-72]"), "{on_gear}");
+    let mut plain = String::new();
+    row.write_text(&mut plain);
+    assert!(plain.contains("indices [00-24-48-72]"), "{plain}");
+}
+
 /// A name that is the tier's own descriptive name moves in front of the instruction; an
 /// empty name, an old-style one and one equal to the code do not.
 #[test]
@@ -362,6 +599,16 @@ fn the_descriptive_name_leads_the_instruction_text() {
     }
     assert_eq!(row("Culet", "Culet").instruction(), "Meet P1");
 
+    // A name that starts with the code and a space prints without it, since the code is printed
+    // beside it; a longer code that merely starts the same (`P10`) is part of the name.
+    let coded = row("P1", "P1 Five broad mains");
+    assert_eq!(coded.descriptive_name(), Some("Five broad mains"));
+    assert_eq!(coded.instruction(), "Five broad mains: Meet P1");
+    assert_eq!(row("P1", "p1  Mains").descriptive_name(), Some("Mains"));
+    assert_eq!(row("P1", "P10 Mains").descriptive_name(), Some("P10 Mains"));
+    assert_eq!(row("P1", "P1_Mains").descriptive_name(), Some("P1_Mains"));
+    assert_eq!(row("P1", "P1 A").descriptive_name(), None);
+
     // A row built by hand without a code labels itself by its name, then "(unnamed)".
     assert_eq!(row("", "Hand made").label(), "Hand made");
     assert_eq!(row("", "").label(), "(unnamed)");
@@ -369,7 +616,9 @@ fn the_descriptive_name_leads_the_instruction_text() {
 
 /// `MeetNamed` targets print as their tiers' codes, even when the stored names are old-style
 /// (`1`, `A`), a compound vertex spec maps component by component, words that name no tier
-/// stay as written, and an imported note prints verbatim.
+/// stay as written, and an imported note prints verbatim. A tier placed by an explicit depth
+/// (`ScaleReference` without notes, `MeetExisting`) prints the placement the sheet worked out
+/// for it.
 #[test]
 fn meet_text_names_tiers_by_their_codes() {
     let meets = |name: &str, angle_deg: f64, targets: &[&str]| {
@@ -401,14 +650,22 @@ fn meet_text_names_tiers_by_their_codes() {
 
     let inputs = meet_inputs(&tiers);
     let resolver = MeetNameResolver::new(&inputs);
-    let text = |i: usize| meet_instruction(&tiers[i], &resolver, &codes);
-    assert_eq!(text(0), "Set to mast depth 0.5000");
+    let computed = DepthPlacement::Meets(vec![2, 0]);
+    let text = |i: usize| meet_instruction(&tiers[i], &resolver, &codes, &computed);
+    assert_eq!(text(0), "Meet G1, P1");
     assert_eq!(text(1), "Meet P1");
     assert_eq!(text(4), "Meet C1, G1");
     assert_eq!(text(5), "Meet P1-P2-G1");
     assert_eq!(text(6), "Meet PCP, Nonexistent, C2");
     assert_eq!(text(7), "Meet 1, 2 and G at index 96");
-    assert_eq!(text(8), "Meet at previously cut facets");
+    assert_eq!(text(8), "Meet G1, P1");
+    // A blank recorded note is no note: the placement prints.
+    let mut blank = tiers[7].clone();
+    blank.original_notes = Some("  ".to_string());
+    assert_eq!(
+        meet_instruction(&blank, &resolver, &codes, &DepthPlacement::SetStoneSize),
+        "Set stone size."
+    );
 }
 
 fn named_tier(name: &str, angle_deg: f64, constraint: MeetConstraint) -> ConstraintTier {

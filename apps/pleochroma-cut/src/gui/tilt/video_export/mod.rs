@@ -46,6 +46,7 @@ pub mod frames;
 pub mod metrics;
 mod overlay;
 pub mod params;
+mod pose_preview;
 mod render;
 pub mod run;
 pub mod template;
@@ -98,14 +99,39 @@ pub(in crate::gui) fn setup_video_export_callback(
     // Cancel button.
     let current_run: CurrentExportRun = Arc::new(Mutex::new(None));
 
+    // The section's Start and End pictures (`pose_preview`).
+    pose_preview::setup(ui, render_ctx);
+
+    // The axis chips' order (`toggle_video_axis`): the order they are clicked in.
+    setup_axis_order(ui);
+
+    // Only how many axes are chosen changes the count, not which or in what order: no axis
+    // chosen is the chart's one axis (`selected_axes`).
     ui.global::<TiltVideoExportModel>()
-        .on_frame_count(|start, end, step| {
-            let frames = params::frame_count(f64::from(start), f64::from(end), f64::from(step));
+        .on_frame_count(|start, end, step, chosen| {
+            let axes: Vec<usize> = (0..axis_order(chosen.iter()).len().max(1)).collect();
+            let frames =
+                params::pose_count(&axes, f64::from(start), f64::from(end), f64::from(step));
+            i32::try_from(frames).unwrap_or(i32::MAX)
+        });
+
+    // How many of those frames are rendered: the way back of a rocking axis is copied.
+    ui.global::<TiltVideoExportModel>()
+        .on_rendered_frame_count(|start, end, step, chosen| {
+            let axes: Vec<usize> = (0..axis_order(chosen.iter()).len().max(1)).collect();
+            let frames = params::rendered_pose_count(
+                &axes,
+                f64::from(start),
+                f64::from(end),
+                f64::from(step),
+            );
             i32::try_from(frames).unwrap_or(i32::MAX)
         });
 
     ui.global::<TiltVideoExportModel>()
         .on_parse_step_deg(|raw| parse_step_deg(&raw));
+
+    setup_remember_on_close(ui, settings_store);
 
     // The single source of truth for "which `resolution_preset` index means Custom" --
     // `performance_graph_dialog.slint`'s combo-box custom-size fields read this instead
@@ -123,8 +149,10 @@ pub(in crate::gui) fn setup_video_export_callback(
     // travels as this callback's second argument rather than being re-derived here.
     let ui_weak_preview = ui.as_weak();
     let render_ctx_preview = render_ctx.clone();
+    // The third argument is `video_axes`, passed so the preview updates when the chips or
+    // their order change; `live_template_context` reads it off the model.
     ui.global::<TiltVideoExportModel>()
-        .on_preview_video_folder_name(move |raw_template, axis_index| {
+        .on_preview_video_folder_name(move |raw_template, axis_index, _chosen| {
             let Some(ui) = ui_weak_preview.upgrade() else {
                 // No live window to read settings from (e.g. mid-teardown) -- falls
                 // back to the fixed sample rather than panicking.
@@ -234,7 +262,8 @@ fn handle_start_video_export(
     let render_ctx = Arc::clone(render_ctx);
     let settings_store = settings_store.clone();
     let current_run = Arc::clone(current_run);
-    resolve_export_directory_then(ui, move |ui, export_dir| {
+    let settings_store_dir = Arc::clone(&settings_store);
+    resolve_export_directory_then(ui, &settings_store_dir, move |ui, export_dir| {
         let Some(export_dir) = export_dir else {
             // The cutter's own explicit cancel -- no error banner.
             return;
@@ -328,9 +357,11 @@ fn start_video_run(
     };
     // "Last used": the section opens with these values next time (and the Render & Output tab
     // lists them). The transfer only counts when this run actually sends work to the remote.
-    let uses_remote = request.remote.worker.is_some()
-        && !matches!(request.remote.compute_target, ComputeTarget::LocalOnly);
-    crate::gui::render::output_defaults::remember_tilt(ui, settings_store, uses_remote);
+    crate::gui::render::output_defaults::remember_tilt(
+        ui,
+        settings_store,
+        sends_to_remote(&request),
+    );
     // `build_request` names the folder but does not touch the disk (a queued video must not
     // create it), so the direct export finds a free name and creates the folder itself.
     request.out_dir = template::unique_folder_path(export_dir, &request.out_name);
@@ -396,7 +427,8 @@ pub(in crate::gui) fn prepare_queued_video(
 ) {
     let render_ctx = Arc::clone(render_ctx);
     let settings_store = Arc::clone(settings_store);
-    resolve_export_directory_then(ui, move |ui, export_dir| {
+    let settings_store_dir = Arc::clone(&settings_store);
+    resolve_export_directory_then(ui, &settings_store_dir, move |ui, export_dir| {
         let Some(export_dir) = export_dir else {
             on_ready(ui, Ok(None));
             return;
@@ -420,12 +452,40 @@ pub(in crate::gui) fn prepare_queued_video(
                         &export_dir,
                         finished.as_ref(),
                     );
+                    // A queued video remembers its values like a started one.
+                    if let Ok(request) = &request {
+                        crate::gui::render::output_defaults::remember_tilt(
+                            ui,
+                            &settings_store,
+                            sends_to_remote(request),
+                        );
+                    }
                     on_ready(ui, request.map(Some));
                 }
                 Err(withheld) => on_ready(ui, Err(withheld.export_message())),
             },
         );
     });
+}
+
+/// Closing the Tilt Performance dialog keeps the section's values, even without a video. A
+/// closing dialog sends nothing to the remote, so the transfer choice stays as it was.
+fn setup_remember_on_close(ui: &MainWindow, settings_store: &Arc<SettingsPersister>) {
+    let ui_weak = ui.as_weak();
+    let settings_store = Arc::clone(settings_store);
+    ui.global::<TiltModel>().on_dialog_closed(move || {
+        let Some(ui) = ui_weak.upgrade() else {
+            return;
+        };
+        crate::gui::render::output_defaults::remember_tilt(&ui, &settings_store, false);
+    });
+}
+
+/// Whether `request` sends work to the remote: only then does its transfer choice count as the
+/// one to remember.
+const fn sends_to_remote(request: &run::VideoExportRequest) -> bool {
+    request.remote.worker.is_some()
+        && !matches!(request.remote.compute_target, ComputeTarget::LocalOnly)
 }
 
 /// The metric readings the dialog asks to print on the frames; none when "Show Values" is off.
@@ -468,7 +528,8 @@ fn build_request(
     // (`start_angle_deg`/`end_angle_deg` are `int` in Slint -- `SpinBox`'s own
     // `-90..=90` bounds already keep them in range; `clamp_angle_deg` here is
     // defense-in-depth, not the primary guard.)
-    let total_frames = params::frame_count(start_deg, end_deg, step_deg);
+    let axes = selected_axes(ui, axis_index);
+    let total_frames = params::pose_count(&axes, start_deg, end_deg, step_deg);
     if total_frames == 0 {
         return Err("The angle range/step must produce at least one frame.".to_string());
     }
@@ -480,7 +541,10 @@ fn build_request(
         tracing::info!("Starting a large tilt video export: {total_frames} frames");
     }
 
-    let curves = read_axis_curves(ui, axis_index)
+    let curves = axes
+        .iter()
+        .map(|&axis| read_axis_curves(ui, axis))
+        .collect::<Option<Vec<_>>>()
         .ok_or_else(|| "The tilt sweep hasn't finished computing yet.".to_string())?;
 
     let fps = params::resolve_fps(model.get_fps_index());
@@ -507,6 +571,11 @@ fn build_request(
     let mut scene = SceneSnapshot::capture_finished(render_ctx, finished)?;
     scene.max_bounces = max_bounces;
     scene.engine = engine;
+    // "Turn Stone 90°": a quarter turn of the picture on top of the live view's own roll, for
+    // every frame (`frames` adds each axis's roll to it; the Start and End pictures match).
+    if model.get_quarter_turn() {
+        scene.camera_roll += std::f32::consts::FRAC_PI_2;
+    }
     if !scene.engine.is_ray() && ui.global::<crate::OpticalModel>().get_include_video() {
         scene.optical_diagnostics = Some(crate::bridge::optical_overlay::presentation(ui));
     }
@@ -549,7 +618,7 @@ fn build_request(
         scene.material.name.as_str(),
         &scene,
         VideoTemplateSettings {
-            axis_index,
+            axis_label: axes_label(&axes),
             fps,
             width,
             height,
@@ -575,7 +644,7 @@ fn build_request(
 
     Ok(run::VideoExportRequest {
         scene,
-        axis_index: usize::try_from(axis_index.max(0)).unwrap_or(0),
+        axes,
         start_deg,
         end_deg,
         step_deg,
@@ -614,8 +683,7 @@ const fn compute_target_of(index: i32, remote_configured: bool) -> ComputeTarget
 /// by `gui::tilt::tilt_profile`'s background sweep, which the dialog always launches
 /// before the video export section can be interacted with). `None` if the axis is out
 /// of range or the sweep for it hasn't landed yet (fewer than 181 points).
-fn read_axis_curves(ui: &MainWindow, axis_index: i32) -> Option<metrics::MetricCurves> {
-    let idx = usize::try_from(axis_index).ok()?;
+fn read_axis_curves(ui: &MainWindow, idx: usize) -> Option<metrics::MetricCurves> {
     let tilt = ui.global::<TiltModel>();
     let to_vec = |row: slint::ModelRc<f32>| row.iter().collect::<Vec<f32>>();
 
@@ -649,6 +717,7 @@ fn read_axis_curves(ui: &MainWindow, axis_index: i32) -> Option<metrics::MetricC
 /// identically, since its own caller cannot tell them apart.
 fn resolve_export_directory_then(
     ui: &MainWindow,
+    settings_store: &Arc<SettingsPersister>,
     on_done: impl FnOnce(&MainWindow, Option<PathBuf>) + 'static,
 ) {
     let export_model = ui.global::<ExportModel>();
@@ -657,6 +726,9 @@ fn resolve_export_directory_then(
         on_done(ui, Some(PathBuf::from(current.as_str())));
         return;
     }
+    // A folder chosen here is the export folder from now on, as one chosen in the still
+    // export dialog is (`AppSettings::export_directory`).
+    let settings_store = Arc::clone(settings_store);
     crate::gui::pickers::pick(
         ui,
         crate::gui::pickers::PickerRequest {
@@ -668,8 +740,9 @@ fn resolve_export_directory_then(
         },
         move |ui, dir| {
             if let Some(dir) = &dir {
-                ui.global::<ExportModel>()
-                    .set_directory(dir.to_string_lossy().into_owned().into());
+                let dir_string = dir.to_string_lossy().into_owned();
+                settings_store.update(|s| s.settings.export_directory.clone_from(&dir_string));
+                ui.global::<ExportModel>().set_directory(dir_string.into());
             }
             on_done(ui, dir);
         },
@@ -697,13 +770,97 @@ fn parse_step_deg(raw: &str) -> f32 {
         .map_or(1.0, params::clamp_step_deg) as f32
 }
 
-/// `axis_index` -> its azimuth label (e.g. `"45"`) for `{axis}` in the folder-name
-/// template.
-fn axis_label_for_index(axis_index: i32) -> String {
-    usize::try_from(axis_index)
-        .ok()
-        .and_then(|index| PROFILE_AZIMUTHS_DEG.get(index))
-        .map_or_else(|| "0".to_string(), |deg| format!("{deg:.0}"))
+/// The video's axes in the order it plays them, from the section's axis chips (`video_axes`,
+/// chart-axis indices in the order they were chosen): the chosen ones, or the chart's
+/// `fallback_axis` alone when none is chosen.
+pub(in crate::gui) fn selected_axes(ui: &MainWindow, fallback_axis: i32) -> Vec<usize> {
+    let axes = axis_order(ui.global::<TiltVideoExportModel>().get_video_axes().iter());
+    if axes.is_empty() {
+        vec![chart_axis(fallback_axis)]
+    } else {
+        axes
+    }
+}
+
+/// The chart's axis as an index into `PROFILE_AZIMUTHS_DEG`, clamped into it.
+fn chart_axis(axis: i32) -> usize {
+    usize::try_from(axis).map_or(0, |axis| axis.min(PROFILE_AZIMUTHS_DEG.len() - 1))
+}
+
+/// The chips' play order from `video_axes`: the valid chart-axis indices, each once (its first
+/// place counts), in the order given.
+pub(in crate::gui) fn axis_order(chosen: impl IntoIterator<Item = i32>) -> Vec<usize> {
+    let mut order: Vec<usize> = Vec::new();
+    for axis in chosen {
+        if let Ok(axis) = usize::try_from(axis)
+            && axis < PROFILE_AZIMUTHS_DEG.len()
+            && !order.contains(&axis)
+        {
+            order.push(axis);
+        }
+    }
+    order
+}
+
+/// The play order after a click on `axis`'s chip, the order the chips were clicked in: an axis
+/// not chosen yet plays last; a chosen one leaves and the ones after it move up. Leaving the
+/// last one empties the list, which is the chart's axis alone again ([`selected_axes`]).
+fn toggled_axes(order: &[usize], axis: usize) -> Vec<usize> {
+    let mut next = order.to_vec();
+    match next.iter().position(|&chosen| chosen == axis) {
+        Some(at) => {
+            next.remove(at);
+        }
+        None => next.push(axis),
+    }
+    next
+}
+
+/// Writes a play order back to the section's `video_axes`.
+fn set_video_axes(model: &TiltVideoExportModel<'_>, order: &[usize]) {
+    let list: Vec<i32> = order
+        .iter()
+        .filter_map(|&axis| i32::try_from(axis).ok())
+        .collect();
+    model.set_video_axes(slint::ModelRc::new(slint::VecModel::from(list)));
+}
+
+/// The chips' clicks: [`toggled_axes`] on `video_axes`.
+fn setup_axis_order(ui: &MainWindow) {
+    let ui_weak = ui.as_weak();
+    ui.global::<TiltVideoExportModel>()
+        .on_toggle_video_axis(move |axis| {
+            let Some(ui) = ui_weak.upgrade() else {
+                return;
+            };
+            let Ok(axis) = usize::try_from(axis) else {
+                return;
+            };
+            if axis >= PROFILE_AZIMUTHS_DEG.len() {
+                return;
+            }
+            let model = ui.global::<TiltVideoExportModel>();
+            let order = axis_order(model.get_video_axes().iter());
+            set_video_axes(&model, &toggled_axes(&order, axis));
+        });
+}
+
+/// The axes' azimuth labels for `{axis}` in the folder-name template: `"45"` for one
+/// axis, `"0+90"` for several.
+fn axes_label(axes: &[usize]) -> String {
+    let labels: Vec<String> = axes
+        .iter()
+        .map(|&index| {
+            PROFILE_AZIMUTHS_DEG
+                .get(index)
+                .map_or_else(|| "0".to_string(), |deg| format!("{deg:.0}"))
+        })
+        .collect();
+    if labels.is_empty() {
+        "0".to_string()
+    } else {
+        labels.join("+")
+    }
 }
 
 /// `ColorSpace`'s own display label -- mirrors
@@ -720,11 +877,12 @@ const fn colorspace_label(cs: ColorSpace) -> &'static str {
 }
 
 /// Plain, already-resolved settings for [`build_video_template_context`] -- grouped into
-/// one `Copy` struct (rather than passed as individual arguments) purely to keep that
+/// one struct (rather than passed as individual arguments) purely to keep that
 /// function's own argument list under `clippy::too_many_arguments`'s default threshold.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct VideoTemplateSettings {
-    axis_index: i32,
+    /// `{axis}`: [`axes_label`] of the video's axes.
+    axis_label: String,
     fps: u32,
     width: u32,
     height: u32,

@@ -227,20 +227,27 @@ fn rescue_omits_measured_gradient_actions_without_refilling_its_budget() {
     let measured = env.core.gradient_actions(h, &slopes, &[0.5, 0.25]);
     let original = env.core.rescue_candidates(h, &probes, &[]);
     let fresh = env.core.rescue_candidates(h, &probes, &measured);
-    assert!(original.iter().any(|candidate| {
-        measured.iter().any(|old| old.raw == candidate.raw)
-    }));
+    assert!(
+        original
+            .iter()
+            .any(|candidate| { measured.iter().any(|old| old.raw == candidate.raw) })
+    );
     let expected: Vec<_> = original
         .into_iter()
         .filter(|candidate| !measured.iter().any(|old| old.raw == candidate.raw))
         .collect();
-    assert_eq!(fresh, expected, "keep the original ordered candidate subset");
+    assert_eq!(
+        fresh, expected,
+        "keep the original ordered candidate subset"
+    );
     assert!(fresh.len() < RESCUE_ATTEMPTS);
     for old in &measured {
         let replay = action_from_direction(&old.raw, h);
-        assert!(fresh.iter().all(|candidate| {
-            action_from_direction(&candidate.raw, h) != replay
-        }));
+        assert!(
+            fresh
+                .iter()
+                .all(|candidate| { action_from_direction(&candidate.raw, h) != replay })
+        );
     }
 }
 

@@ -40,8 +40,16 @@ pub struct VideoFacts {
 }
 
 /// The name a tilt video job has in the list: `Design · tilt video · axis 45°`.
-pub fn video_label(design: &str, axis_deg: f32) -> String {
-    format!("{design} \u{b7} tilt video \u{b7} axis {axis_deg:.0}\u{b0}")
+pub fn video_label(design: &str, axes_deg: &[f32]) -> String {
+    let angles: Vec<String> = axes_deg
+        .iter()
+        .map(|deg| format!("{deg:.0}\u{b0}"))
+        .collect();
+    let word = if angles.len() > 1 { "axes" } else { "axis" };
+    format!(
+        "{design} \u{b7} tilt video \u{b7} {word} {}",
+        angles.join(" + ")
+    )
 }
 
 /// An angle in the shortest form: `-90`, `0.5`.
@@ -90,7 +98,7 @@ pub(super) fn add_tilt_video_job(ui: &MainWindow, deps: &Deps, axis_index: i32) 
                 model.set_has_error(false);
                 model.set_status_message("Nothing was added.".into());
             }
-            Ok(Some(request)) => queue_request(ui, &deps, request, axis_index),
+            Ok(Some(request)) => queue_request(ui, &deps, request),
             Err(message) => refuse(
                 ui,
                 &message.replacen("Nothing was exported", "Nothing was added", 1),
@@ -100,12 +108,7 @@ pub(super) fn add_tilt_video_job(ui: &MainWindow, deps: &Deps, axis_index: i32) 
 }
 
 /// Freezes `request` and stores it as a job.
-fn queue_request(
-    ui: &MainWindow,
-    deps: &Deps,
-    mut request: video_export::run::VideoExportRequest,
-    axis_index: i32,
-) {
+fn queue_request(ui: &MainWindow, deps: &Deps, mut request: video_export::run::VideoExportRequest) {
     let taken = {
         let db = deps
             .db
@@ -127,11 +130,12 @@ fn queue_request(
     request.out_dir = reserve_unique_folder(&request.out_dir, &taken, &|path| path.exists());
 
     let (design, designer, shape, ri) = design_naming(ui, &deps.render_ctx);
-    let axis_deg = usize::try_from(axis_index)
-        .ok()
-        .and_then(|index| PROFILE_AZIMUTHS_DEG.get(index).copied())
-        .unwrap_or(0.0);
-    let label = video_label(&design, axis_deg);
+    let axes_deg: Vec<f32> = request
+        .axes
+        .iter()
+        .map(|&index| PROFILE_AZIMUTHS_DEG.get(index).copied().unwrap_or(0.0))
+        .collect();
+    let label = video_label(&design, &axes_deg);
     let summary = video_summary(&VideoFacts {
         start_deg: request.start_deg,
         end_deg: request.end_deg,

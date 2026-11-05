@@ -25,7 +25,10 @@ use crate::{
 /// Arithmetic identity for geometry, projection and optical CUDA execution.
 ///
 /// Persisted validation and oracle caches must not mix this route with older math.
-pub const CUDA_ENVIRONMENT_MATH: &str = "cuda-env-v3";
+///
+/// v7 (2026-11-02): a stalled projection certifies at most four deferred line trials,
+/// smallest residual first, so some requests that v6 rescued late now report a miss.
+pub const CUDA_ENVIRONMENT_MATH: &str = "cuda-env-v7";
 
 /// The physical execution route and cumulative work of one training run.
 #[derive(Clone, Debug, serde::Serialize)]
@@ -303,8 +306,8 @@ impl PendingOptics {
                 Err(error)
             }
         };
-        // Account every native success once, including ready speculative candidates
-        // later discarded by an earlier accepted line-search scale.
+        // Account every native success once, including ready requests whose staged
+        // work is later abandoned by its owner.
         self.result = Some(match result {
             Ok(result) => {
                 self.execution

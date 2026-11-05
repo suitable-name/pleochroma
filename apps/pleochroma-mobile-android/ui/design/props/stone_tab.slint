@@ -26,7 +26,7 @@ import { RenderModel } from "../render/render_model.slint";
 // The settings page.
 component StoneSettings inherits PageScroll {
     if RenderModel.engine == 1: Text {
-        text: "Ray-Traced uses an averaged tint. Inclusion haze and edge rounding are not shown; crystal-axis settings affect only its averaged absorption, not double images. Use Path-Traced for those effects.";
+        text: "Ray-Traced tints by the material's spectrum in 10 nm bands. Inclusion haze and edge rounding are not shown; crystal-axis settings affect only its absorption, not double images. Use Path-Traced for those effects.";
         wrap: word-wrap;
         color: Theme.on-surface-variant;
         font-size: Theme.text-label;

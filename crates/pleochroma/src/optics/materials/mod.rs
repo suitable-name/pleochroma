@@ -28,6 +28,7 @@ mod diamond_through_emerald;
 mod feldspars_and_precious_opal;
 mod garnets_grossular_and_andradite;
 mod garnets_pyrope_through_spessartine;
+mod look;
 mod lookup;
 mod optics;
 mod peridot_through_benitoite;
@@ -36,10 +37,12 @@ mod spinel_through_tourmaline;
 mod tanzanite_through_cubic_zirconia;
 #[cfg(test)]
 mod tests;
+mod titanite;
 pub mod variants;
 mod zircon_through_topaz;
 mod zoned;
 pub use ametrine::{AMETRINE_AMETHYST_FE_PPMA, AMETRINE_CITRINE_FE_PPMA, ametrine_zoning};
+pub use look::{MOONSTONE_PRESET, MaterialLook};
 pub use zoned::{
     ZONE_SWATCH_FALLBACK_MODEL_WIDTH, face_up_swatch, zone_swatches, zone_swatches_at_scale,
     zone_swatches_face_up, zone_swatches_face_up_at_scale,
@@ -305,10 +308,8 @@ impl GemMaterial {
         materials.extend(Self::built_in_materials_zircon_through_topaz());
         materials.extend(Self::built_in_materials_spinel_through_tourmaline());
         materials.extend(Self::built_in_materials_tanzanite_through_cubic_zirconia());
-        // Four more quarters of new species. See
-        // [`Self::built_in_materials_aquamarine_through_citrine`]'s module-level note
-        // for Sphene (left out) and [`Self::built_in_material_rutile`] for why Rutile
-        // is included.
+        // Four more quarters of new species. See [`Self::built_in_material_rutile`] for why
+        // Rutile is included (Titanite, once left out of this group, is last in the table).
         materials.extend(Self::built_in_materials_aquamarine_through_citrine());
         materials.extend(Self::built_in_materials_amethyst_through_citrine());
         // The one zoned built-in, right after the Amethyst and Citrine entries it combines.
@@ -322,6 +323,8 @@ impl GemMaterial {
         // Structural-color stones last, so no existing material moves in the list: Precious Opal
         // (White), Precious Opal (Black), Labradorite, Moonstone.
         materials.extend(Self::built_in_materials_feldspars_and_precious_opal());
+        // Titanite (Sphene), added 2026-11-03: last, so no existing material moves.
+        materials.push(Self::built_in_material_titanite());
         materials
     }
 

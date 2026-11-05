@@ -594,7 +594,9 @@ mod tests {
         assert_eq!(handles.len(), 1);
         let handle = handles[0];
         assert_eq!(handle.parameter, ZoneParameter::ROut);
-        assert!((handle.x_mm - 0.35 * 7.0).abs() < 1e-9);
+        // The watermelon core's apothem is 0.2 of the stone width (cut-core's
+        // `WATERMELON_CORE_APOTHEM`).
+        assert!((handle.x_mm - 0.2 * 7.0).abs() < 1e-9);
         assert!(handle.z_mm.abs() < 1e-9);
         let value = dragged_value(&handle, &pattern.zones[0], 0.5 * 7.0, 0.0, true, 7.0).unwrap();
         assert!((value - 0.5).abs() < 1e-9);

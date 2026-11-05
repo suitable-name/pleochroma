@@ -175,3 +175,97 @@ fn cuda_f64_rows_match_cpu_for_batched_angle_and_depth_probes() {
         }
     }
 }
+
+fn production_provenance(design: &Design) -> Vec<super::network::Plane> {
+    let solved = design.solve().expect("fixture solve");
+    let production = design.planes_from_solved(&solved);
+    let mut result = design.preform.planes_offset(design.preform_y_offset);
+    let offset = result.len();
+    for tier in StandardGemCuts::asc_plane_provenance(&design.to_asc_schedule_from_solved(&solved))
+    {
+        result.extend(tier.into_iter().map(|index| production[offset + index]));
+    }
+    result
+}
+
+#[test]
+fn direct_planes_follow_changed_aliases_even_when_plane_count_is_unchanged() {
+    use pleochroma::geometry::meet_solver::MeetConstraint;
+    let mut design = pinned_design();
+    let mut tier = design.tiers[0].clone();
+    tier.indices = vec![0.0];
+    tier.angle_deg = 45.0;
+    tier.constraint = MeetConstraint::ScaleReference(1.0);
+    design.tiers = vec![tier.clone(), tier.clone(), tier];
+    design.tiers[2].constraint = MeetConstraint::ScaleReference(1.01);
+    let first = production_provenance(&design);
+    let first_count = design.planes_from_solved(&design.solve().unwrap()).len();
+    assert_eq!(super::network::direct_surfaces(&design).unwrap(), first);
+    design.tiers[1].constraint = MeetConstraint::ScaleReference(1.01);
+    let second = production_provenance(&design);
+    assert_eq!(
+        design.planes_from_solved(&design.solve().unwrap()).len(),
+        first_count
+    );
+    assert_ne!(first, second);
+    assert_eq!(super::network::direct_surfaces(&design).unwrap(), second);
+}
+
+#[test]
+fn direct_planes_match_production_for_flat_aliases_gear_and_cheaters() {
+    use pleochroma::geometry::meet_solver::MeetConstraint;
+    let mut design = pinned_design();
+    let mut flat = design.tiers[0].clone();
+    flat.angle_deg = 0.0;
+    flat.indices = vec![0.0, 24.0, 48.0];
+    flat.constraint = MeetConstraint::ScaleReference(1.0);
+    let mut facet = flat.clone();
+    facet.angle_deg = -42.0;
+    facet.indices = vec![0.0, 12.0, 24.0, 36.0];
+    let mut implicit = facet.clone();
+    implicit.indices.clear();
+    design.tiers = vec![flat, facet.clone(), facet, implicit];
+    design.meta.gear_teeth = -96;
+    design.meta.gear_reference_angle = 3.5;
+    design.meta.symmetry_order = 4;
+    design.meta.mirror = true;
+    design.cheater_offsets_deg.insert(1, 1.25);
+    design.cheater_offsets_deg.insert(2, -2.0);
+    assert_eq!(
+        super::network::direct_surfaces(&design).unwrap(),
+        production_provenance(&design)
+    );
+}
+
+#[test]
+fn direct_planes_match_checked_production_after_relation_updates() {
+    use pleochroma_cut_core::design::{Expr, TierRelation};
+
+    let mut design = pinned_design();
+    design.tiers[0].angle_deg = 40.0;
+    design.tiers[1].angle_deg = -35.0;
+    design.tiers[2].angle_deg = -0.0;
+    design.tiers[2].indices.clear();
+    design.tiers[3].angle_deg = 0.0;
+    design.tiers[3].indices.clear();
+    design.meta.gear_teeth = -96;
+    design.meta.gear_reference_angle = 2.5;
+    let relation = TierRelation::new(Expr::Add(
+        Box::new(Expr::Ref(design.tier_ids[0])),
+        Box::new(Expr::Number(2.0)),
+    ));
+    design.tier_relations.insert(design.tier_ids[1], relation);
+
+    for angle in [40.0, 41.25] {
+        design.tiers[0].angle_deg = angle;
+        for (index, related_angle) in design.evaluate_relations().unwrap() {
+            design.tiers[index].angle_deg = related_angle;
+        }
+        assert_eq!(design.tiers[1].angle_deg, -(angle + 2.0));
+        assert!(super::network::direct_masts(&design));
+        assert_eq!(
+            super::network::direct_surfaces(&design).unwrap(),
+            production_provenance(&design)
+        );
+    }
+}

@@ -45,6 +45,13 @@ impl AppSettings {
         self.recent_native_files.truncate(MAX_RECENT_NATIVE_FILES);
     }
 
+    /// Removes `path` from [`Self::recent_native_files`] (the startup offer's Discard), so it is
+    /// neither offered at the next start nor listed under File > Open Recent. The file itself is
+    /// not touched.
+    pub fn forget_recent_native_file(&mut self, path: &str) {
+        self.recent_native_files.retain(|existing| existing != path);
+    }
+
     /// Whether the confirm prompt named `key` has been silenced -- see
     /// [`Self::suppressed_confirmations`]'s own doc comment.
     #[must_use]

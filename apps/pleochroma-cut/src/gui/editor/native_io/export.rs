@@ -17,7 +17,7 @@ use crate::{
     bridge::render_thread::RenderContext,
     gui::{
         editor::{
-            cut_sheet::{current_date_text, write_cutting_sheet_html_with},
+            cut_sheet::{SheetFormat, current_date_text, write_cutting_sheet_with},
             state::EditorState,
         },
         optics::crystal_optics::stored_default_orientation_of,
@@ -27,7 +27,11 @@ use crate::{
 };
 use pleochroma::geometry::meet_solver::SolvedTier;
 use pleochroma_cut_core::Design;
-use pleochroma_editor::{cut_sheet::SheetDetails, guide::viewing_events as events};
+use pleochroma_editor::{
+    cut_sheet::SheetDetails,
+    files::{cutting_sheet_file_name, cutting_sheet_pdf_file_name},
+    guide::viewing_events as events,
+};
 use pleochroma_vault::db::sqlite::Database;
 use slint::ComponentHandle;
 use std::{
@@ -59,124 +63,144 @@ fn flatten_export_solve(
     }
 }
 
-/// "Export Cutting Sheet": the printable HTML sheet.
-///
-/// Goes through [`resolve_solve_at`] (a matching cached solve, else a
-/// background [`SolveService`] solve -- a design that does not solve has no
-/// masts to print) and [`pick_file`] (the save-as picker on a background
-/// thread), never solving inline on the UI thread or blocking on a native
-/// save-file dialog; the HTML build and file write also run on a background
-/// thread.
+/// "Export Cutting Sheet (HTML)..." and "Export Cutting Sheet (PDF)...": the printable sheet in
+/// the standard template, one File-menu item per format. The HTML page adds the renderings and
+/// further details after the template; the PDF holds the template alone. See
+/// [`export_cutting_sheet`] for the shared flow.
 pub(in crate::gui::editor) fn setup_export_cutting_sheet_callback(
     ui: &MainWindow,
     state: &Rc<RefCell<EditorState>>,
     render_ctx: &Arc<Mutex<RenderContext>>,
     db: &Arc<Mutex<Database>>,
 ) {
-    let state = Rc::clone(state);
-    let render_ctx = Arc::clone(render_ctx);
-    let db = Arc::clone(db);
-    let ui_weak = ui.as_weak();
-    ui.global::<EditorModel>().on_export_cutting_sheet(move || {
-        let Some(ui) = ui_weak.upgrade() else {
-            return;
+    for format in [SheetFormat::Html, SheetFormat::Pdf] {
+        let state = Rc::clone(state);
+        let render_ctx = Arc::clone(render_ctx);
+        let db = Arc::clone(db);
+        let ui_weak = ui.as_weak();
+        let handler = move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                export_cutting_sheet(&ui, &state, &render_ctx, &db, format);
+            }
         };
-        crate::gui::editor::stall_guard::stall_guard("export_cutting_sheet", || {
-            // The open design's own file details (title, designer, shape, notes) head the
-            // printed sheet; read here so no `EditorState` borrow outlives this block.
-            let (design, base_name, generation, file_metadata) = {
-                let st = state.borrow();
-                (
-                    st.design.clone(),
-                    suggested_file_name(&st),
-                    st.generation.load(Ordering::Relaxed),
-                    st.file_extras.metadata.clone(),
-                )
-            };
-            let render_ctx = Arc::clone(&render_ctx);
-            let db = Arc::clone(&db);
-            resolve_solve_at(
-                &ui,
-                Arc::new(design),
-                generation,
-                move |ui, design, solved_result| {
-                    crate::gui::editor::stall_guard::stall_guard(
-                        "export_cutting_sheet_solved",
-                        || {
-                            let Some(solved_result) = flatten_export_solve(ui, solved_result)
-                            else {
-                                return;
-                            };
-                            let solved = match solved_result {
-                                Ok(solved) => solved,
-                                Err(missing) => {
-                                    show_toast(
-                                        ui,
-                                        &format!("Cannot build a cutting sheet: {missing}."),
-                                        "error",
-                                    );
-                                    return;
-                                }
-                            };
-                            // Custom-catalogue-aware: the printed "Refractive index" row
-                            // must match a CUSTOM material's own `n_D`.
-                            let custom_materials = snapshot_custom_materials(&render_ctx);
-                            // The material's stored default axis, from its library row: the
-                            // baked axes cannot show a default of tilt 0.
-                            let stored_default = stored_default_orientation_of(&db, &design);
-                            // Empty file fields fall back to the design's `.asc` header lines;
-                            // the date is the export month and year.
-                            let details = SheetDetails::from_metadata(
-                                &design,
-                                &file_metadata,
-                                &current_date_text(),
-                            );
-                            let base = base_name.trim_end_matches(".asc").to_string();
-                            pick_file(
+        match format {
+            SheetFormat::Html => ui.global::<EditorModel>().on_export_cutting_sheet(handler),
+            SheetFormat::Pdf => ui
+                .global::<EditorModel>()
+                .on_export_cutting_sheet_pdf(handler),
+        }
+    }
+}
+
+/// The shared body of both cutting-sheet callbacks, writing the sheet in `format`.
+///
+/// Goes through [`resolve_solve_at`] (a matching cached solve, else a
+/// background [`SolveService`] solve -- a design that does not solve has no
+/// masts to print) and [`pick_file`] (the save-as picker on a background
+/// thread), never solving inline on the UI thread or blocking on a native
+/// save-file dialog; the sheet build and file write also run on a background
+/// thread.
+///
+/// The dialog offers `format`'s file type only and proposes `<name>_cutting_sheet.html` or
+/// `<name>_cutting_sheet.pdf`. The written format follows the picked name
+/// ([`write_cutting_sheet_with`]); a PDF name left without its extension gets `.pdf`
+/// ([`SheetFormat::path_for`]).
+fn export_cutting_sheet(
+    ui: &MainWindow,
+    state: &Rc<RefCell<EditorState>>,
+    render_ctx: &Arc<Mutex<RenderContext>>,
+    db: &Arc<Mutex<Database>>,
+    format: SheetFormat,
+) {
+    let label = match format {
+        SheetFormat::Html => "export_cutting_sheet",
+        SheetFormat::Pdf => "export_cutting_sheet_pdf",
+    };
+    crate::gui::editor::stall_guard::stall_guard(label, || {
+        // The open design's own file details (title, designer, shape, notes) head the
+        // printed sheet; read here so no `EditorState` borrow outlives this block.
+        let (design, base_name, generation, file_metadata) = {
+            let st = state.borrow();
+            (
+                st.design.clone(),
+                suggested_file_name(&st),
+                st.generation.load(Ordering::Relaxed),
+                st.file_extras.metadata.clone(),
+            )
+        };
+        let render_ctx = Arc::clone(render_ctx);
+        let db = Arc::clone(db);
+        resolve_solve_at(
+            ui,
+            Arc::new(design),
+            generation,
+            move |ui, design, solved_result| {
+                crate::gui::editor::stall_guard::stall_guard("export_cutting_sheet_solved", || {
+                    let Some(solved_result) = flatten_export_solve(ui, solved_result) else {
+                        return;
+                    };
+                    let solved = match solved_result {
+                        Ok(solved) => solved,
+                        Err(missing) => {
+                            show_toast(
                                 ui,
-                                PickKind::SaveCuttingSheet {
-                                    default_name: format!("{base}_cutting_sheet.html"),
-                                },
-                                move |ui, dest_path| {
-                                    // A dismissed dialog is the cutter's own cancel -- no
-                                    // toast.
-                                    let Some(dest_path) = dest_path else {
-                                        return;
-                                    };
-                                    let ui_weak = ui.as_weak();
-                                    std::thread::spawn(move || {
-                                        let result = write_cutting_sheet_html_with(
-                                            &design,
-                                            &solved,
-                                            &dest_path,
-                                            &custom_materials,
-                                            stored_default,
-                                            &details,
-                                        );
-                                        let _ =
-                                            ui_weak.upgrade_in_event_loop(move |ui| match result {
-                                                Ok(()) => {
-                                                    show_toast(
-                                                        &ui,
-                                                        &format!(
-                                                            "Wrote cutting sheet to {}",
-                                                            dest_path.display()
-                                                        ),
-                                                        "success",
-                                                    );
-                                                    // A tutorial step may wait for the sheet.
-                                                    raise(&ui, events::SHEET_EXPORTED);
-                                                }
-                                                Err(message) => show_toast(&ui, &message, "error"),
-                                            });
-                                    });
-                                },
+                                &format!("Cannot build a cutting sheet: {missing}."),
+                                "error",
                             );
+                            return;
+                        }
+                    };
+                    // Custom-catalogue-aware: the printed "Refractive index" row
+                    // must match a CUSTOM material's own `n_D`.
+                    let custom_materials = snapshot_custom_materials(&render_ctx);
+                    // The material's stored default axis, from its library row: the
+                    // baked axes cannot show a default of tilt 0.
+                    let stored_default = stored_default_orientation_of(&db, &design);
+                    // Empty file fields fall back to the design's `.asc` header lines;
+                    // the date is the export month and year.
+                    let details =
+                        SheetDetails::from_metadata(&design, &file_metadata, &current_date_text());
+                    let kind = match format {
+                        SheetFormat::Html => PickKind::SaveCuttingSheet {
+                            default_name: cutting_sheet_file_name(&base_name),
                         },
-                    );
-                },
-            );
-        });
+                        SheetFormat::Pdf => PickKind::SaveCuttingSheetPdf {
+                            default_name: cutting_sheet_pdf_file_name(&base_name),
+                        },
+                    };
+                    pick_file(ui, kind, move |ui, dest_path| {
+                        // A dismissed dialog is the cutter's own cancel -- no toast.
+                        let Some(dest_path) = dest_path else {
+                            return;
+                        };
+                        let dest_path = format.path_for(dest_path);
+                        let ui_weak = ui.as_weak();
+                        std::thread::spawn(move || {
+                            let result = write_cutting_sheet_with(
+                                &design,
+                                &solved,
+                                &dest_path,
+                                &custom_materials,
+                                stored_default,
+                                &details,
+                            );
+                            let _ = ui_weak.upgrade_in_event_loop(move |ui| match result {
+                                Ok(()) => {
+                                    show_toast(
+                                        &ui,
+                                        &format!("Wrote cutting sheet to {}", dest_path.display()),
+                                        "success",
+                                    );
+                                    // A tutorial step may wait for the sheet.
+                                    raise(&ui, events::SHEET_EXPORTED);
+                                }
+                                Err(message) => show_toast(&ui, &message, "error"),
+                            });
+                        });
+                    });
+                });
+            },
+        );
     });
 }
 

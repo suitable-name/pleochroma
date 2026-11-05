@@ -303,7 +303,9 @@ mod tests {
     fn denoised_output_is_pinned_to_the_pre_move_gui_code() {
         // Pinned with the denoiser copying background pixels (negative facet id) through
         // unfiltered and the sRGB encode's final 8-bit quantisation at round-to-nearest.
-        const PINNED: u64 = 0x4b0e_fd3c_897e_809c;
+        // Re-pinned on 2026-11-04 (owner's run): the encode's default highlight rule became
+        // `HighlightRule::KeepColor` on 2026-11-03 (it was 0x4b0e_fd3c_897e_809c under Whiten).
+        const PINNED: u64 = 0x50f9_945c_3ecd_b2a7;
         let planes = StandardGemCuts::standard_round_brilliant();
         let camera = Camera::new(PIN_POSE.0, PIN_POSE.1, PIN_POSE.2, 42.0);
         let accum = pin_accum();

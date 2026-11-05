@@ -67,8 +67,9 @@ fn settings_path_under(app_dir_name: &str) -> PathBuf {
 #[must_use]
 pub fn default_library_path() -> PathBuf {
     // The UI harnesses give every launch its own working directory with its own library
-    // in it, and must never reach a real one through the environment.
-    if cfg!(feature = "ui-harness") {
+    // in it, and must never reach a real one through the environment. A `ui-harness` build
+    // started as the app finds its library like any other.
+    if crate::harness_seams_active() {
         return std::env::current_dir().map_or_else(
             |_| PathBuf::from(LIBRARY_FILE_NAME),
             |dir| dir.join(LIBRARY_FILE_NAME),

@@ -213,7 +213,7 @@ pub fn connect_and_handshake_with(
         .sock
         .set_read_timeout(None)
         .map_err(RemoteError::Io)?;
-    Ok((stream, welcome))
+    Ok((RemoteStream::new(stream), welcome))
 }
 
 /// The settings UI's "Test connection" operation: connect, handshake, report worker

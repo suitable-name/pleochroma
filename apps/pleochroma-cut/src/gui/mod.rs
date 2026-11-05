@@ -219,6 +219,9 @@ pub fn run_gui() -> anyhow::Result<()> {
     // starts again now. The new instance waits for this process to be gone, so it is started
     // after the window state is released and as late as possible.
     drop(handle);
+    // Remote connections parked for reuse live in a static, which is never dropped: closed
+    // here, they end cleanly instead of being cut off when the process exits.
+    crate::bridge::remote::remote_render::close_idle_connections();
     if radv_workaround::take_pending_restart()
         && let Err(message) = radv_workaround::restart_process()
     {

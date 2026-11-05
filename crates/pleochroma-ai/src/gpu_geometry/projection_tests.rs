@@ -115,6 +115,133 @@ fn prepared(
     (projection, baseline, options, bounds)
 }
 
+fn exact_planes(design: &Design) -> Vec<[u64; 4]> {
+    super::network::surfaces(design)
+        .expect("production planes")
+        .into_iter()
+        .map(|(normal, distance)| {
+            [
+                normal.x.to_bits(),
+                normal.y.to_bits(),
+                normal.z.to_bits(),
+                distance.to_bits(),
+            ]
+        })
+        .collect()
+}
+
+#[test]
+#[ignore = "requires CUDA and NVRTC; checks exact negative proof caches and failure isolation"]
+fn arrangement_refutations_cache_authored_and_plane_equivalent_states() {
+    let design = octahedron(false);
+    let backend = GpuGeometry::new_cuda(0).expect("CUDA and NVRTC");
+    let (projection, _, _, _) = prepared(&design, backend.clone());
+    let candidate = deformed(&design);
+    let before = backend.diagnostics();
+    let error = projection
+        .certify(&candidate)
+        .expect_err("broken crown meet");
+    assert!(error.contains("no possible candidate arrangement point"));
+    let first = backend.diagnostics();
+    assert_eq!(first.arrangement_refusals, before.arrangement_refusals + 1);
+    assert_eq!(first.cpu_gate_calls, before.cpu_gate_calls);
+
+    assert!(projection.certify(&candidate).is_err());
+    let repeated = backend.diagnostics();
+    assert_eq!(repeated.arrangement_probes, first.arrangement_probes);
+    assert_eq!(
+        repeated.negative_gate_cache_hits,
+        first.negative_gate_cache_hits + 1
+    );
+
+    let mut plateau = candidate.clone();
+    plateau.tiers[1].angle_deg = plateau.tiers[1].angle_deg.next_up();
+    assert_eq!(exact_planes(&plateau), exact_planes(&candidate));
+    assert!(!super::certificate::same_state(&plateau, &candidate));
+    assert!(projection.certify(&plateau).is_err());
+    let cached = backend.diagnostics();
+    assert_eq!(cached.arrangement_probes, first.arrangement_probes);
+    assert_eq!(
+        cached.negative_gate_cache_hits,
+        repeated.negative_gate_cache_hits + 1
+    );
+
+    backend.fail("injected proof-cache infrastructure failure".into());
+    let error = projection
+        .certify(&plateau)
+        .expect_err("health precedes cached refusal");
+    assert!(error.contains("injected proof-cache infrastructure failure"));
+    assert_eq!(
+        backend.diagnostics().negative_gate_cache_hits,
+        cached.negative_gate_cache_hits
+    );
+}
+
+#[test]
+#[ignore = "requires CUDA and NVRTC; checks accepted over-budget trials still use the original gate"]
+fn arrangement_budget_bypass_preserves_authoritative_acceptance() {
+    let tiers = [45.0, -45.0]
+        .into_iter()
+        .enumerate()
+        .map(|(index, angle_deg)| ConstraintTier {
+            name: format!("side-{index}"),
+            angle_deg,
+            indices: (0..32).map(|index| f64::from(index) * 3.0).collect(),
+            constraint: MeetConstraint::ScaleReference(0.5),
+            imported_meet: None,
+            original_notes: None,
+            detached: Vec::new(),
+        })
+        .collect();
+    let design = Design::new(
+        PreformSpec::block(4.0, 4.0, 4.0),
+        ScheduleMeta::standard_round_brilliant(),
+        tiers,
+    );
+    let network = super::network::Network::capture(&design).expect("many-plane bicone");
+    assert!(network.surfaces >= 60);
+    assert!(network.arrangement_triples_within_budget().is_none());
+    let backend = GpuGeometry::new_cuda(0).expect("CUDA and NVRTC");
+    let (projection, baseline, _, _) = prepared(&design, backend.clone());
+    let expected = baseline
+        .validate(&design, PreservationPolicy::OPTIMIZE)
+        .expect("original gate");
+    let before = backend.diagnostics();
+    assert_eq!(
+        projection
+            .certify(&design)
+            .expect("budget bypass is not rejection"),
+        expected
+    );
+    let first = backend.diagnostics();
+    assert_eq!(
+        first.arrangement_capacity_bypasses,
+        before.arrangement_capacity_bypasses + 1
+    );
+    assert_eq!(first.arrangement_tiles, before.arrangement_tiles);
+    assert_eq!(first.arrangement_triples, before.arrangement_triples);
+    assert_eq!(first.cpu_gate_calls, before.cpu_gate_calls + 1);
+
+    // The same physical planes on another authored state must remain eligible:
+    // a capacity bypass or successful CPU gate is never a plane refutation.
+    let mut plateau = design.clone();
+    plateau.tiers[0].angle_deg = plateau.tiers[0].angle_deg.next_up();
+    assert_eq!(exact_planes(&plateau), exact_planes(&design));
+    projection
+        .certify(&plateau)
+        .expect("no cached refusal from budget bypass or success");
+    let after = backend.diagnostics();
+    assert_eq!(
+        after.arrangement_capacity_bypasses,
+        first.arrangement_capacity_bypasses + 1
+    );
+    assert_eq!(after.cpu_gate_calls, first.cpu_gate_calls + 1);
+    assert_eq!(
+        after.negative_gate_cache_hits,
+        first.negative_gate_cache_hits
+    );
+}
+
 fn corrected_fixture(named: bool) {
     let design = octahedron(named);
     let backend = GpuGeometry::new_cuda(0).expect("CUDA and NVRTC");
@@ -197,12 +324,17 @@ fn corrected_fixture(named: bool) {
         diagnostics.cuda_probes > 1,
         "finite-difference probes ran on CUDA"
     );
+    assert!(
+        diagnostics.line_trial_gates_avoided <= diagnostics.gpu_prefilter_refusals,
+        "only conservative GPU-impossible line trials may skip the production gate"
+    );
     assert_eq!(diagnostics.cpu_projection_fallbacks, 0);
-    assert_eq!(diagnostics.cpu_residual_batches, 0);
     if named {
         assert!(diagnostics.cpu_authoring_probes > 0);
+        assert_eq!(diagnostics.cpu_residual_batches, 0);
     } else {
         assert_eq!(diagnostics.cpu_authoring_probes, 0);
+        assert_eq!(diagnostics.cpu_residual_batches, 0);
     }
 }
 

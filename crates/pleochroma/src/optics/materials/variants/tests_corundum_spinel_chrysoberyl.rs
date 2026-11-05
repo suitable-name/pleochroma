@@ -60,7 +60,7 @@ struct Pinned {
 }
 
 /// Every entry of the group file, in file order.
-const PINNED: [Pinned; 20] = [
+const PINNED: [Pinned; 21] = [
     Pinned {
         key: "sapphire.pink",
         estimated: false,
@@ -78,6 +78,15 @@ const PINNED: [Pinned; 20] = [
         o_ray: [86.84, 5.91, 61.70],
         beta_ray: None,
         e_ray: [91.65, -1.09, 51.01],
+    },
+    Pinned {
+        key: "sapphire.golden_yellow",
+        estimated: true,
+        face_up_d65: [77.49, 20.15, 90.76],
+        face_up_3200k: [81.68, 27.94, 92.94],
+        o_ray: [77.49, 20.15, 90.76],
+        beta_ray: None,
+        e_ray: [85.14, 7.61, 80.00],
     },
     Pinned {
         key: "sapphire.padparadscha",
@@ -105,6 +114,15 @@ const PINNED: [Pinned; 20] = [
         o_ray: [63.72, 11.20, -39.46],
         beta_ray: None,
         e_ray: [81.17, -5.01, -10.12],
+    },
+    Pinned {
+        key: "sapphire.medium_blue",
+        estimated: true,
+        face_up_d65: [47.32, 21.49, -54.57],
+        face_up_3200k: [44.63, 2.11, -57.00],
+        o_ray: [47.32, 21.49, -54.57],
+        beta_ray: None,
+        e_ray: [70.51, -6.38, -15.08],
     },
     Pinned {
         key: "sapphire.deep_blue",
@@ -206,22 +224,13 @@ const PINNED: [Pinned; 20] = [
         e_ray: [61.74, 15.97, -24.59],
     },
     Pinned {
-        key: "chrysoberyl__yellow_.greenish_yellow",
+        key: "chrysoberyl__yellow_.golden",
         estimated: true,
-        face_up_d65: [90.57, -5.61, 31.09],
-        face_up_3200k: [91.45, 2.20, 29.71],
-        o_ray: [89.43, -6.20, 40.04],
-        beta_ray: Some([91.68, -5.05, 23.46]),
-        e_ray: [87.33, -4.82, 51.39],
-    },
-    Pinned {
-        key: "alexandrite.strong_change",
-        estimated: true,
-        face_up_d65: [57.44, 4.85, 22.54],
-        face_up_3200k: [58.48, 24.87, 16.88],
-        o_ray: [41.62, 18.72, -7.08],
-        beta_ray: Some([68.38, -1.96, 43.88]),
-        e_ray: [45.58, -74.91, -8.87],
+        face_up_d65: [73.74, 2.03, 47.98],
+        face_up_3200k: [75.64, 12.64, 46.32],
+        o_ray: [71.57, 5.95, 56.15],
+        beta_ray: Some([75.80, -1.60, 41.83]),
+        e_ray: [68.69, 15.51, 64.84],
     },
     Pinned {
         key: "alexandrite.brazilian",
@@ -308,11 +317,14 @@ fn the_pinned_keys_are_exactly_the_entries_of_the_group() {
     assert_eq!(listed, pinned);
     // Dropped by owner decision 2026-10-27: Spinel Grey and Chrysoberyl Honey have no usable data,
     // and the Yellow chrysoberyl variant became the Chrysoberyl (Yellow) Material Default (owner
-    // decision O1).
+    // decision O1). Strong Change became the Alexandrite Material Default on 2026-11-03, and Greenish
+    // Yellow the Chrysoberyl (Yellow) one the same day (the dealer photos), the former default now Golden.
     for dropped in [
         "spinel.grey",
         "chrysoberyl__yellow_.yellow",
         "chrysoberyl__yellow_.honey",
+        "alexandrite.strong_change",
+        "chrysoberyl__yellow_.greenish_yellow",
     ] {
         assert!(!pinned.contains(dropped), "{dropped} is dropped");
     }
@@ -413,21 +425,36 @@ fn the_sapphire_blue_family_brackets_the_default_swatch() {
     )
     .unpolarised
     .lab;
-    // The built-in Sapphire swatch the Fe2+-Ti4+ density of 10 ppma*cm gives (7 mm, D65: L* 57).
-    assert!((swatch[0] - 57.0).abs() < 1.0, "{swatch:?}");
+    // The built-in Sapphire swatch the Fe2+-Ti4+ density of 12.5 ppma*cm gives (7 mm, D65:
+    // L* 50), the royal blue default since 2026-11-03.
+    assert!((swatch[0] - 49.9).abs() < 1.0, "{swatch:?}");
     let cornflower = colors(&variant("sapphire.cornflower"), Illuminant::D65)
+        .unpolarised
+        .lab;
+    let medium = colors(&variant("sapphire.medium_blue"), Illuminant::D65)
         .unpolarised
         .lab;
     let deep = colors(&variant("sapphire.deep_blue"), Illuminant::D65)
         .unpolarised
         .lab;
-    assert!(cornflower[0] > swatch[0] + 5.0, "{cornflower:?}");
-    assert!(deep[0] < swatch[0] - 5.0, "{deep:?}");
+    // Lightest to darkest: Cornflower (6), Medium Blue (10), the default (12.5), Deep Blue (15
+    // ppma*cm), each step at least 5 L* below the last but the last (about 6).
+    assert!(
+        cornflower[0] > medium[0] + 5.0,
+        "{cornflower:?} vs {medium:?}"
+    );
+    assert!(medium[0] > swatch[0] + 5.0, "{medium:?} vs {swatch:?}");
+    assert!(deep[0] < swatch[0] - 3.0, "{deep:?} vs {swatch:?}");
+    assert!(chroma(swatch) > chroma(medium), "{swatch:?} vs {medium:?}");
     // Violetish blue along, greenish blue across (hue 250-300 deg, the o hue above the e hue).
-    for lab in [cornflower, deep] {
+    for lab in [cornflower, medium, deep] {
         assert!((260.0..310.0).contains(&hue(lab)), "{lab:?}");
     }
-    for key in ["sapphire.cornflower", "sapphire.deep_blue"] {
+    for key in [
+        "sapphire.cornflower",
+        "sapphire.medium_blue",
+        "sapphire.deep_blue",
+    ] {
         let c = colors(&variant(key), Illuminant::D65);
         assert!(hue(c.o_ray.lab) > hue(c.e_ray.lab), "{key}");
     }
@@ -488,24 +515,25 @@ fn the_cubic_spinel_variants_are_isotropic_with_equal_sets() {
 }
 
 #[test]
-fn the_chrysoberyl_variant_is_three_ray_and_paler_and_greener_than_the_default() {
-    let greenish = variant("chrysoberyl__yellow_.greenish_yellow");
+fn the_golden_chrysoberyl_is_three_ray_and_darker_and_more_golden_than_the_default() {
+    let golden = variant("chrysoberyl__yellow_.golden");
     assert!(
-        greenish.absorption.is_pleochroic && greenish.absorption.beta_ray.is_some(),
+        golden.absorption.is_pleochroic && golden.absorption.beta_ray.is_some(),
         "{}",
-        greenish.key
+        golden.key
     );
-    let g = colors(&greenish, Illuminant::D65);
+    let g = colors(&golden, Illuminant::D65);
     // Yellow stones: the gamma (E||b) ray is the strongest absorber in the blue.
     let beta = g.beta_ray.as_ref().expect("a beta ray");
     assert!(chroma(g.e_ray.lab) > chroma(beta.lab));
-    // The Yellow default is the 0.7 stone (owner decision O1): darker than Greenish Yellow (0.3),
-    // and less green (a smaller hue angle).
+    // The default is the greenish yellow of the dealer photos since 2026-11-03 (the former Greenish
+    // Yellow variant, 0.3 x GRR 171); Golden is the former 0.7 x default: darker, and less green (a
+    // smaller hue angle).
     let default = built_in_variants("Chrysoberyl (Yellow)").remove(0);
     let d = colors(&default, Illuminant::D65).unpolarised.lab;
-    assert!(d[0] < g.unpolarised.lab[0], "{d:?}");
+    assert!(g.unpolarised.lab[0] < d[0], "{d:?}");
     assert!(
-        hue(g.unpolarised.lab) > hue(d),
+        hue(d) > hue(g.unpolarised.lab),
         "greener = larger hue angle: {d:?}"
     );
 }
@@ -514,7 +542,7 @@ fn the_chrysoberyl_variant_is_three_ray_and_paler_and_greener_than_the_default()
 fn the_alexandrite_rays_follow_the_documented_pleochroism() {
     // Farrell & Newnham: yellow along a (beta), green along b (gamma), red along c (alpha).
     for key in [
-        "alexandrite.strong_change",
+        "alexandrite.default",
         "alexandrite.brazilian",
         "alexandrite.sri_lankan",
     ] {
@@ -544,7 +572,8 @@ fn the_alexandrite_variants_change_color_between_daylight_and_incandescent_light
         let lamp = colors(&v, Illuminant::Planckian(3200.0)).unpolarised.lab;
         (day, lamp, delta_e_2000(day, lamp))
     };
-    let (strong_day, strong_lamp, strong) = change("alexandrite.strong_change");
+    // The Material Default is the strong change (the former Strong Change variant, 2026-11-03).
+    let (strong_day, strong_lamp, strong) = change("alexandrite.default");
     let (brazil_day, brazil_lamp, brazilian) = change("alexandrite.brazilian");
     let (_, _, sri_lankan) = change("alexandrite.sri_lankan");
     // Green by day, red-purple under the lamp.

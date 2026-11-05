@@ -22,6 +22,23 @@ const F_MINUS_C_PER_B_MINUS_G: f32 = 0.579;
 /// `0.5893^2`, micrometres squared (the sodium D line).
 const D_LINE_SQUARED: f32 = 0.347_271;
 
+/// Labradorite's default `n_gamma`: `cos 79 Y + sin 79 Z` (79 degrees is the tilt of
+/// `inclusions::bragg::LABRADORITE_NORMAL`), which with `n_alpha` = X lays the lamellae
+/// parallel to the table.
+const LABRADORITE_C_AXIS: Vec3 = Vec3::new(0.0, 0.190_809, 0.981_627);
+
+/// Labradorite's olive-grey body, per model unit, the same in every direction: a neutral grey of
+/// three broad bands, a yellow edge at 400 nm and a weak red tail at 950 nm.
+fn labradorite_body() -> Vec<AbsorptionBand> {
+    vec![
+        AbsorptionBand::new(450.0, 110.0, 0.4),
+        AbsorptionBand::new(550.0, 120.0, 0.4),
+        AbsorptionBand::new(650.0, 120.0, 0.4),
+        AbsorptionBand::new(400.0, 45.0, 0.8),
+        AbsorptionBand::new(950.0, 180.0, 0.3),
+    ]
+}
+
 /// The Cauchy curve with index `n_d` at the sodium D line and the gemological dispersion
 /// `b_minus_g` (the conversion of the other Cauchy entries).
 fn cauchy_from_b_minus_g(n_d: f32, b_minus_g: f32) -> DispersionModel {
@@ -34,8 +51,9 @@ fn cauchy_from_b_minus_g(n_d: f32, b_minus_g: f32) -> DispersionModel {
 }
 
 impl GemMaterial {
-    /// The shared fields of these entries: no scattering, no edge rounding, the model-unit
-    /// absorption calibration, no zoning, no inclusions and no extraordinary curves.
+    /// The shared fields of these entries: the crystal axis on Y, no scattering, no edge
+    /// rounding, the model-unit absorption calibration, no zoning, no inclusions and no
+    /// extraordinary curves.
     fn structural_color_host(
         name: &str,
         crystal_system: CrystalSystem,
@@ -79,8 +97,11 @@ impl GemMaterial {
             c: 0.0,
         };
         vec![
-            // Precious Opal (White): a pale body (the colorless reference) that adds a milky
-            // haze (`recommended_scattering`) beside the play-of-color of its domains.
+            // Precious Opal (White): a milky, translucent white body (the haze of
+            // `recommended_scattering`, which choosing the material switches on) with a faint
+            // cream from one weak band at the blue end (an aesthetic choice, model units). The
+            // photos of white opals (2026-11-04) show a cream to white body, b* +3 to +14; the
+            // clear body of earlier versions rendered as glass with flashes.
             Self::structural_color_host(
                 "Precious Opal (White)",
                 CrystalSystem::Cubic,
@@ -88,7 +109,7 @@ impl GemMaterial {
                 opal_dispersion,
                 0.0,
                 None,
-                AbsorptionTensor::isotropic(vec![]),
+                AbsorptionTensor::isotropic(vec![AbsorptionBand::new(400.0, 45.0, 0.15)]),
             ),
             // Precious Opal (Black): the same silica with a dark neutral body, which is what
             // makes the play-of-color stand out. The body is a uniform grey absorption (three
@@ -118,18 +139,39 @@ impl GemMaterial {
             // a placeholder of the right size for a 1.56 feldspar. The lamellae that cause the
             // schiller are in `inclusions::bragg` (pair period 150-250 nm, Eur. J. Mineral. 34,
             // 393-410, 2022).
-            Self::structural_color_host(
-                "Labradorite",
-                CrystalSystem::Triclinic,
-                OpticalCharacter::BiaxialPositive,
-                cauchy_from_b_minus_g(1.5625, 0.012),
-                0.008,
-                Some(0.0035),
-                // Colorless: no absorption in any direction, so there is no pleochroism to keep
-                // and the empty isotropic tensor stays (lead decision 2026-10-27: the
-                // "anisotropic host, per-axis tensor" rule applies to colored stones).
-                AbsorptionTensor::isotropic(vec![]),
-            ),
+            //
+            // The body (2026-11-04, the GemSelect photos of 23 stones: an olive-grey translucent
+            // body, median L* 52, a* -1.9, b* +7.4) is a neutral grey (the magnetite-type
+            // inclusions that darken labradorite: three broad bands), a yellow edge (Fe3+ near
+            // 380-420 nm) and a weak red tail (the Fe2+ band near 1200 nm), in model units, an
+            // aesthetic fit; the translucency is the haze of `recommended_scattering`, which
+            // choosing the material switches on. No pleochroism of the body was found, so the
+            // three directions carry the same bands (a colored stone on a biaxial host keeps the
+            // per-axis tensor, owner decision 2026-10-27).
+            //
+            // The default orientation lays the lamellae parallel to the table, as a labradorite is
+            // cut to show its flash face-up: with `LABRADORITE_NORMAL` 79 degrees from n_gamma,
+            // turned 90 degrees toward n_gamma x n_alpha, n_gamma = cos 79 Y + sin 79 Z and
+            // n_alpha = X put the lamella normal on Y, the table normal. With the old n_gamma = Y
+            // the lamellae stood nearly upright, and face up the flash came only from light that
+            // had crossed the clear stone many times, which the olive body absorbs.
+            Self {
+                c_axis: LABRADORITE_C_AXIS,
+                alpha_axis: Some(Vec3::X),
+                ..Self::structural_color_host(
+                    "Labradorite",
+                    CrystalSystem::Triclinic,
+                    OpticalCharacter::BiaxialPositive,
+                    cauchy_from_b_minus_g(1.5625, 0.012),
+                    0.008,
+                    Some(0.0035),
+                    AbsorptionTensor::biaxial(
+                        labradorite_body(),
+                        labradorite_body(),
+                        labradorite_body(),
+                    ),
+                )
+            },
             // Moonstone (orthoclase / adularia, KAlSi3O8), monoclinic, biaxial negative. Wikipedia,
             // "Moonstone (gemstone)": n 1.518-1.526, birefringence 0.005-0.010, dispersion 0.012.
             // The entry takes 1.518 / 1.523 / 1.526 (ESTIMATE, beta nearer gamma for the negative

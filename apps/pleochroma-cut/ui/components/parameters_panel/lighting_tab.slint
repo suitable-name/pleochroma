@@ -122,7 +122,7 @@ export component LightingTab inherits VerticalLayout {
 
     SliderRow {
         text: "Overall Brightness";
-        hint: "Exposure: the overall brightness of the picture. 1x is the normal level.";
+        hint: "Exposure: a correction on top of the light meter. 1x shows white paper the same under every lighting; lower is darker, higher brighter.";
         value_text: Math.round(SettingsModel.exposure_val * 100.0) / 100.0 + "x";
         slider_label: "Exposure";
         minimum: SettingsModel.exposure_min;
@@ -192,7 +192,7 @@ export component LightingTab inherits VerticalLayout {
                 text: "White";
                 hint: SettingsModel.env_map_loaded
                     ? "Not used while an HDR map is loaded: the map is the world."
-                    : "White paper (90 % reflectance). Under the Studio\nrigs' ring lights a white tray is very bright; lower\nthe exposure or pick Black for the dark-room look.";
+                    : "White paper (90 % reflectance). The light meter shows it\nas the same off-white sheet under every lighting; pick\nBlack for the dark-room look of the Studio rigs.";
                 enabled: !SettingsModel.env_map_loaded;
                 selected: SettingsModel.backdrop_index == 2;
                 picked => {

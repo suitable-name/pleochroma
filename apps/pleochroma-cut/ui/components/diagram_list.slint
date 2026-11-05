@@ -393,6 +393,15 @@ export component DiagramListView inherits Rectangle {
                                         card.adding_tag = true;
                                     }
                                 }
+                                // Asks first (Rust shows the confirm dialog). Only the
+                                // local library can be changed.
+                                MenuItem {
+                                    title: "Delete...";
+                                    enabled: !RemoteWorkerModel.library_is_remote;
+                                    activated => {
+                                        LibraryModel.delete_entry(item.id, item.title);
+                                    }
+                                }
                             }
                         }
 
@@ -423,7 +432,7 @@ export component DiagramListView inherits Rectangle {
                             }
                             kebab_touch := TouchButton {
                                 label: "More Actions for " + item.title;
-                                hint: "More actions for this design: previews, tilt curves, ignore, planner, build it as a lesson, tags. Also on right-click and in the Library menu under Selected Design.";
+                                hint: "More actions for this design: previews, tilt curves, ignore, planner, build it as a lesson, tags, delete. Also on right-click and in the Library menu under Selected Design.";
                                 expandable: true;
                                 expanded: card.kebab_open;
                                 ring_radius: 3px;
@@ -520,6 +529,25 @@ export component DiagramListView inherits Rectangle {
                                             card.tag_draft = "";
                                             card.adding_tag = true;
                                         }
+                                    }
+                                }
+                                Rectangle {
+                                    height: 24px;
+                                    background: kebab_item_delete.has_hover ? Theme.bg-card-hover : transparent;
+                                    Text {
+                                        text: "Delete...";
+                                        font-size: 9px;
+                                        color: RemoteWorkerModel.library_is_remote ? Theme.text-muted : Theme.accent-ruby;
+                                        x: 8px;
+                                        vertical-alignment: center;
+                                    }
+                                    kebab_item_delete := TouchButton {
+                                        enabled: !RemoteWorkerModel.library_is_remote;
+                                        label: "Delete";
+                                        hint: RemoteWorkerModel.library_is_remote
+                                            ? "Switch to the local library to delete a design."
+                                            : "Remove this design and its files from your library. You are asked to confirm first.";
+                                        clicked => { card.kebab_open = false; LibraryModel.delete_entry(item.id, item.title); }
                                     }
                                 }
                             }

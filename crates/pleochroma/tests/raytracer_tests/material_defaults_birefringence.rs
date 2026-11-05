@@ -1,5 +1,6 @@
 //! `GemMaterial` default-orientation checks and birefringence rendering tests: the
-//! `c_axis` default (with the documented Tourmaline and Aquamarine overrides), Zircon's measurable
+//! `c_axis` default (with the documented cut-orientation overrides: Tourmaline, Aquamarine,
+//! Benitoite, Titanite and Labradorite), Zircon's measurable
 //! ordinary/extraordinary split versus a flattened clone, cubic materials' bit-exact
 //! indifference to `birefringence_delta`, and non-dispersive custom materials under
 //! spectral MIS.
@@ -34,7 +35,19 @@ fn test_gem_materials_default_c_axis_to_y() {
     // so with `c_axis = Vec3::Y` the face-up view would see the o-ray only, practically
     // colorless; cutters orient aquamarine with c in the table plane so that the blue
     // ray shows face-up. Its `c_axis` is `Vec3::X` as well.
-    const CUT_ORIENTATION_OVERRIDES: &[&str] = &["Tourmaline", "Aquamarine"];
+    //
+    // Benitoite and Titanite (2026-11-03) and Labradorite (2026-11-04) follow the same rule:
+    // benitoite's blue is the e-ray, so c lies in the table; titanite's n_gamma (Z) lies in
+    // the table, so face-up light shows the full birefringence and Z's golden tone; and a
+    // labradorite's lamellae lie parallel to the table so its flash faces up (its n_gamma is
+    // tilted 79 degrees from Y for that).
+    const CUT_ORIENTATION_OVERRIDES: &[&str] = &[
+        "Tourmaline",
+        "Aquamarine",
+        "Benitoite",
+        "Titanite (Sphene)",
+        "Labradorite",
+    ];
 
     for m in GemMaterial::all_materials() {
         if CUT_ORIENTATION_OVERRIDES.contains(&m.name.as_str()) {

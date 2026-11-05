@@ -228,7 +228,10 @@ fn cutting_sheet() -> Guide {
             "Open and print",
             "The file is plain HTML.",
         )
-        .actions(["Open it in any browser and print from there, or keep it as a record of the cut."])
+        .actions([
+            "Open it in any browser and print from there, or keep it as a record of the cut.",
+            "For the standard template alone, as a PDF ready to print, choose Export Cutting Sheet (PDF)... in the same File menu.",
+        ])
         .why("Every control is unlocked again."),
     )
 }

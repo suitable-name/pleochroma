@@ -82,7 +82,12 @@ impl GemMaterial {
                 // previous blue-only 450/475/495 nm triplet let red pass and
                 // drifted to amber (h=81). Fitted, not hand-tuned.
                 // Calibration record: docs/chromophores/calibration-records.md#peridot
-                absorption: peridot_absorption(),
+                // 2026-11-04 (owner: "The render seems to err toward saturated"): x 0.6 of the San
+                // Carlos crystal. Colored-pixel saturation s_uv: the faceted dealer photos 0.79, the
+                // Commons photos 0.54-0.94, the x 1 render 0.96 (x 0.5: 0.72 at h 114, L* 71 against
+                // the photos' 71). Swatch L*84 C*48 h 113 (at two units L*72 C*68 h 111).
+                // Calibration record: docs/chromophores/calibration-records.md#saturation-round-2026-11-04
+                absorption: peridot_absorption().scaled(0.6),
                 c_axis: Vec3::Y,
                 // Same fractional-position method as Alexandrite/Topaz/Tanzanite/
                 // Chrysoberyl above: real olivine/peridot principal indices are
@@ -250,16 +255,26 @@ impl GemMaterial {
                 // STRENGTH (tuned): the measured 2.73 net absorbance over 0.997 mm is
                 // 6.3 /mm natural; over 7 mm that is A = 2.73 x 7 / 0.997 = 19
                 // (decadic) at 700 nm along c -- opaque. GRR 561-D4 is a dark-blue zone of a crystal, gem benitoite is
-                // far lighter, and no concentration is published. The e-ray peak stays
-                // at the earlier 2.0 (model units) so the 7 mm swatch keeps its depth;
-                // the o-ray peak follows the measured ratio: 2.0 x 0.053 = 0.106,
-                // written 0.11.
+                // far lighter, and no concentration is published. The e-ray peak was
+                // the earlier 2.0 (model units) and the o-ray peak followed the measured
+                // ratio, 2.0 x 0.053 = 0.106, written 0.11. 2026-11-03 (owner: "make the
+                // benitoite a bit more saturated") both peaks x 2, 4.0 and 0.22 (the ratio
+                // kept), chosen from renders of the Pentalume Sapphire design: Light Tent
+                // L*69 C*17 h 264 at x 1, L*65 C*22 at x 1.5, L*61 C*27 h 274 at x 2, L*55
+                // C*33 at x 3 (Studio Softbox C*13 -> C*22 at x 2). Swatch (7 mm, D65):
+                // e-ray L*53 C*70 h 278, o-ray L*93 C*8, unpolarised L*83 C*22 h 277.
                 // Calibration record: docs/chromophores/calibration-records.md#benitoite
                 absorption: AbsorptionTensor::uniaxial(
-                    vec![AbsorptionBand::energy(603.0, 8_630.0, 0.11)], // o-ray (E-perp-c)
-                    vec![AbsorptionBand::energy(698.0, 7_100.0, 2.0)],  // e-ray (E-parallel-c)
+                    vec![AbsorptionBand::energy(603.0, 8_630.0, 0.22)], // o-ray (E-perp-c)
+                    vec![AbsorptionBand::energy(698.0, 7_100.0, 4.0)],  // e-ray (E-parallel-c)
                 ),
-                c_axis: Vec3::Y,
+                // The c axis lies in the table (2026-11-03), the way benitoite is cut: the blue
+                // is the e-ray's (E parallel to c) and the o-ray is nearly colorless, so a stone
+                // with c along the table normal shows face-up only the o-ray and looks almost
+                // clear (Pentalume Sapphire, Light Tent: L* 69 C* 15). With c in the table,
+                // face-up light vibrates both along and across c and the stone shows its blue.
+                // The Crystal Axis of a design still turns it anywhere.
+                c_axis: Vec3::X,
                 biaxial_delta_beta_alpha: None,
                 alpha_axis: None,
                 scattering_sigma_s: 0.0,

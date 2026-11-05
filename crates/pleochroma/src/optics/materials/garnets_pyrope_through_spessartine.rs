@@ -28,6 +28,60 @@ fn spessartine_absorption() -> AbsorptionTensor {
     ])
 }
 
+/// Pyrope's absorption: the measured Caltech GRR 1055 pyrope (Moses Rock, Utah; Ca0.33 Mn0.02
+/// Mg2.13 Fe0.54 Al1.95 Cr0.07, 0.840 mm, CSV `variant_pyrope_chrome_iso.csv`): Cr3+ near 410
+/// and 570 nm, Fe2+ at 504 / 530 nm and the ultraviolet edge. The bands are the Chrome Pyrope
+/// variant's fit (fit record F3-02, per mm at k = 0.17 of the sample's chromophores) at
+/// k = 0.22, converted to model units by the 9.905 mm face-up path of a 7 mm stone; the widths
+/// are the fit's sigma x 2.35482, since `AbsorptionBand::energy` takes the FWHM. See the
+/// entry's comment for why.
+///
+/// 2026-11-03 (owner: "match the pictures of actual gemstones"): GRR 1055 at k 0.22 PLUS the Mn2+
+/// of the Spessartine built-in at 0.6, refitted to eight energy Gaussians (dE2000 2.5 against the
+/// sum). Nineteen dealer photos (`GemSelect`) have a median hue of 26 (colored pixels, quartiles
+/// -6 / +8); GRR 1055 alone rendered h 13, this h 19 (Light Tent; more Mn or added almandine iron
+/// did not go further). Swatch L*25 C*55 h 25.
+fn pyrope_absorption() -> AbsorptionTensor {
+    AbsorptionTensor::isotropic(vec![
+        // measured spectra, see the note above
+        AbsorptionBand::energy(368.8, 4_517.3, 8.688),
+        AbsorptionBand::energy(563.8, 1_813.5, 8.655),
+        AbsorptionBand::energy(410.8, 579.9, 7.911),
+        AbsorptionBand::energy(422.5, 2_767.5, 7.37),
+        AbsorptionBand::energy(422.8, 527.9, 4.79),
+        AbsorptionBand::energy(488.7, 3_139.5, 3.225),
+        AbsorptionBand::energy(430.9, 379.5, 3.043),
+        AbsorptionBand::energy(628.9, 2_939.5, 0.594_7),
+    ])
+}
+
+/// Almandine's absorption: the measured Caltech GRR 1776 almandine
+/// ([Fe2.5 Mg0.3 Mn0.2 Ca0.1]Al2.0(SiO4)3, 0.213 mm, merged file, CSV
+/// `variant_almandine_purplish_iso.csv`): the Fe2+ 504 / 527 / 576 nm triplet over a strong
+/// blue-ultraviolet edge (Fe2+-Fe3+ charge transfer). The bands are the Purplish variant's fit
+/// (fit record F3-03, per mm at k = 0.3 of the sample's Fe) at k = 0.35, converted to model
+/// units by the 9.905 mm face-up path of a 7 mm stone; the widths are the fit's sigma x 2.35482,
+/// since `AbsorptionBand::energy` takes the FWHM. See the entry's comment for why.
+///
+/// 2026-11-03 (owner: "match the pictures of actual gemstones"): GRR 1776 at k 0.35 PLUS the Mn2+
+/// of the Spessartine built-in at 0.3 (an almandine carries a few percent of spessartine), refitted
+/// to eight energy Gaussians (dE2000 4.9 against the sum; the refit is what rendered). Twenty-one
+/// dealer photos (`GemSelect`) have a median hue of 29 (colored pixels), a clean Commons photo
+/// 25; GRR 1776 alone rendered h 16, this h 26 (Light Tent). Swatch L*28 C*53 h 36.
+fn almandine_absorption() -> AbsorptionTensor {
+    AbsorptionTensor::isotropic(vec![
+        // measured spectra, see the note above
+        AbsorptionBand::energy(365.5, 3_243.6, 4.736),
+        AbsorptionBand::energy(460.4, 9_131.5, 4.321),
+        AbsorptionBand::energy(413.2, 916.3, 3.926),
+        AbsorptionBand::energy(428.2, 482.5, 2.805),
+        AbsorptionBand::energy(517.6, 1_453.4, 2.179),
+        AbsorptionBand::energy(573.9, 847.4, 1.541),
+        AbsorptionBand::energy(312.2, 655.3, 1.017),
+        AbsorptionBand::energy(612.8, 354.8, 0.254_6),
+    ])
+}
+
 impl GemMaterial {
     /// Three of the five garnet-group species (the other two, Grossular and
     /// Andradite, are [`Self::built_in_materials_garnets_grossular_and_andradite`] --
@@ -58,17 +112,23 @@ impl GemMaterial {
                 },
                 birefringence_delta: 0.0,
                 // Chromophore: Fe2+ (the 504/521nm spin-forbidden bands, GIA G&G
-                // Winter 2015; Caltech GRR 83 and GRR 131, which call pink pyrope
-                // "colored by Fe2+") and the 570nm band (Fe2+ 576nm / Cr3+ 570nm, the
-                // latter with its 410nm partner), responsible for pyrope's deep red
-                // color. The 505nm band was labelled Cr3+ here until 2026-10-27: it is
-                // Fe2+ (R3 of the color variants research); Cr3+ gives 410 and 570nm.
-                // Comment fix only, the numbers are unchanged. Widths (35nm/45nm) and
-                // peaks (1.2/1.4) TUNED for a clear deep red; band CENTRES cited.
-                absorption: AbsorptionTensor::isotropic(vec![
-                    AbsorptionBand::new(505.0, 35.0, 1.2),
-                    AbsorptionBand::new(570.0, 45.0, 1.4),
-                ]),
+                // Winter 2015; Caltech GRR 83 and GRR 131) and Cr3+ (410 and 570 nm),
+                // over the ultraviolet edge that closes the blue. MEASURED since 2026-11-03:
+                // the Caltech GRR 1055 pyrope at k = 0.22 (`pyrope_absorption`). The two
+                // tuned green bands it replaces absorbed nothing in the blue, so red AND blue
+                // light passed and every render was a hot magenta (Light Tent L* 42 C* 60
+                // h 323) where real pyrope is a deep red. The measured spectrum renders a deep
+                // red (Pentalume Sapphire, Light Tent: k 0.17 L* 29 C* 30 h 12, k 0.3 L* 20
+                // C* 22 h 12; a faceted pyrope photo on white measures L* 27 h 29). k 0.22
+                // sits between, a little deeper than the Chrome Pyrope variant (k 0.17).
+                // 2026-11-04 (owner: "The render seems to err toward saturated"): x 0.45 of
+                // `pyrope_absorption`. Colored-pixel saturation s_uv: the faceted dealer photos 1.12
+                // (L* 41, h 29, a brownish red), the Commons photos 0.81 and 1.76, the x 1 render
+                // 1.94 at L* 22 (x 0.5: 1.50 at L* 32, h 17). Lighter only turns it pinker (h 19 ->
+                // 16); the photos' brown (a grey mask under the red) needs a broad band the 8-band
+                // budget has no room for. Swatch L*46 C*36 h 16.
+                // Calibration record: docs/chromophores/calibration-records.md#saturation-round-2026-11-04
+                absorption: pyrope_absorption().scaled(0.45),
                 c_axis: Vec3::Y,
                 biaxial_delta_beta_alpha: None,
                 alpha_axis: None,
@@ -94,16 +154,17 @@ impl GemMaterial {
                     c: 0.0,
                 },
                 birefringence_delta: 0.0,
-                // Chromophore: the diagnostic Fe2+ 505/520/573nm triplet (almandine's
-                // characteristic three-line absorption pattern, the standard
-                // gemological identification feature for this species). Widths
-                // (20nm each) and peaks (1.3/1.5/1.3) TUNED for a deep red-brown/
-                // violet-red; band CENTRES cited.
-                absorption: AbsorptionTensor::isotropic(vec![
-                    AbsorptionBand::new(505.0, 20.0, 1.3),
-                    AbsorptionBand::new(520.0, 20.0, 1.5),
-                    AbsorptionBand::new(573.0, 20.0, 1.3),
-                ]),
+                // Chromophore: the diagnostic Fe2+ 504/527/576nm triplet (the standard
+                // gemological identification feature for this species) over a strong
+                // blue-ultraviolet edge. MEASURED since 2026-11-03: the Caltech GRR 1776
+                // almandine at k = 0.35 (`almandine_absorption`). The three tuned green bands
+                // it replaces left the blue open, so every render was a hot magenta (Light
+                // Tent L* 51 C* 68 h 329) where real almandine is a deep, slightly violet red.
+                // The measured spectrum renders that red (Pentalume Sapphire, Light Tent:
+                // k 0.3 L* 25 C* 30 h 13, k 0.5 L* 18 C* 14 h 13; a faceted almandine photo on
+                // white measures L* 24 C* 28 h 25). k 0.35 is a touch deeper than the Purplish
+                // variant (k 0.3).
+                absorption: almandine_absorption(),
                 c_axis: Vec3::Y,
                 biaxial_delta_beta_alpha: None,
                 alpha_axis: None,
@@ -189,22 +250,29 @@ impl GemMaterial {
                     c: 0.0,
                 },
                 birefringence_delta: 0.0,
-                // Chromophores: Mn2+ 410/421/430nm (narrow spin-forbidden group, sigma
-                // 7.5-8nm = ~18-19nm FWHM, strong) blocks violet; Fe2+ 505nm weak (sigma
-                // 10.5nm = ~25nm FWHM); and the color-change band, ONE BROAD Cr3+/V3+ band
-                // centred ~573nm (sigma 40nm = ~94nm FWHM, strong). It leaves two
-                // transmission windows -- blue-green ~450-500nm and red >620nm -- and that
-                // balance is what swings the hue between daylight (D65: brownish/greyish
-                // mauve-green, the blue window dominates) and incandescent (3200K/A: the
-                // lamp is weak in the blue, so the red window wins: pink-red to
-                // orange-red). Band CENTRES cited; widths and peaks (1.5/1.2/1.5, 0.25,
-                // 1.3) TUNED, on the same band-weight scale as the garnets above.
+                // Chromophores: the Mn2+ edge and spin-forbidden group (386 / 426 / 432 nm and
+                // the 449-461 nm pair) close the violet and blue; Fe2+ near 493 nm; and the
+                // V3+/Cr3+ 4T2 band at 581 nm holds the yellow-green below the open red window.
+                // Daylight (D65) leaves a khaki yellow; the 3200 K lamp, weak in the green, lets
+                // the red window pull the stone to orange-pink.
+                //
+                // 2026-11-03 (owner: "match the pictures of actual gemstones"): the measured
+                // Tunduru spectrum (Caltech GRR 2225, the Tunduru variant's fit) with its 581 nm
+                // band x 0.25 and the whole x 1.2 of the variant's strength, in model units (x
+                // 9.905). Twenty-four GemSelect stones (the common Tanzanian type) read khaki
+                // yellow in day light (colored hue 86, L* 59) and 16 deg more orange under a
+                // lamp; the renders give h 86, L* 60 and h 70 under the lamp. The hand-tuned
+                // bands before (a strong 573 nm band between a blue-green and a red window)
+                // rendered violet, h 299, the rare blue-to-purple type that the Tunduru and
+                // Stronger Change variants still offer.
                 absorption: AbsorptionTensor::isotropic(vec![
-                    AbsorptionBand::new(410.0, 8.0, 1.5),
-                    AbsorptionBand::new(421.0, 7.5, 1.2),
-                    AbsorptionBand::new(430.0, 8.0, 1.5),
-                    AbsorptionBand::new(505.0, 10.5, 0.25),
-                    AbsorptionBand::new(573.0, 40.0, 1.3),
+                    AbsorptionBand::energy(386.64, 4_092.0, 8.935),
+                    AbsorptionBand::energy(425.55, 1_412.7, 2.49),
+                    AbsorptionBand::energy(432.28, 256.0, 0.613_1),
+                    AbsorptionBand::energy(449.45, 618.4, 0.216_8),
+                    AbsorptionBand::energy(460.80, 653.5, 0.277_3),
+                    AbsorptionBand::energy(492.98, 3_054.4, 0.750_7),
+                    AbsorptionBand::energy(580.85, 2_762.2, 0.635_9),
                 ]),
                 c_axis: Vec3::Y,
                 biaxial_delta_beta_alpha: None,

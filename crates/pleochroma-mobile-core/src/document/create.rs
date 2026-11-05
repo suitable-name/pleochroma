@@ -184,9 +184,10 @@ pub fn symmetry_for_gear(gear: i32, fold: i32) -> i32 {
         .unwrap_or(1)
 }
 
-/// The gear to keep after the user picks `fold`: `gear` when it still fits, else the
-/// offered gear nearest to it that does (a tie goes to the larger gear, which has more
-/// positions). `gear` unchanged when no offered gear fits.
+/// The gear to keep after the user picks `fold`.
+///
+/// `gear` when it still fits, else the offered gear nearest to it that does (a tie goes to
+/// the larger gear, which has more positions). `gear` unchanged when no offered gear fits.
 #[must_use]
 pub fn gear_for_symmetry(fold: i32, gear: i32) -> i32 {
     if gear_fits(gear, fold) {

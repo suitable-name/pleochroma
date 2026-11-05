@@ -2,8 +2,9 @@
 //! [`SheetOrientation`] and a small top and side diagram of the crystal axis in the stone.
 //!
 //! The diagram is an inline SVG built from the angles alone, so it is deterministic and the
-//! sheet stays one self-contained file. All styling is inline: the page's own stylesheet is
-//! untouched, so a sheet without the block is byte for byte what it was.
+//! sheet stays one self-contained file. The block's look comes from the sheet's stylesheet
+//! (`section.orientation`), so it reads like the other blocks of the additional information:
+//! its heading over a thick rule, the lines beside the diagram, the sheet's font.
 
 use super::html::html_escape;
 use pleochroma_cut_core::SheetOrientation;
@@ -134,7 +135,7 @@ fn label(out: &mut String, at: (f64, f64), anchor: &str, text: &str) {
     let _ = write!(
         out,
         "<text x=\"{}\" y=\"{}\" text-anchor=\"{anchor}\" font-size=\"11\" fill=\"{INK}\" \
-         font-family=\"Arial, Helvetica, sans-serif\">{}</text>",
+         font-family=\"Helvetica, Arial, sans-serif\">{}</text>",
         n(at.0),
         n(at.1),
         html_escape(text)
@@ -230,10 +231,8 @@ pub(super) fn orientation_svg(block: &SheetOrientation) -> String {
 /// Appends the Orientation block of `block` to the page: the heading, the lines and the diagram.
 pub(super) fn push_orientation(out: &mut String, block: &SheetOrientation) {
     out.push_str(
-        "<section class=\"orientation\" style=\"break-inside:avoid;page-break-inside:avoid;\">\n\
-         <h2>Orientation</h2>\n\
-         <div style=\"display:flex;gap:16px;align-items:flex-start;\">\n\
-         <ul style=\"font-size:13px;margin:0;padding-left:18px;flex:1;\">\n",
+        "<section class=\"orientation\">\n<h2>Orientation</h2>\n\
+         <div class=\"orientation-body\">\n<ul>\n",
     );
     // The first line is the text sheet's heading; the page has its own.
     for line in block.lines().iter().skip(1) {

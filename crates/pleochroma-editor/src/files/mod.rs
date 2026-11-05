@@ -8,8 +8,8 @@
 //! - [`convert_foreign_design`]: a `.gem`/`.gcs` design converted to `.asc` text,
 //!   the same rule `pleochroma_vault::local::design_file_to_asc_text` applies for
 //!   the desktop (the vault crate links SQLite, so a browser build cannot call it).
-//! - [`suggested_asc_file_name`], [`cutting_sheet_file_name`], [`diagram_file_name`]:
-//!   the desktop's default save
+//! - [`suggested_asc_file_name`], [`cutting_sheet_file_name`],
+//!   [`cutting_sheet_pdf_file_name`], [`diagram_file_name`]: the desktop's default save
 //!   names (`apps/pleochroma-cut`'s `native_io::picker::suggested_file_name` and its
 //!   export callbacks), so a download is named the way the desktop's save dialog
 //!   would propose.
@@ -234,6 +234,15 @@ pub fn suggested_asc_file_name(asc_filename: Option<&str>, headers: &[String]) -
 pub fn cutting_sheet_file_name(asc_file_name: &str) -> String {
     format!(
         "{}_cutting_sheet.html",
+        asc_file_name.trim_end_matches(".asc")
+    )
+}
+
+/// The PDF cutting-sheet download name: `<asc name without .asc>_cutting_sheet.pdf`.
+#[must_use]
+pub fn cutting_sheet_pdf_file_name(asc_file_name: &str) -> String {
+    format!(
+        "{}_cutting_sheet.pdf",
         asc_file_name.trim_end_matches(".asc")
     )
 }

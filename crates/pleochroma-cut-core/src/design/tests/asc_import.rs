@@ -2,7 +2,10 @@
 //! tier's constraint depending on whether the source `.asc` text states an
 //! explicit scale-reference instruction of its own.
 
-use crate::{design::Design, preform::PreformSpec};
+use crate::{
+    design::{ConstraintTier, Design, ScheduleMeta},
+    preform::PreformSpec,
+};
 use pleochroma::geometry::meet_solver::MeetConstraint;
 
 /// Importing a real `.asc` schedule whose tiers already state explicit
@@ -76,4 +79,62 @@ fn importing_an_unanchored_asc_schedule_pins_every_tier_to_its_real_mast() {
         assert_eq!(tier.imported_meet, Some(MeetConstraint::MeetExisting));
     }
     assert!(design.solve().is_ok());
+}
+
+/// A design authored with every tier at an explicit depth (as every template and the round
+/// brilliant are) exports "Set stone size." on one tier only, its girdle
+/// ([`Design::sizing_tier`]): one cut sets the size of the stone, and the instruction on every
+/// line read as nonsense to a cutter (2026-11-04). The depths still come back exactly, as an
+/// import pins every tier to its mast whatever its text says.
+#[test]
+fn only_the_sizing_girdle_says_set_stone_size() {
+    let mut design = Design::new(
+        PreformSpec::block(2.0, 1.0, 2.0),
+        ScheduleMeta::standard_round_brilliant(),
+        ConstraintTier::standard_round_brilliant(),
+    );
+    design.girdle_diameter_mm = Some(6.5);
+    assert!(
+        design
+            .tiers
+            .iter()
+            .all(|tier| matches!(tier.constraint, MeetConstraint::ScaleReference(_))),
+        "test premise: every tier of the round brilliant is at an explicit depth"
+    );
+    let schedule = design
+        .to_asc_schedule()
+        .expect("the round brilliant exports");
+    let notes: Vec<&str> = schedule
+        .tiers
+        .iter()
+        .map(|tier| tier.notes.as_str())
+        .collect();
+    // The girdle sets the size (the template's convention, the tier the cutting instructions
+    // name too), not the table the fixture stores first.
+    let girdle = design
+        .tiers
+        .iter()
+        .position(|tier| tier.name == "Girdle")
+        .expect("the round brilliant has a girdle");
+    assert_eq!(design.sizing_tier(), Some(girdle));
+    for (k, note) in notes.iter().enumerate() {
+        let expected = if k == girdle { "Set stone size." } else { "" };
+        assert_eq!(*note, expected, "tier {k}: {notes:?}");
+    }
+
+    let text = pleochroma_formats::asc::to_asc_string(&schedule).expect("the schedule writes");
+    let back = pleochroma_formats::asc::parse_asc(&text).expect("the export parses");
+    let reopened = Design::from_asc_schedule(PreformSpec::block(2.0, 1.0, 2.0), &back);
+    assert_eq!(reopened.tiers.len(), schedule.tiers.len());
+    for (exported, tier) in schedule.tiers.iter().zip(&reopened.tiers) {
+        let MeetConstraint::ScaleReference(mast) = tier.constraint else {
+            panic!("{}: an imported tier is pinned to its mast", tier.name);
+        };
+        assert!(
+            (mast - exported.mast).abs() < 1e-6,
+            "{}: mast {mast} came back from {}",
+            tier.name,
+            exported.mast
+        );
+    }
 }

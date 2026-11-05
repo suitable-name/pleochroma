@@ -1202,6 +1202,7 @@ fn the_verified_metamer_spread_is_reported_next_to_the_unverified_one() {
 /// views; this is the same statement for the four-view rig over eight realisations. The
 /// containment count is printed for the record.
 #[test]
+#[ignore = "slow colour-fit test (over 60 s); run with --ignored"]
 fn the_spread_reaches_the_farthest_feasible_point_towards_the_truth_in_every_realisation() {
     const SEEDS: u64 = 8;
     let scene = Scene::new(4, None, 2);

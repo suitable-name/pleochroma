@@ -138,6 +138,8 @@ fn wire_file_actions(model: &AppModel<'_>, ctx: &Ctx) {
     let c = ctx.clone();
     model.on_download_cutting_sheet(move || io::save::download_cutting_sheet(&c));
     let c = ctx.clone();
+    model.on_download_cutting_sheet_pdf(move || io::save::download_cutting_sheet_pdf(&c));
+    let c = ctx.clone();
     model.on_download_diagram(move || io::save::download_diagram(&c));
     let c = ctx.clone();
     model.on_export_png(move || crate::render::open_export_dialog(&c));

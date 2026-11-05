@@ -340,16 +340,26 @@ export component GlobalDialogsOverlay inherits Rectangle {
         primary_hint: EditorModel.startup_restore_is_autosave
             ? "Open the recovery file, with the work of the session that ended without saving."
             : "Open the design you were working on last time.";
-        secondary_label: "Not Now";
-        secondary_hint: "Do not open it now.";
+        // "Not Now" is the dialog's own close button (like Escape and the X): one button for
+        // "not now", not a Cancel beside a Not Now that did the same.
+        secondary_label: "";
+        cancel_label: "Not Now";
         // Only a leftover AUTOSAVE is ever safe to delete outright here -- an
         // ordinary recent file is the cutter's own real save, not a recovery
-        // snapshot, so it never gets this action.
-        tertiary_label: EditorModel.startup_restore_is_autosave ? "Delete" : "";
-        tertiary_hint: "Delete the recovery file for good. The unsaved work in it is lost.";
+        // snapshot, so its third action is Discard: the offer goes (the file leaves
+        // the recent list), the file stays.
+        tertiary_label: EditorModel.startup_restore_is_autosave ? "Delete" : "Discard";
+        tertiary_hint: EditorModel.startup_restore_is_autosave
+            ? "Delete the recovery file for good. The unsaved work in it is lost."
+            : "Do not offer this design again: remove it from File > Open Recent. The file itself is not deleted.";
         primary => { EditorModel.startup_restore_accept(); }
-        secondary => { EditorModel.startup_restore_dismiss(); }
-        tertiary => { EditorModel.startup_restore_delete(); }
+        tertiary => {
+            if EditorModel.startup_restore_is_autosave {
+                EditorModel.startup_restore_delete();
+            } else {
+                EditorModel.startup_restore_forget();
+            }
+        }
         cancel => { EditorModel.startup_restore_dismiss(); }
     }
 

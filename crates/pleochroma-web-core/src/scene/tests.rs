@@ -74,9 +74,16 @@ fn desktop_recipe(s: &DesktopSettings, planes: &[GpuFacetPlane]) -> DesktopScene
         Vec::new()
     };
     let camera = Camera::new(s.yaw, s.pitch, s.distance, 42.0);
+    // The desktop renders at the metered exposure (`RenderContext::effective_exposure`).
+    let exposure = pleochroma::optics::raytracer::metered_exposure(
+        s.exposure,
+        s.preset,
+        s.light_yaw,
+        s.light_pitch,
+    );
     let environment = s
         .preset
-        .studio(s.exposure, s.light_yaw, s.light_pitch)
+        .studio(exposure, s.light_yaw, s.light_pitch)
         .with_backdrop(s.backdrop.resolve(s.preset, s.light_yaw, s.light_pitch));
     DesktopScene {
         material,
@@ -581,9 +588,10 @@ fn the_default_surface_glare_is_the_old_scene_bit_for_bit() {
     };
     assert_eq!(spec.lighting.surface_glare.to_bits(), 1.0f32.to_bits());
     let new = OwnedScene::build(&spec, None).expect("builds");
-    // The environment as the web built it before `surface_glare` existed.
+    // The environment as the web built it before `surface_glare` existed (at the metered
+    // exposure the spec renders with).
     let old_env = LightingPreset::LightTent
-        .studio(1.0, 0.4, 0.35)
+        .studio(spec.lighting.metered_exposure(), 0.4, 0.35)
         .with_backdrop(Backdrop::Grey.resolve(LightingPreset::LightTent, 0.4, 0.35))
         .with_head_shadow(16.0);
     assert_eq!(new.frame_scene().environment.surface_glare(), 1.0);

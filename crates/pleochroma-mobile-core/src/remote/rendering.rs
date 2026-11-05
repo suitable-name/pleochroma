@@ -657,6 +657,13 @@ pub(super) fn scene_state(
     // The girdle toggle and the design's frosted planes, as the wire carries them.
     let (girdle_frosted, frosted_planes) =
         pleochroma::geometry::finishes_wire_form(scene.planes(), scene.finishes());
+    // The studio rig renders at its metered exposure, as on the phone; an HDR map keeps the
+    // plain one.
+    let exposure = if hdr.is_some() {
+        lighting.exposure
+    } else {
+        lighting.metered_exposure()
+    };
     SceneState {
         width: scene.width(),
         height: scene.height(),
@@ -666,7 +673,7 @@ pub(super) fn scene_state(
         distance: spec.scene.camera.distance,
         light_yaw: lighting.light_yaw,
         light_pitch: lighting.light_pitch,
-        exposure: lighting.exposure,
+        exposure,
         max_bounces: scene.max_bounces(),
         lighting_preset: lighting.preset(),
         material: scene.material().clone(),

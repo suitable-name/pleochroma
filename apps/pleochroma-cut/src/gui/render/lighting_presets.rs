@@ -314,6 +314,9 @@ fn setup_apply_lighting_preset_callback(
     let ui_weak_apply = ui.as_weak();
     ui.global::<ViewportModel>()
         .on_apply_lighting_preset(move |idx: i32| {
+            let Some(ui) = ui_weak_apply.upgrade() else {
+                return;
+            };
             let Some(preset) = usize::try_from(idx)
                 .ok()
                 .and_then(|i| settings_store_apply.snapshot().presets.get(i).cloned())
@@ -325,7 +328,17 @@ fn setup_apply_lighting_preset_callback(
                 crate::gui::optics::offered_lighting::offered_from_label(&preset.lighting_rig);
             // The scene fields as the one shared struct, each limited the way the live
             // controls limit it (a hand-edited or old preset cannot feed the tracer nonsense).
-            let values = preset.values().sanitised();
+            let mut values = preset.values().sanitised();
+            // A built-in view (the Grading tray) frames the stone on screen, as Fit does: its
+            // stored distance was chosen for one stone and cut larger ones by the frame. A
+            // view the cutter saved keeps the distance it was saved with. Measured before the
+            // lock below, which the render thread shares.
+            let fitted = (preset.built_in && values.camera_distance.is_some()).then(|| {
+                super::fit_view::fit_distance(&ui, &render_ctx_apply, &mesh_bounding_radius_apply)
+            });
+            if fitted.is_some() {
+                values.camera_distance = fitted;
+            }
 
             // Loading an HDR file is I/O -- done here, BEFORE the lock below, matching
             // `gui::camera_lighting::setup_environment_map_callbacks`'s own "never assign
@@ -351,7 +364,11 @@ fn setup_apply_lighting_preset_callback(
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 let (min_distance, max_distance) =
                     super::camera_lighting::orbit_distance_bounds(radius);
-                if let Some(distance) = values.camera_distance {
+                if let Some(distance) = fitted {
+                    // Fit's own distance is not clamped to the far end (see
+                    // `fit_view::fit_distance`).
+                    ctx.distance = distance;
+                } else if let Some(distance) = values.camera_distance {
                     ctx.distance = distance.clamp(min_distance, max_distance);
                 }
                 // Camera pose: only when the preset actually carries one -- see this
@@ -370,10 +387,11 @@ fn setup_apply_lighting_preset_callback(
             // lighting: a design's own saved lighting that was showing is let go (it
             // stays saved) instead of being restored over this choice later.
             super::design_lighting::normal_lighting_chosen();
+            // The app placed this camera, so the next design load frames its stone again.
+            if let Some(distance) = fitted {
+                super::fit_view::note_auto_framed(distance);
+            }
 
-            let Some(ui) = ui_weak_apply.upgrade() else {
-                return;
-            };
             push_lighting_values_to_controls(&ui, &values, lighting_preset);
             show_environment_result(&ui, &preset, env_map_result.as_ref());
             show_toast(&ui, &format!("Applied lighting '{}'", preset.name), "info");

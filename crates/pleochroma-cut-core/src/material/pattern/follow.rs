@@ -18,7 +18,7 @@ use pleochroma::optics::{
     zoning::{ZoneFrame, ZoneShape, ZonedAbsorption},
 };
 
-use super::ColorPattern;
+use super::{ColorPattern, TemplateId};
 
 /// The zone frame that carries a pattern's `+Y` axis onto the Crystal Axis `c_axis`
 /// ([`ZoneFrame::along_axis`]).
@@ -45,6 +45,22 @@ pub fn layers_across_axis(pattern: &ColorPattern) -> bool {
             }
             _ => false,
         })
+}
+
+/// Whether `pattern` shows face up only with the Crystal Axis through the table.
+///
+/// These are the rings around the axis of a tourmaline's Watermelon and Reverse Watermelon. With
+/// the axis in the table plane (where a tourmaline's own axis lies) the eye looks across the
+/// rings, through rim, core and rim, and pink and green blend to orange; watermelons are cut as
+/// slices across c, so the application turns the axis through the table when it applies one of
+/// these patterns.
+#[must_use]
+pub const fn wants_axis_through_table(pattern: &ColorPattern) -> bool {
+    pattern.axis.follows_crystal_axis()
+        && matches!(
+            pattern.template,
+            Some(TemplateId::Watermelon | TemplateId::ReverseWatermelon)
+        )
 }
 
 /// Points the zones of `zoning` along the Crystal Axis `c_axis` ([`crystal_axis_frame`]).
@@ -168,6 +184,32 @@ mod tests {
             assert!(
                 !layers_across_axis(&template(id, PatternAxis::FollowsCrystalAxis)),
                 "{id:?}: its boundaries contain the axis"
+            );
+        }
+    }
+
+    #[test]
+    fn only_the_watermelons_ask_for_the_axis_through_the_table() {
+        for id in [TemplateId::Watermelon, TemplateId::ReverseWatermelon] {
+            assert!(
+                wants_axis_through_table(&template(id, PatternAxis::FollowsCrystalAxis)),
+                "{id:?}"
+            );
+            assert!(
+                !wants_axis_through_table(&template(id, PatternAxis::ACROSS)),
+                "{id:?}: a fixed pattern stands where it was put"
+            );
+        }
+        for id in [
+            TemplateId::Bicolor,
+            TemplateId::Tricolor,
+            TemplateId::HexagonalBanding,
+            TemplateId::CoreAndRim,
+            TemplateId::Sectors,
+        ] {
+            assert!(
+                !wants_axis_through_table(&template(id, PatternAxis::FollowsCrystalAxis)),
+                "{id:?}"
             );
         }
     }

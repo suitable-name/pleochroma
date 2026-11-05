@@ -103,7 +103,6 @@ pub(super) fn apply_preset_to_scene(
         .light_pitch_deg
         .to_radians()
         .clamp(PITCH_RANGE_RAD.0, PITCH_RANGE_RAD.1);
-    scene.exposure = values.exposure;
     scene.lighting_preset =
         crate::gui::optics::offered_lighting::offered_from_label(&values.lighting_rig);
     // A saved lighting is a complete look: its glare, backdrop and head shadow come with it.
@@ -115,12 +114,13 @@ pub(super) fn apply_preset_to_scene(
             .backdrop
             .resolve(scene.lighting_preset, scene.light_yaw, scene.light_pitch);
     scene.head_shadow_deg = values.head_shadow_deg;
-    // Applied unconditionally, matching `lighting_presets`' own live-apply -- unlike
-    // camera yaw/pitch just below, `camera_distance` is a plain field (not an
-    // `Option`), so every preset carries one.
-    let (min_distance, max_distance) =
-        crate::gui::render::camera_lighting::orbit_distance_bounds(mesh_bounding_radius);
-    scene.distance = preset.camera_distance.clamp(min_distance, max_distance);
+    // The distance comes with a recorded camera pose only, matching `lighting_presets`'
+    // own live-apply: a lighting-only preset keeps the base capture's zoom.
+    if let Some(distance) = values.camera_distance {
+        let (min_distance, max_distance) =
+            crate::gui::render::camera_lighting::orbit_distance_bounds(mesh_bounding_radius);
+        scene.distance = distance.clamp(min_distance, max_distance);
+    }
 
     if let Some((yaw, pitch, roll)) = values.camera_pose() {
         scene.yaw = yaw;
@@ -137,6 +137,18 @@ pub(super) fn apply_preset_to_scene(
         // No map saved means no map: the rig comes back, as when the lighting is applied live.
         None => scene.env_map = None,
     }
+    // Metered for the saved lighting's own rig and pose, as `RenderContext::effective_exposure`
+    // meters the live view; an HDR map keeps the plain exposure.
+    scene.exposure = if scene.env_map.is_some() {
+        values.exposure
+    } else {
+        pleochroma::optics::raytracer::metered_exposure(
+            values.exposure,
+            scene.lighting_preset,
+            scene.light_yaw,
+            scene.light_pitch,
+        )
+    };
 
     scene
 }
@@ -614,6 +626,11 @@ mod tests {
         let overlaid = apply_preset_to_scene(base.clone(), &preset, 1.5);
         assert_eq!(overlaid.yaw, base.yaw);
         assert_eq!(overlaid.pitch, base.pitch);
+        assert_eq!(
+            overlaid.distance.to_bits(),
+            base.distance.to_bits(),
+            "a lighting-only preset keeps the zoom of the picture it is applied to"
+        );
         assert_eq!(overlaid.light_yaw, preset.light_yaw_deg.to_radians());
     }
 

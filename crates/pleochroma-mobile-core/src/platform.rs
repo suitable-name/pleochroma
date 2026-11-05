@@ -244,6 +244,8 @@ pub mod mime {
     pub const ASC: &str = "text/plain";
     /// The printable cutting sheet.
     pub const HTML: &str = "text/html";
+    /// The cutting sheet as a PDF: the standard template alone.
+    pub const PDF: &str = "application/pdf";
     /// A rendered picture or diagram.
     pub const PNG: &str = "image/png";
     /// Anything else (`.gem`, `.gcs`, `.hdr`) when picking.

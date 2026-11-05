@@ -12,8 +12,6 @@ pub struct GpuWhittedParams {
     pub modes: [u32; 4],
     pub values: [f32; 4],
     pub indices: [f32; 4],
-    pub alpha_o: [f32; 4],
-    pub alpha_e: [f32; 4],
     pub axis: [f32; 4],
     pub masks: [[f32; 4]; 3],
     pub rgb_to_xyz: [[f32; 4]; 3],
@@ -27,12 +25,21 @@ pub struct GpuWhittedParams {
     pub extra: [f32; 4],
     pub aa: [[f32; 4]; 16],
     pub ring_dirs: [[f32; 4]; 16],
+    /// [`BinnedAbsorption`](crate::renderer::whitted::BinnedAbsorption) `p` and `q`, mode-major:
+    /// mode `m`, bin `b` is element `(m * 40 + b) % 4` of vec4 `(m * 40 + b) / 4`.
+    pub depth_p: [[f32; 4]; 30],
+    pub depth_q: [[f32; 4]; 30],
+    /// Per-bin linear-sRGB weights of the illuminant white.
+    pub bin_weights: [[f32; 4]; 40],
 }
 
 const _: () = {
-    assert!(size_of::<GpuWhittedParams>() == 864);
-    assert!(core::mem::offset_of!(GpuWhittedParams, aa) == 352);
-    assert!(core::mem::offset_of!(GpuWhittedParams, ring_dirs) == 608);
+    assert!(size_of::<GpuWhittedParams>() == 2432);
+    assert!(core::mem::offset_of!(GpuWhittedParams, aa) == 320);
+    assert!(core::mem::offset_of!(GpuWhittedParams, ring_dirs) == 576);
+    assert!(core::mem::offset_of!(GpuWhittedParams, depth_p) == 832);
+    assert!(crate::renderer::whitted::ABSORPTION_BINS == 40);
+    assert!(crate::renderer::whitted::ABSORPTION_MODES == 3);
 };
 
 #[cfg(feature = "gpu")]
@@ -42,7 +49,7 @@ impl GpuWhittedParams {
         tools: usize,
         prep: &crate::renderer::whitted::WhittedPrep<'_>,
     ) -> Self {
-        use crate::renderer::whitted::{AlphaModel, aa_offset, env::WhittedGpuEnv};
+        use crate::renderer::whitted::{ABSORPTION_BINS, aa_offset, env::WhittedGpuEnv};
         use bytemuck::Zeroable;
         let pack = |v: glam::Vec3| [v.x, v.y, v.z, 0.0];
         let mut out = Self::zeroed();
@@ -67,17 +74,17 @@ impl GpuWhittedParams {
             out.indices[index] = chain.n;
             out.masks[index] = pack(chain.mask);
         }
-        match prep.alpha {
-            AlphaModel::Isotropic(alpha) => {
-                out.alpha_o = pack(alpha);
-            }
-            AlphaModel::Uniaxial { o, e, axis } => {
-                out.modes[0] = 1;
-                out.alpha_o = pack(o);
-                out.alpha_e = pack(e);
-                out.axis = pack(axis);
+        let absorption = &prep.absorption;
+        out.modes[0] = u32::from(absorption.modes);
+        out.axis = pack(absorption.axis);
+        for mode in 0..usize::from(absorption.modes) {
+            for bin in 0..ABSORPTION_BINS {
+                let flat = mode * ABSORPTION_BINS + bin;
+                out.depth_p[flat / 4][flat % 4] = absorption.p[mode][bin];
+                out.depth_q[flat / 4][flat % 4] = absorption.q[mode][bin];
             }
         }
+        out.bin_weights = absorption.weights.map(pack);
         out.rgb_to_xyz = [
             pack(prep.rgb_to_xyz.x_axis),
             pack(prep.rgb_to_xyz.y_axis),

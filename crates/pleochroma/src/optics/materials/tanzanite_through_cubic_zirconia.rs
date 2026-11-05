@@ -159,7 +159,13 @@ impl GemMaterial {
                 // purplish ray (L*31 h 317), beta blue (L*45 h 291), gamma the
                 // lightest (L*54 h 268).
                 // Calibration record: docs/chromophores/calibration-records.md#tanzanite
-                absorption: tanzanite_absorption(),
+                // 2026-11-04 (owner: "The render seems to err toward saturated"): x 0.7 of the
+                // crystal (about 0.4 wt% V2O3). Colored-pixel saturation s_uv: the faceted dealer
+                // photos 0.79, the Commons photos 0.84 and 1.76, the x 1 render 1.57 (x 0.5: 0.84 at
+                // h 295); the factor takes half the gap to the dealer photos in log terms. Swatch
+                // L*56 C*40 h 290; alpha L*44 h 315, beta L*58 h 286, gamma L*65 h 263.
+                // Calibration record: docs/chromophores/calibration-records.md#saturation-round-2026-11-04
+                absorption: tanzanite_absorption().scaled(0.7),
                 c_axis: Vec3::Y,
                 // n_beta - n_alpha at the D line. Source: C.S. Hurlbut, American
                 // Mineralogist 54, 702 (1969), gem zoisite from Tanzania, indices by

@@ -47,10 +47,11 @@ fn color_change_garnet_resolves_by_name_and_is_isotropic() {
     );
 }
 
-/// The two transmission windows (blue-green and red) either side of the strong ~573 nm
-/// Cr3+/V3+ band, and the Mn2+ violet cut-off.
+/// The common Tanzanian type (since 2026-11-03, after dealer photos): the Mn2+ edge closes the
+/// violet and blue, the weak V3+/Cr3+ band at 581 nm holds the yellow-green well below the open
+/// red window, which the lamp then favours.
 #[test]
-fn color_change_garnet_has_two_open_windows_around_the_573_band() {
+fn color_change_garnet_closes_the_blue_and_holds_the_yellow_green_below_the_red() {
     let m = material();
     let transmittance = |lambda_nm: f32| -> f64 {
         let alpha: f32 = m
@@ -61,14 +62,17 @@ fn color_change_garnet_has_two_open_windows_around_the_573_band() {
             .sum();
         (-f64::from(alpha) * REFERENCE_PATH).exp()
     };
-    assert!(transmittance(485.0) > 0.5, "blue-green window must be open");
     assert!(transmittance(660.0) > 0.5, "red window must be open");
     assert!(
-        transmittance(573.0) < 0.15,
-        "the 573 nm band must be strong"
+        transmittance(581.0) < 0.5 * transmittance(660.0),
+        "the 581 nm band must hold the yellow-green below the red window"
     );
     assert!(
-        transmittance(421.0) < 0.15,
+        transmittance(450.0) < 0.15,
+        "the Mn2+ edge must close the blue"
+    );
+    assert!(
+        transmittance(421.0) < 0.05,
         "the Mn2+ group must block violet"
     );
 }

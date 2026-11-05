@@ -16,6 +16,8 @@ pub const MIME_ASC: &str = "text/plain;charset=utf-8";
 pub const MIME_DESIGN: &str = DESIGN_MIME_TYPE;
 /// MIME type of the cutting sheet.
 pub const MIME_HTML: &str = "text/html;charset=utf-8";
+/// MIME type of the cutting sheet as a PDF.
+pub const MIME_PDF: &str = "application/pdf";
 /// MIME type of the diagram.
 pub const MIME_PNG: &str = "image/png";
 

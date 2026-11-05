@@ -444,12 +444,16 @@ fn the_new_built_ins_have_their_catalogue_and_optics() {
     assert!((f_minus_c(&lab) - 0.579 * 0.012).abs() < 2e-4);
     assert!((f_minus_c(&moon) - 0.579 * 0.012).abs() < 2e-4);
 
-    // Black opal is darker than white opal at every wavelength.
+    // Black opal is darker than white opal at every wavelength. White opal has carried a faint
+    // cream band at 400 nm since 2026-11-04 (its milky body), so it absorbs a little in the blue.
     let (white, black) = (builtin(names[0]), builtin(names[1]));
     for lambda in [450.0f32, 550.0, 650.0] {
         let alpha = |m: &GemMaterial| -> f32 {
             m.absorption.o_ray.iter().map(|b| b.evaluate(lambda)).sum()
         };
-        assert!(alpha(&black) > 1.0 && alpha(&white) == 0.0, "{lambda}");
+        assert!(
+            alpha(&black) > 1.0 && alpha(&white) < 0.1 * alpha(&black),
+            "{lambda}"
+        );
     }
 }

@@ -5073,114 +5073,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pleochroma"
-version = "0.9.0"
-dependencies = [
- "bytemuck",
- "futures-channel",
- "glam",
- "pleochroma-formats",
- "js-sys",
- "serde",
- "toml 1.1.8+spec-1.1.0",
- "tracing",
- "wasm-bindgen",
- "web-time",
-]
-
-[[package]]
-name = "pleochroma-ai"
-version = "0.8.2"
-dependencies = [
- "burn",
- "cudarc",
- "glam",
- "pleochroma",
- "pleochroma-cut-core",
- "pleochroma-editor",
- "rayon",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "pleochroma-cut-core"
-version = "0.9.0"
-dependencies = [
- "glam",
- "image",
- "pleochroma",
- "pleochroma-formats",
- "rawler",
- "serde",
- "serde_json",
- "toml 1.1.8+spec-1.1.0",
-]
-
-[[package]]
-name = "pleochroma-editor"
-version = "0.9.0"
-dependencies = [
- "glam",
- "image",
- "pleochroma",
- "pleochroma-cut-core",
- "pleochroma-formats",
- "pleochroma-solid",
- "tracing",
-]
-
-[[package]]
-name = "pleochroma-formats"
-version = "0.9.0"
-dependencies = [
- "serde",
- "sha2 0.11.1",
- "toml 1.1.8+spec-1.1.0",
-]
-
-[[package]]
-name = "pleochroma-solid"
-version = "0.9.0"
-dependencies = [
- "glam",
- "pleochroma",
- "pleochroma-cut-core",
-]
-
-[[package]]
-name = "pleochroma-trainer"
-version = "0.8.2"
-dependencies = [
- "arboard",
- "pleochroma",
- "pleochroma-ai",
- "pleochroma-cut-core",
- "pleochroma-formats",
- "pleochroma-update",
- "rayon",
- "rfd",
- "rmp-serde",
- "rusqlite",
- "serde",
- "serde_json",
- "slint",
- "slint-build",
- "tempfile",
- "terminal_size",
-]
-
-[[package]]
-name = "pleochroma-update"
-version = "0.9.0"
-dependencies = [
- "semver",
- "serde",
- "serde_json",
- "ureq 3.4.2",
-]
-
-[[package]]
 name = "indoc"
 version = "2.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7347,6 +7239,117 @@ name = "plain"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
+
+[[package]]
+name = "pleochroma"
+version = "0.10.0"
+dependencies = [
+ "bytemuck",
+ "futures-channel",
+ "glam",
+ "js-sys",
+ "pleochroma-formats",
+ "serde",
+ "toml 1.1.8+spec-1.1.0",
+ "tracing",
+ "wasm-bindgen",
+ "web-time",
+]
+
+[[package]]
+name = "pleochroma-ai"
+version = "0.10.0"
+dependencies = [
+ "burn",
+ "cudarc",
+ "glam",
+ "pleochroma",
+ "pleochroma-cut-core",
+ "pleochroma-editor",
+ "rayon",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "pleochroma-cut-core"
+version = "0.10.0"
+dependencies = [
+ "glam",
+ "image",
+ "num-bigint",
+ "num-rational",
+ "pleochroma",
+ "pleochroma-formats",
+ "rawler",
+ "serde",
+ "serde_json",
+ "toml 1.1.8+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
+name = "pleochroma-editor"
+version = "0.10.0"
+dependencies = [
+ "glam",
+ "image",
+ "pleochroma",
+ "pleochroma-cut-core",
+ "pleochroma-formats",
+ "pleochroma-solid",
+ "tracing",
+]
+
+[[package]]
+name = "pleochroma-formats"
+version = "0.10.0"
+dependencies = [
+ "serde",
+ "sha2 0.11.1",
+ "toml 1.1.8+spec-1.1.0",
+]
+
+[[package]]
+name = "pleochroma-solid"
+version = "0.10.0"
+dependencies = [
+ "glam",
+ "pleochroma",
+ "pleochroma-cut-core",
+]
+
+[[package]]
+name = "pleochroma-trainer"
+version = "0.10.0"
+dependencies = [
+ "arboard",
+ "pleochroma",
+ "pleochroma-ai",
+ "pleochroma-cut-core",
+ "pleochroma-formats",
+ "pleochroma-update",
+ "rayon",
+ "rfd",
+ "rmp-serde",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "slint",
+ "slint-build",
+ "tempfile",
+ "terminal_size",
+]
+
+[[package]]
+name = "pleochroma-update"
+version = "0.10.0"
+dependencies = [
+ "semver",
+ "serde",
+ "serde_json",
+ "ureq 3.4.2",
+]
 
 [[package]]
 name = "pliron"

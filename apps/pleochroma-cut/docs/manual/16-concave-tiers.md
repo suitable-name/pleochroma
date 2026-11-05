@@ -100,7 +100,7 @@ you keep or discard it.
 
 ## The Cutting Sheet and the Schedule
 
-The text and HTML cutting sheets, the Edit tab's **Schedule** tab and the
+The text, HTML and PDF cutting sheets, the Edit tab's **Schedule** tab and the
 catalogue's cutting table all print a concave tier as its two lines in one band,
 with the zebra striping alternating per tier. Flat tiers print exactly as before.
 The catalogue's **Copy Instructions** puts each tool line under its facet line.

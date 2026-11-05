@@ -1,6 +1,7 @@
 //! The zoning wire extension (`render` feature only).
 //!
-//! Colour zones travel BESIDE the scene, never inside it, and need no protocol bump of their own.
+//! Colour zones travel BESIDE the scene, never inside it. The extension itself needed no protocol
+//! bump; v36 made a coordinator serve zoned scenes (last section).
 //!
 //! # Why a separate message
 //!
@@ -31,9 +32,15 @@
 //!    other trailing byte is refused as before.
 //!
 //! So the only bytes that differ between builds are the marker, and it appears only between two
-//! zoning builds, or on a `HELLO` that a default worker provably ignores. A coordinator never
-//! advertises the bit (zoned pictures through it render locally), and a zoning worker connection
-//! that is a coordinator's viewer connection answers without it.
+//! zoning builds, or on a `HELLO` that a default worker provably ignores.
+//!
+//! # Through a coordinator (v36)
+//!
+//! A coordinator answers a zoning viewer with the marker too. It keeps the payload the viewer
+//! sends ahead of a `RenderRequest` or `FinalImageRequest`, re-attaches the zones to the scene
+//! (its own lane traces that scene as held), and writes a payload keyed by each chunk's own
+//! `request_id` ahead of every `RenderRequest` it gives a joined worker. Its joined workers run
+//! the same protocol version and release, so every one of them reads it.
 
 use super::{Hello, NetError, Welcome};
 use crate::{framing, scene::SceneState};
@@ -554,7 +561,7 @@ mod tests {
             4
         );
         assert_eq!(
-            PROTOCOL_VERSION, 35,
+            PROTOCOL_VERSION, 36,
             "zoning itself needs no protocol bump; the pinned value moves with the other changes"
         );
     }

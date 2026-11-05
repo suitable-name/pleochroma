@@ -12,10 +12,12 @@ use pleochroma_cut_core::material::pattern::{
 /// The menu's own first entry: it prompts and picks nothing.
 pub(super) const MENU_PROMPT: &str = "My Presets";
 
-/// Amethyst purple, `[L*, C*, h]`.
-const AMETHYST: [f64; 3] = [48.0, 42.0, 305.0];
-/// Citrine yellow, `[L*, C*, h]`.
-const CITRINE: [f64; 3] = [82.0, 72.0, 88.0];
+/// Amethyst purple, `[L*, C*, h]`; the typical patterns' Split and Sectors take the same seed.
+/// Deeper since 2026-11-03 (it was L* 48 C* 42), after dealer photos of ametrine.
+const AMETHYST: [f64; 3] = [46.0, 45.0, 305.0];
+/// Citrine yellow, `[L*, C*, h]`; the typical patterns' Split and Sectors take the same seed.
+/// Softer and more golden since 2026-11-03 (it was L* 82 C* 72 h 88), after the same photos.
+const CITRINE: [f64; 3] = [84.0, 58.0, 85.0];
 
 /// One entry of the menu.
 #[derive(Debug, Clone, PartialEq)]

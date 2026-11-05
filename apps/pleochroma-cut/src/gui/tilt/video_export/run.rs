@@ -53,7 +53,10 @@ use std::{
 /// runs it through [`frames::render_frames`].
 pub struct VideoExportRequest {
     pub scene: SceneSnapshot,
-    pub axis_index: usize,
+    /// The sweep axes in the order the video shows them (indices into
+    /// `PROFILE_AZIMUTHS_DEG`), never empty. One axis is one `start -> end` pass; several
+    /// rock through face-up one after the other (`params::frame_poses`).
+    pub axes: Vec<usize>,
     pub start_deg: f64,
     pub end_deg: f64,
     pub step_deg: f64,
@@ -66,7 +69,8 @@ pub struct VideoExportRequest {
     pub out_dir: PathBuf,
     pub out_name: String,
     pub selection: metrics::MetricSelection,
-    pub curves: metrics::MetricCurves,
+    /// One set of curves per entry of `axes`, in the same order.
+    pub curves: Vec<metrics::MetricCurves>,
     pub keep_frames: bool,
     /// The remote side: the section's "Compute" choice (`Both` by default; `RemoteOnly`
     /// traces nothing on this computer, see this group's own `mod.rs` doc comment), the
@@ -76,6 +80,14 @@ pub struct VideoExportRequest {
     /// `RenderContext::local_compute_target`, read from the SAME persisted setting the
     /// still-image export and the live viewport both use.
     pub local_compute: LocalComputeTarget,
+}
+
+impl VideoExportRequest {
+    /// Every frame of the video, in order.
+    #[must_use]
+    pub fn poses(&self) -> Vec<params::FramePose> {
+        params::frame_poses(&self.axes, self.start_deg, self.end_deg, self.step_deg)
+    }
 }
 
 /// Spawns the background render loop for `request`. Never blocks the UI thread; checks
@@ -218,6 +230,7 @@ fn render_all_frames(
         ui_weak: ui_weak.clone(),
         activity_id,
         eta: EtaEstimator::default(),
+        work: None,
     };
     frames::render_frames(request, false, cancel, &mut reporter)
 }
@@ -228,6 +241,9 @@ struct SlintFrameReporter {
     ui_weak: slint::Weak<MainWindow>,
     activity_id: i32,
     eta: EtaEstimator,
+    /// The rendering work done as of the next saved frame (`FrameReporter::work_done`): copied
+    /// frames cost nothing, so the time estimate follows this, not the frame count.
+    work: Option<f64>,
 }
 
 impl FrameReporter for SlintFrameReporter {
@@ -244,8 +260,9 @@ impl FrameReporter for SlintFrameReporter {
 
     fn frame_saved(&mut self, _index: usize, frames_done: usize, total: usize, frame_secs: f32) {
         let now = Instant::now();
-        self.eta
-            .observe(now, frames_done as f64 / total.max(1) as f64);
+        let by_count = frames_done as f64 / total.max(1) as f64;
+        let work = self.work.take().unwrap_or(by_count);
+        self.eta.observe(now, work);
         report_progress(
             &self.ui_weak,
             frames_done,
@@ -254,6 +271,10 @@ impl FrameReporter for SlintFrameReporter {
             format_eta(self.eta.eta(now)),
             self.activity_id,
         );
+    }
+
+    fn work_done(&mut self, fraction: f64) {
+        self.work = Some(fraction);
     }
 }
 

@@ -33,6 +33,8 @@ mod slab;
 mod triple_solve;
 
 pub use exp_poly::exp_f32x8;
+// The GPU Ray-Traced twin tests compare WGSL `exp_poly` against the scalar lane.
+#[cfg(all(test, feature = "gpu", not(target_arch = "wasm32")))]
 pub(crate) use exp_poly::exp_lane;
 pub use feasibility::{BLANK_OWNER, Feasibility, PlanesSoA64, any_violation, classify_feasibility};
 pub use slab::{PlanesSoA32, SlabScan, slab_scan};

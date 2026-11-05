@@ -186,6 +186,11 @@ fn face_up_lch(material: &GemMaterial, units: f32) -> [f64; 3] {
 /// white, the same greenish, near-colorless ray. Against an equal-energy white: c in the table
 /// plane (o- and e-ray) L* 77.5 C* 27.3 h 262; c along the view axis (o-ray only) L* 96.9 C* 13.3
 /// h 153.
+///
+/// Since 2026-11-04 the built-in is x 0.3 of the 2026-11-03 mix (a pale aquamarine, the dealer
+/// photos' saturation); a Python replica of the 50/50 mix (not a run) gives c in the table plane
+/// L* 89 C* 16 h 239 against the o-ray only L* 98 C* 4 h 150, so the lightness gap is about 9 and
+/// the bound is 5.
 #[test]
 fn aquamarine_face_up_sees_the_blue_ray_with_c_axis_in_table_plane() {
     let real = GemMaterial::by_name("Aquamarine").expect("Aquamarine must be a built-in material");
@@ -221,7 +226,7 @@ fn aquamarine_face_up_sees_the_blue_ray_with_c_axis_in_table_plane() {
          {c_real:.1} vs {c_wrong:.1}"
     );
     assert!(
-        l_real < l_wrong - 10.0,
+        l_real < l_wrong - 5.0,
         "the e-ray's absorption must darken the face-up view -- got L* {l_real:.1} vs \
          {l_wrong:.1}"
     );
@@ -290,22 +295,24 @@ fn ruby_face_up_is_darker_with_c_axis_along_view_axis_than_perpendicular_to_it()
 /// Alexandrite variant of the orientation-sign tests above, added with its trichroic
 /// (three-band-set) absorption data. Alexandrite's `c_axis` field is the `n_gamma`
 /// principal direction = the crystallographic b axis, the GREEN pleochroic direction
-/// carrying the strongest 4T2 band (595nm, figure-read peak ~31 cm^-1 net vs ~19 and
-/// ~6.5 for the other two axes -- see the entry's comment in
-/// `GemMaterial::all_materials`). That 595nm band sits right on top of the photopic
-/// luminance peak (CIE Y, ~555nm, with broad shoulders), so WHICH directions' spectra
-/// a view engages is directly visible in luminance: face-up down `c_axis = Vec3::Y`
-/// (the real, as-shipped orientation), transverse polarizations sample the alpha(red)/
-/// beta(yellow) principal spectra whose 560-565nm bands are much weaker -- while a
-/// clone with `c_axis` forced to `Vec3::X` rotates the strong-595nm gamma direction
-/// INTO the table plane where face-up polarizations engage it directly, darkening the
-/// view. Sign-discriminating for the biaxial alpha/beta/gamma slot order the same way
-/// the Tourmaline test above is for the uniaxial o/e convention: swapping gamma's
-/// strong band set onto another slot flips or collapses this margin (measured 5.08%
-/// relative at this sample count -- milder than Tourmaline's, as expected for a
-/// paired comparison where BOTH orientations still engage two colored principal
-/// spectra, but 5x the 1% assertion bound and well above the ~0.0002 luminance-unit
-/// noise floor characterised for the Tourmaline test's identical setup).
+/// carrying the strongest 4T2 absorption (585/615 nm in the measured GRR 874 gamma ray,
+/// against the weaker 578 nm alpha and 571 nm beta bands -- see the entry's comment in
+/// `GemMaterial::all_materials`). That band sits on the photopic luminance peak (CIE Y,
+/// ~555nm, with broad shoulders), so WHICH directions' spectra a view engages is
+/// directly visible in luminance: face-up down `c_axis = Vec3::Y` (the real, as-shipped
+/// orientation), transverse polarizations sample the alpha (red) and beta (yellow)
+/// principal spectra -- while a clone with `c_axis` forced to `Vec3::X` and its alpha
+/// axis set to `Vec3::Z` puts beta along the view and rotates the strong gamma
+/// direction INTO the table plane beside alpha, where face-up polarizations engage it
+/// directly, darkening the view. Sign-discriminating for the biaxial alpha/beta/gamma
+/// slot order the same way the Tourmaline test above is for the uniaxial o/e
+/// convention: swapping gamma's band set onto another slot flips or collapses the
+/// margin. The alpha axis is set explicitly since the 2026-11-03 measured data: with
+/// the default completion (alpha along the view, beta and gamma in the table) the very
+/// light beta ray (swatch Y 38 against alpha 12, gamma 15) makes the two views about
+/// equally bright (swatch alpha+beta Y 25.4, beta+gamma Y 26.7), while alpha+gamma is
+/// Y 13.6, about half. The earlier tuned data measured 5.08% darker with the default
+/// completion; the 1% bound is unchanged.
 #[test]
 fn alexandrite_face_up_is_brighter_than_with_green_gamma_axis_rotated_into_table_plane() {
     const SAMPLES: u32 = 20_000;
@@ -319,6 +326,8 @@ fn alexandrite_face_up_is_brighter_than_with_green_gamma_axis_rotated_into_table
     );
     let mut alexandrite_rotated = alexandrite_real.clone();
     alexandrite_rotated.c_axis = Vec3::X;
+    // Beta (X cross Z = -Y) along the view: face-up shows alpha and gamma.
+    alexandrite_rotated.alpha_axis = Some(Vec3::Z);
 
     let ray = Ray {
         origin: Vec3::new(0.0, 2.5, 0.0),
@@ -344,7 +353,7 @@ fn alexandrite_face_up_is_brighter_than_with_green_gamma_axis_rotated_into_table
 
     println!(
         "[alexandrite orientation] luminance c_axis=Y (real, gamma along view) = {lum_real:.6}, \
-         c_axis=X (forced, gamma in table plane) = {lum_rotated:.6}, margin = {:+.6} ({:.2}% darker)",
+         c_axis=X, alpha=Z (forced, gamma and alpha in table plane) = {lum_rotated:.6}, margin = {:+.6} ({:.2}% darker)",
         lum_rotated - lum_real,
         100.0 * (1.0 - lum_rotated / lum_real)
     );

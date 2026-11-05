@@ -20,7 +20,7 @@ use rayon::prelude::*;
 #[path = "runner_pool_staged.rs"]
 mod staged;
 
-pub use staged::{ItemStages, ProbePlan, StagedLimits, run_staged_items_ranked};
+pub use staged::{ItemStages, PendingBudget, ProbePlan, StagedLimits, run_staged_items_ranked};
 
 static WORK_POOL: OnceLock<Option<rayon::ThreadPool>> = OnceLock::new();
 
@@ -108,16 +108,103 @@ where
     )
 }
 
+static SHARED_POOL_ACTIVE: AtomicUsize = AtomicUsize::new(0);
+/// Staged jobs handed to the shared pool that no worker has started yet.
+static SHARED_POOL_QUEUED: AtomicUsize = AtomicUsize::new(0);
+
+/// A staged job handed to the shared pool but not started yet. It already claims a worker: a
+/// thread waiting inside nested `join`/`par_iter` work steals queued jobs, so nested work that
+/// starts while jobs are queued can end up running an unrelated long job before it returns.
+pub(crate) struct SharedQueuedGuard {
+    tracked: bool,
+}
+
+impl SharedQueuedGuard {
+    pub(crate) fn enter(tracked: bool) -> Self {
+        if tracked {
+            SHARED_POOL_QUEUED.fetch_add(1, Ordering::Relaxed);
+        }
+        Self { tracked }
+    }
+
+    /// The job starts on a worker: it counts as active before it leaves the queue.
+    pub(crate) fn start(self) -> SharedActiveGuard {
+        let active = SharedActiveGuard::enter(self.tracked);
+        drop(self);
+        active
+    }
+}
+
+impl Drop for SharedQueuedGuard {
+    fn drop(&mut self) {
+        if self.tracked {
+            SHARED_POOL_QUEUED.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+}
+
+pub(crate) struct SharedActiveGuard {
+    tracked: bool,
+}
+
+impl SharedActiveGuard {
+    pub(crate) fn enter(tracked: bool) -> Self {
+        if tracked {
+            SHARED_POOL_ACTIVE.fetch_add(1, Ordering::Relaxed);
+        }
+        Self { tracked }
+    }
+}
+
+impl Drop for SharedActiveGuard {
+    fn drop(&mut self) {
+        if self.tracked {
+            SHARED_POOL_ACTIVE.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+}
+
+pub(crate) fn is_shared_work_pool(pool: Option<&rayon::ThreadPool>) -> bool {
+    match (pool, work_pool()) {
+        (Some(a), Some(b)) => std::ptr::eq(a, b),
+        _ => false,
+    }
+}
+
 /// Whether unfinished units leave spare capacity for nested tasks in the current pool.
+///
+/// In the shared pool, jobs running for any caller and jobs queued but not yet started both
+/// claim a worker; nested work starts only while together they leave one free (see
+/// `SharedQueuedGuard`). The choice changes timing only: nested searches reduce canonically.
 pub struct Tail {
-    unfinished: AtomicUsize,
-    pool_width: usize,
+    pub(crate) unfinished: AtomicUsize,
+    pub(crate) pool_width: usize,
+    pub(crate) shared_pool: bool,
+}
+
+/// Spare capacity for nested work: `local` units of this caller, and in the shared pool the
+/// `(running, queued)` jobs of every caller.
+fn has_spare_capacity(local: usize, shared: Option<(usize, usize)>, width: usize) -> bool {
+    let demand = shared.map_or(local, |(running, queued)| {
+        local.max(running.saturating_add(queued))
+    });
+    demand < width
 }
 
 impl Tail {
     #[must_use]
     pub fn is_active(&self) -> bool {
-        self.unfinished.load(Ordering::Relaxed) < self.pool_width
+        let shared = self.shared_pool.then(|| {
+            (
+                SHARED_POOL_ACTIVE.load(Ordering::Relaxed),
+                SHARED_POOL_QUEUED.load(Ordering::Relaxed),
+            )
+        });
+        has_spare_capacity(
+            self.unfinished.load(Ordering::Relaxed),
+            shared,
+            self.pool_width,
+        )
     }
 
     fn complete(&self) {
@@ -136,7 +223,7 @@ where
     }
     let order = ranked(costs);
     let workers = threads.min(order.len()).max(1);
-    if workers == 1 || work_pool().is_none() {
+    if work_pool().is_none() {
         return ordered(
             order
                 .into_iter()
@@ -197,6 +284,7 @@ where
     let tail = Tail {
         unfinished: AtomicUsize::new(count),
         pool_width: pool.map_or(1, rayon::ThreadPool::current_num_threads),
+        shared_pool: false,
     };
     let run_worker = || {
         let mut result = Vec::new();
@@ -266,10 +354,23 @@ mod tests {
     }
 
     #[test]
+    fn single_ranked_item_enters_the_shared_pool() {
+        let Some(pool) = work_pool() else {
+            return;
+        };
+        let results = run_indexed_ranked(&[1], 1, |_| {
+            assert!(pool.current_thread_index().is_some());
+            (0..8).into_par_iter().sum::<usize>()
+        });
+        assert_eq!(results, [28]);
+    }
+
+    #[test]
     fn nested_work_activates_only_after_outer_work_leaves_spare_capacity() {
         let tail = Tail {
             unfinished: AtomicUsize::new(4),
             pool_width: 3,
+            shared_pool: false,
         };
         assert!(!tail.is_active());
         tail.complete();
@@ -279,8 +380,23 @@ mod tests {
         let serial = Tail {
             unfinished: AtomicUsize::new(1),
             pool_width: 1,
+            shared_pool: false,
         };
         assert!(!serial.is_active());
+    }
+
+    #[test]
+    fn queued_shared_jobs_leave_no_spare_capacity_for_nested_work() {
+        // One unit of this caller; in a four-wide shared pool three running jobs leave a worker
+        // free, but one more job waiting in the queue claims it.
+        assert!(has_spare_capacity(1, Some((3, 0)), 4));
+        assert!(!has_spare_capacity(1, Some((3, 1)), 4));
+        assert!(!has_spare_capacity(1, Some((0, 4)), 4));
+        // The caller's own units still count when the shared pool looks idle.
+        assert!(!has_spare_capacity(4, Some((0, 0)), 4));
+        // A private pool ignores the shared counters.
+        assert!(has_spare_capacity(3, None, 4));
+        assert!(!has_spare_capacity(usize::MAX, Some((usize::MAX, 1)), 4));
     }
 
     #[test]

@@ -219,3 +219,50 @@ fn optical_f32_width_and_fully_carved_width_cache_keep_planar_contract() {
     );
     assert!(gpu.diagnostics().width_cache_hits > 0);
 }
+
+#[test]
+#[ignore = "requires explicitly authorized NVIDIA CUDA/NVRTC execution"]
+fn concurrent_arrangements_on_separate_scratch_sets_match_serial_results() {
+    let gpu = GpuSolid::new_cuda(0).expect("CUDA device");
+    let mut tilted = box_planes(1.0);
+    tilted.push((DVec3::new(1.0, 0.002, 0.0).normalize(), 1.0 - 1e-5));
+    let mut open = box_planes(1.0);
+    open.pop();
+    let cases = [box_planes(1.0), tilted, open];
+    let describe = |planes: &[(DVec3, f64)]| {
+        let built = gpu.build_and_measure(planes, &[]).expect("arrangement");
+        let triples = gpu.feasible_plane_triples(planes, 2.0).expect("triples");
+        format!(
+            "{:?} {:?} {:?} {triples:?}",
+            built.status, built.metrics, built.vertices
+        )
+    };
+    let run = || -> Vec<String> { cases.iter().map(|planes| describe(planes)).collect() };
+    let serial = run();
+    // More callers than scratch sets: some overlap on separate streams, others queue.
+    std::thread::scope(|scope| {
+        let callers: Vec<_> = (0..8).map(|_| scope.spawn(run)).collect();
+        for caller in callers {
+            assert_eq!(caller.join().expect("concurrent caller"), serial);
+        }
+    });
+    gpu.check().expect("no native failures");
+}
+
+#[test]
+fn build_cache_churn_does_not_evict_optical_widths() {
+    use std::collections::VecDeque;
+    use std::sync::Mutex;
+    let optical = Mutex::new(VecDeque::new());
+    let builds = Mutex::new(VecDeque::new());
+    let planes = [(DVec3::X, 1.0)];
+    GpuSolid::cache_width(&optical, &planes, Some(2.0));
+    for i in 0..80 {
+        GpuSolid::cache_width(&builds, &[(DVec3::X, f64::from(i))], None);
+    }
+    let optical = optical.lock().unwrap();
+    assert_eq!(optical.len(), 1);
+    assert_eq!(optical[0].key, plane_key(&planes));
+    assert_eq!(optical[0].width, Some(2.0));
+    assert_eq!(builds.lock().unwrap().len(), 64);
+}

@@ -140,8 +140,9 @@ pub(super) fn parse_export_format(word: &str) -> Result<ExportFormat, String> {
         DESIGN_EXTENSION => Ok(ExportFormat::Psdd),
         "gcs" => Ok(ExportFormat::Gcs),
         "html" => Ok(ExportFormat::Html),
+        "pdf" => Ok(ExportFormat::Pdf),
         other => Err(format!(
-            "unknown format {other:?} (expected asc, {DESIGN_EXTENSION}, gcs or html)"
+            "unknown format {other:?} (expected asc, {DESIGN_EXTENSION}, gcs, html or pdf)"
         )),
     }
 }

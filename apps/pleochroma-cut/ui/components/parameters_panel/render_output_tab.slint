@@ -137,7 +137,7 @@ export component RenderOutputTab inherits VerticalLayout {
         toggled => { SettingsModel.ray_fire_selected(!SettingsModel.ray_fire); }
     }
     if GuideModel.shows_advanced(): Text {
-        text: "Ray-Traced uses an averaged tint and approximate frost; it omits polarization, double refraction, haze, zoning, edge rounding and paths beyond the bounce cap. Metrics and diagnostics use their own tracer.";
+        text: "Ray-Traced tints by the material's spectrum in 10 nm bands and uses approximate frost; it omits polarization, double refraction, haze, zoning, edge rounding and paths beyond the bounce cap. Metrics and diagnostics use their own tracer.";
         wrap: word-wrap;
         font-size: 11px;
         color: Theme.text-muted;

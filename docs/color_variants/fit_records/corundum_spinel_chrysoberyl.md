@@ -1,14 +1,14 @@
 # Fit records: corundum, spinel, chrysoberyl, alexandrite (lane F1, 2026-10-27)
 
-Entries of `crates/pleochroma/data/color_variants/corundum_spinel_chrysoberyl.toml` (20 variants of Sapphire, Ruby, Spinel, Chrysoberyl (Yellow) and Alexandrite; the `Yellow` variant was dropped in the 2026-10-27 fix round), pinned by `crates/pleochroma/src/optics/materials/variants/tests_corundum_spinel_chrysoberyl.rs`. Research: `docs/color_variants/R1_corundum_spinel_chrysoberyl.md`. The two estimated seed entries `sapphire.pink` / `sapphire.yellow` of `data/color_variants.toml` are replaced by the measured Pink and Yellow here (same keys). Dropped by owner decision: Spinel Grey, Chrysoberyl Honey.
+Entries of `crates/pleochroma/data/color_variants/corundum_spinel_chrysoberyl.toml` (21 variants of Sapphire, Ruby, Spinel, Chrysoberyl (Yellow) and Alexandrite; the `Yellow` variant was dropped in the 2026-10-27 fix round, `Royal Blue` added 2026-11-02 and replaced by `Medium Blue` 2026-11-03, when Royal Blue became the Material Default), pinned by `crates/pleochroma/src/optics/materials/variants/tests_corundum_spinel_chrysoberyl.rs`. Research: `docs/color_variants/R1_corundum_spinel_chrysoberyl.md`. The two estimated seed entries `sapphire.pink` / `sapphire.yellow` of `data/color_variants.toml` are replaced by the measured Pink and Yellow here (same keys). Dropped by owner decision: Spinel Grey, Chrysoberyl Honey.
 
 ## Path, units and the color pipeline
 
 * **Path used.** Every entry is `per_mm` at `reference_path_mm = 7.0` (the stone width). The colors are `color::body_color::body_colors` at the face-up path of a 7 mm stone, `variants::face_up_swatch_path(PerMm, 7.0)` = `MODEL_UNIT_FACE_UP_PATH x 7 / REFERENCE_MODEL_WIDTH` = 2.83 x 7 / 2.0 = **9.905 mm** (the rule of `render_setup::absorption_path_scale_for` and the zone swatches, valid since the 2026-10-27 re-pin from 2.52). A Material Default's model-unit peak sum is the face-up optical depth (swatch = 1.0 unit at 7 mm), so a stored per-mm peak is that optical depth divided by 9.905.
 * **Convention of the strengths.** Face-up optical depth P(lambda). Corundum: P = sigma(lambda) x 1.178e17 x D, D in ppma*cm (areal density over the face-up path: D / 0.9905 cm is the bulk ppma; 1 ppma = 1.178e17 cm^-3, GIA Box A) summed over chromophores. Caltech spectra: P = 2.303 x (A - baseline) / path_cm x 0.88 cm x factor (the research doc's 0.88 cm convention, so its s factors and its target colors carry over; the physical coefficient behind a stored number is P / 0.9905 cm).
 * **Pipeline check.** My color arithmetic (CIE 1931 5 nm table and the D65 10 nm table parsed from the repo source, 1 nm integration 380-780, Lab against the illuminant's own white, Planckian 3200 K from `blackbody_spectrum`) reproduces the two recorded built-in swatches at one model unit: Sapphire default 56.7 / 39.4 / 283 against the recorded L* 57, C* 40, h 283, and Ruby default 40.5 / 67.7 / 356 against L* 41, C* 67, h 356 (`docs/chromophores/calibration-records.md`). dE2000 of the CIEDE2000 implementation is checked against the app's by construction (same formula, Sharma 2005).
-* **The Fe2+-Ti4+ factor 2.4.** The research doc found GIA's Appendix 2 Fe2+-Ti4+ color circles about 2.4 times darker than the supplementary cross-section sheet gives. GIA's text says natural non-Yogo high-iron stones show Fe2+-Ti4+ cross sections two to three times larger than the synthetic / Yogo value of the sheet (1.94e-18 cm^2 +/- 25 % at 580 nm), either enhanced pair interaction or surface-analysis bias (zoning). Decision: use the sheet's cross sections, the ones behind the built-in Sapphire (they reproduce its recorded swatch above), and set every Fe2+-Ti4+ strength relative to the Sapphire default's own density (10 ppma*cm = Material Default): Cornflower 6, Deep Blue 15, and the small Fe2+-Ti4+ parts of Purple (3) and Green (7). The factor therefore moves only the ppma label, not a color: a natural stone with the larger cross section carries 2.4 times fewer pairs for the same color.
-* **One strength factor per spectrum (owner rule).** No band is scaled on its own to reach a color. Single-source variants scale one measured spectrum (all rays) by one factor: Spinel Pink, Cobalt Blue, Lavender (path), Chrysoberyl Yellow and Greenish Yellow, Ruby Thai (all measured o-ray). Corundum variants are sums of GIA chromophore cross sections at stated ppma*cm, which is how GIA defines the variety. The combinations of measured spectra, each with one factor, are Spinel Purple (JQ-13 Cr3+ + GRR 3017 Co2+) and Alexandrite (GRR 874 Cr3+ + GRR 171 Fe3+). The only per-band ratios are those that build the unmeasured alexandrite alpha ray (see Alexandrite Strong Change) and the Ruby Thai e-ray excess; both describe an unmeasured ray and are marked estimated.
+* **The Fe2+-Ti4+ factor 2.4.** The research doc found GIA's Appendix 2 Fe2+-Ti4+ color circles about 2.4 times darker than the supplementary cross-section sheet gives. GIA's text says natural non-Yogo high-iron stones show Fe2+-Ti4+ cross sections two to three times larger than the synthetic / Yogo value of the sheet (1.94e-18 cm^2 +/- 25 % at 580 nm), either enhanced pair interaction or surface-analysis bias (zoning). Decision: use the sheet's cross sections, the ones behind the built-in Sapphire (they reproduce its recorded swatch above), and set every Fe2+-Ti4+ strength relative to the Sapphire default's own density (12.5 ppma*cm = Material Default since 2026-11-03, 10 before): Cornflower 6, Medium Blue 10, Deep Blue 15, and the small Fe2+-Ti4+ parts of Purple (3) and Green (7). The factor therefore moves only the ppma label, not a color: a natural stone with the larger cross section carries 2.4 times fewer pairs for the same color.
+* **One strength factor per spectrum (owner rule).** No band is scaled on its own to reach a color. Single-source variants scale one measured spectrum (all rays) by one factor: Spinel Pink, Cobalt Blue, Lavender (path), Chrysoberyl Yellow and Greenish Yellow, Ruby Thai (all measured o-ray). Corundum variants are sums of GIA chromophore cross sections at stated ppma*cm, which is how GIA defines the variety. The combinations of measured spectra, each with one factor, are Spinel Purple (JQ-13 Cr3+ + GRR 3017 Co2+) and Alexandrite (GRR 874 Cr3+ + GRR 171 Fe3+). The only per-band ratios are those that build the unmeasured alexandrite alpha ray (see Alexandrite Material Default) and the Ruby Thai e-ray excess; both describe an unmeasured ray and are marked estimated.
 * **Fitting.** For every entry the face-up optical depth curve P(lambda) of each ray is built from the sources above and fitted with at most 8 energy Gaussians per ray (`width_nm` = FWHM / 2.35482 in cm^-1), the smallest band count that gives dE2000 of at most 0.8 on every ray, face-up color and illuminant (D65 and 3200 K) and a transmittance residual of at most 2.5 % RMS, with the physical band count of the chromophores as the minimum. All rays use the stored (rounded) values for the reported colors. Scripts and intermediate files are outside the repo.
 * **Baselines.** Caltech files carry reflection loss and an offset (not removed by the source); the constant mean absorbance at 740-780 nm (where the chromophores do not absorb) is removed for every Caltech spectrum and the result clipped at 0. GIA cross sections are already reflection corrected.
 * **Reference spectra not shipped.** The CSVs stay in `crates/pleochroma/data/reference_spectra/` as sources; the test pins the numbers of this record and reads no CSV.
@@ -21,8 +21,8 @@ Applies to every entry below; the per-entry sections were corrected where the da
 * **Face-up color (decision D-G).** The swatches and pins of the Variants list show the ORIENTED face-up color, the color the renderer shows for the stone: with the c axis along the view the o-ray alone (uniaxial hosts with `c_axis` Y: Sapphire, Ruby, Zircon, Benitoite, Emerald, Morganite, Amethyst, Quartz, Rutile, Moissanite), (o + e) / 2 for the hosts whose c axis lies in the table plane (Aquamarine and Tourmaline, `c_axis` X), (alpha + beta) / 2 for biaxial hosts (gamma along `c_axis` Y: Topaz, Chrysoberyl, Alexandrite, Tanzanite, Peridot, Andalusite); isotropic hosts show the one color. The entry sections below keep the unpolarised mean (the fit target, what `body_colors` returns) in their "reached" lines and list the oriented color as "reached face-up (oriented ...)"; the tests pin both. The face-up path is 9.905 mm (`reference_path_mm` = the 7 mm stone width, decision D-A).
 * **Colorless entries (decision D-C).** An entry with no bands is valid on any host; the `pleochroic = true` trick was removed from the colorless entries.
 * **Measured entries in this file** (`estimated = false`): `sapphire.pink`, `sapphire.yellow`, `ruby.pinkish_red`, `spinel.lavender`. Every other one of the 21 entries is estimated.
-* **Chrysoberyl (owner decision O1).** The Material Default of Chrysoberyl (Yellow) is now 0.7 x the B1 fit of GRR 171 (one factor, per mm; the F1 "0.7" is the 0.88 cm research convention, 0.622 per mm). The `Yellow` variant duplicated it and is DROPPED; `Greenish Yellow` (0.3 x) stays; `Honey` stays dropped (owner decision: no usable data).
-* **F-14 Ruby Pigeon's Blood.** Documented, not changed: it reproduces GIA's Cr3+ cross sections at 1000 ppma*cm; the Ruby default is 800.
+* **Chrysoberyl (owner decision O1).** The Material Default of Chrysoberyl (Yellow) is now 0.7 x the B1 fit of GRR 171 (one factor, per mm; the F1 "0.7" is the 0.88 cm research convention, 0.622 per mm). The `Yellow` variant duplicated it and is DROPPED; `Greenish Yellow` (0.3 x) stays; `Honey` stays dropped (owner decision: no usable data). 2026-11-03 (owner: "match the pictures of actual gemstones"): the Material Default became 0.5 x Greenish Yellow plus 0.15 x the Alexandrite Cr3+ (the dealer photos are a greenish yellow, median hue 109) and the 0.7 x default is the `Golden` variant.
+* **F-14 Ruby Pigeon's Blood.** Documented, not changed: it reproduces GIA's Cr3+ cross sections at 1000 ppma*cm; the Ruby default was 800 (since 2026-11-03 it is Cr 400 + Fe3+ 1000 ppma*cm, see the calibration record).
 * **F-13 (core F13) Chrysoberyl axis setting.** The Caltech GRR 171 headers give the cell as Pnma (a 9.40, b 5.48, c 4.43 A) and the polarizations "E||a = beta", "E||b = gamma"; GRR 874 states the beta ray vibrates along the 9.40 A axis. Walling's sort of Alexandrite uses the same Pnma setting, so beta = a and gamma = b hold. REFUTED; the comment in `aquamarine_through_citrine.rs` says so. The 3.5 x gamma / beta split contradicts Farrell & Newnham at 77 K and is kept as measured.
 
 **Tooltip sentences and oriented face-up colors** (D65, 9.905 mm):
@@ -31,9 +31,11 @@ Applies to every entry below; the per-entry sections were corrected where the da
 |---|---|---|---|---|---|
 | `sapphire.pink` | Sapphire | no | - | 69.0 / 45.8 / 328 | 75.8 / 30.7 / 336 |
 | `sapphire.yellow` | Sapphire | no | - | 86.8 / 62.0 / 85 | 88.5 / 57.7 / 87 |
+| `sapphire.golden_yellow` | Sapphire | yes | Measured h.-Fe3+ pair cross sections at twice the Yellow variant's density; the density is chosen. | 77.5 / 93.0 / 78 | 80.2 / 87.2 / 80 |
 | `sapphire.padparadscha` | Sapphire | yes | - | 73.5 / 35.6 / 31 | 78.4 / 31.6 / 42 |
 | `sapphire.orange` | Sapphire | yes | - | 81.1 / 76.0 / 73 | 82.7 / 67.0 / 74 |
 | `sapphire.cornflower` | Sapphire | yes | - | 63.7 / 41.0 / 286 | 70.3 / 28.6 / 279 |
+| `sapphire.medium_blue` | Sapphire | yes | - | 47.3 / 58.7 / 291 | 56.7 / 39.4 / 283 |
 | `sapphire.deep_blue` | Sapphire | yes | - | 32.3 / 74.3 / 299 | 43.9 / 47.3 / 287 |
 | `sapphire.purple` | Sapphire | yes | - | 58.8 / 46.2 / 310 | 67.1 / 28.1 / 312 |
 | `sapphire.green` | Sapphire | yes | - | 46.5 / 20.6 / 131 | 56.1 / 32.4 / 120 |
@@ -45,8 +47,7 @@ Applies to every entry below; the per-entry sections were corrected where the da
 | `spinel.cobalt_blue` | Spinel | yes | Strength chosen for a typical face-up color; spectrum measured (GRR 3017). | 55.4 / 64.8 / 268 | 55.4 / 64.8 / 268 |
 | `spinel.lavender` | Spinel | no | - | 71.7 / 6.2 / 307 | 71.7 / 6.2 / 307 |
 | `spinel.purple` | Spinel | yes | - | 61.7 / 29.3 / 303 | 61.7 / 29.3 / 303 |
-| `chrysoberyl__yellow_.greenish_yellow` | Chrysoberyl (Yellow) | yes | Strength chosen for a typical face-up color; beta and gamma rays measured (GRR 171), alpha ray estimated. | 90.6 / 31.6 / 100 | 89.5 / 37.3 / 98 |
-| `alexandrite.strong_change` | Alexandrite | yes | Beta and gamma rays measured (GRR 874) with Fe3+ from GRR 171; alpha ray and strengths estimated. | 57.4 / 23.1 / 78 | 53.9 / 16.8 / 132 |
+| `chrysoberyl__yellow_.golden` | Chrysoberyl (Yellow) | yes | Strength chosen for a golden yellow; beta and gamma rays measured (GRR 171), alpha ray estimated. | 73.7 / 48.0 / 88 | 72.1 / 52.7 / 83 |
 | `alexandrite.brazilian` | Alexandrite | yes | Beta and gamma rays measured (GRR 874) with Fe3+ from GRR 171; alpha ray and strengths estimated. | 54.5 / 27.0 / 74 | 50.5 / 18.7 / 111 |
 | `alexandrite.sri_lankan` | Alexandrite | yes | Beta and gamma rays measured (GRR 874) with Fe3+ from GRR 171; alpha ray and strengths estimated. | 69.0 / 34.0 / 90 | 64.4 / 30.6 / 110 |
 
@@ -57,7 +58,7 @@ Applies to every entry below; the per-entry sections were corrected where the da
 
 Key `sapphire.pink`; `estimated = false`; 4 bands per ray (o_ray / e_ray).
 
-**Measured, chosen, why.** Measured: the GIA Cr3+ cross sections (E perp c and E par c). Chosen: the areal density 100 ppma*cm (one factor for both rays). Why: it is the density of GIA's published Appendix 2 color circle (calculated 'both' color L*a*b* 78.05 / 25.96 / -9.92, i.e. L*C*h 78.1 / 27.8 / 339), a light-to-medium pink that leaves room between Pinkish Red (300) and the Ruby default (800).
+**Measured, chosen, why.** Measured: the GIA Cr3+ cross sections (E perp c and E par c). Chosen: the areal density 100 ppma*cm (one factor for both rays). Why: it is the density of GIA's published Appendix 2 color circle (calculated 'both' color L*a*b* 78.05 / 25.96 / -9.92, i.e. L*C*h 78.1 / 27.8 / 339), a light-to-medium pink that leaves room between Pinkish Red (300) and the Ruby default (800 until 2026-11-03).
 
 **Target and reached** (L* / C* / h, dE2000 between the color of the measured / recipe spectrum, the target, and the stored rounded bands, the reached; the pinned values are the reached ones):
 
@@ -90,6 +91,14 @@ Key `sapphire.yellow`; `estimated = false`; 2 bands per ray (o_ray / e_ray).
 
 **Per direction (reached, D65).** o / alpha: 86.8 / 62.0 / 85; e / gamma: 91.7 / 51.0 / 91. Documented (GIA): h.-Fe3+ 'Ec and E||c quite similar'. Reached: nearly equal, o slightly darker.
 
+
+### Sapphire Golden Yellow
+
+Key `sapphire.golden_yellow`; `estimated = true`; 2 bands per ray (o_ray / e_ray).
+
+**Measured, chosen, why.** The Yellow variant's fit of the GIA h.-Fe3+ pair cross sections with every peak x 2, i.e. 3.4 ppma*cm (one factor). Added 2026-11-03 for the yellow rim of the Parti Color pattern: the Yellow variant over a thin outer zone read a faint cream (Light Tent C* 4), where dealer photos of parti sapphires show clear yellow, and green where it overlaps the blue. A deeper golden yellow sapphire in its own right.
+
+**Reached** (the pinned values; Python replica of the app's colorimetry, 7 mm, the face-up path): o-ray (what the table shows, c along the view) 77.5 / 93.0 / 78 at D65 (L*a*b* 77.49 / 20.15 / 90.76) and 81.7 / 96.9 / 73 at 3200 K; e-ray 85.1 / 80.4 / 85; unpolarised 80.2 / 87.2 / 80.
 
 ### Sapphire Padparadscha
 
@@ -133,7 +142,7 @@ Key `sapphire.orange`; `estimated = true`; 5 bands per ray (o_ray / e_ray).
 
 Key `sapphire.cornflower`; `estimated = true`; 4 bands per ray (o_ray / e_ray).
 
-**Measured, chosen, why.** Measured: the GIA Fe2+-Ti4+ pair cross sections. Chosen: 6 ppma*cm, 0.6 of the Sapphire default density (one factor). Why: a medium-light violetish blue, lighter than the default. A Kashmir 'velvet' look is scattering by silk, not absorption (GIA W2019 Kashmir chemistry is ordinary metamorphic blue), so this is one Cornflower entry, not a Kashmir one. No published color target exists.
+**Measured, chosen, why.** Measured: the GIA Fe2+-Ti4+ pair cross sections. Chosen: 6 ppma*cm, 0.48 of the Sapphire default density (0.6 of the default before 2026-11-03; one factor). Why: a medium-light violetish blue, lighter than the default. A Kashmir 'velvet' look is scattering by silk, not absorption (GIA W2019 Kashmir chemistry is ordinary metamorphic blue), so this is one Cornflower entry, not a Kashmir one. No published color target exists.
 
 **Target and reached** (L* / C* / h, dE2000 between the color of the measured / recipe spectrum, the target, and the stored rounded bands, the reached; the pinned values are the reached ones):
 
@@ -148,11 +157,30 @@ Key `sapphire.cornflower`; `estimated = true`; 4 bands per ray (o_ray / e_ray).
 **Per direction (reached, D65).** o / alpha: 63.7 / 41.0 / 286; e / gamma: 81.2 / 11.3 / 244. Documented (GIA): violetish blue along, greener and grayer across. Reached: o 286 deg hue (violetish), e 244 deg (greenish).
 
 
+### Sapphire Medium Blue
+
+Key `sapphire.medium_blue`; `estimated = true`; 3 bands per ray (o_ray / e_ray). Added 2026-11-03, when the royal blue strength (12.5 ppma*cm) became the Sapphire Material Default: this variant keeps the former default (10 ppma*cm). It replaces the Royal Blue variant of 2026-11-02, which the new default made redundant.
+
+**Measured, chosen, why.** Measured: the GIA Fe2+-Ti4+ pair cross sections. Chosen: 10 ppma*cm, 0.8 of the Sapphire default density (one factor). Why: the medium blue of the former default, between Cornflower and the royal blue default. No published color target exists.
+
+**Target and reached** (L* / C* / h, dE2000 between the color of the measured / recipe spectrum, the target, and the stored rounded bands, the reached; the pinned values are the reached ones):
+
+| Direction | Target D65 | Reached D65 | dE2000 | Target 3200 K | Reached 3200 K | dE2000 |
+|---|---|---|---|---|---|---|
+| face-up (unpolarised) | 56.7 / 39.4 / 282 | 56.7 / 39.4 / 283 | 0.09 | 54.6 / 40.5 / 263 | 54.7 / 40.5 / 263 | 0.16 |
+| o ray / alpha | 47.1 / 58.8 / 292 | 47.3 / 58.7 / 291 | 0.22 | 44.5 / 57.1 / 273 | 44.6 / 57.0 / 272 | 0.33 |
+| e ray / gamma | 70.5 / 16.5 / 246 | 70.5 / 16.4 / 247 | 0.23 | 69.1 / 20.9 / 234 | 69.1 / 20.8 / 234 | 0.09 |
+
+**Fit.** No new fit: the Material Default's own three energy Gaussians per ray (its 2026-10-19 fit of the same cross sections at 10 ppma*cm, the default's bands before the 1.25 factor), every peak divided by the 9.905 mm face-up path, the FWHM converted to sigma. Residual of the transmittance over 380-780 nm against the 10 ppma*cm spectrum (RMS / largest, in percent points) o / alpha: 0.3 / 0.7; e / gamma: 0.4 / 1.0.
+
+**Per direction (reached, D65).** o / alpha: 47.3 / 58.7 / 291; e / gamma: 70.5 / 16.4 / 247. As Cornflower: o violetish blue, e greenish blue.
+
+
 ### Sapphire Deep Blue
 
 Key `sapphire.deep_blue`; `estimated = true`; 3 bands per ray (o_ray / e_ray).
 
-**Measured, chosen, why.** Measured: the GIA Fe2+-Ti4+ pair cross sections. Chosen: 15 ppma*cm, 1.5 of the Sapphire default density. Why: a royal-type deep blue darker than the default. No published color target exists.
+**Measured, chosen, why.** Measured: the GIA Fe2+-Ti4+ pair cross sections. Chosen: 15 ppma*cm, 1.2 of the Sapphire default density (1.5 before 2026-11-03). Why: a deep blue darker than the royal blue default. No published color target exists.
 
 **Target and reached** (L* / C* / h, dE2000 between the color of the measured / recipe spectrum, the target, and the stored rounded bands, the reached; the pinned values are the reached ones):
 
@@ -220,7 +248,7 @@ Key `sapphire.colorless`; `estimated = true`; 0 bands per ray (o_ray / e_ray).
 
 Key `ruby.pinkish_red`; `estimated = false`; 8 bands per ray (o_ray / e_ray).
 
-**Measured, chosen, why.** Measured: the GIA Cr3+ cross sections. Chosen: 300 ppma*cm (one factor). Why: between the Pink and the Ruby default; GIA's Cr3+ color circles at 200 and 375 ppma*cm (calculated 'both' L*a*b* 64.34 / 44.64 / -16.54 and 50.00 / 62.74 / -18.87) bracket the reached lightness and chroma.
+**Measured, chosen, why.** Measured: the GIA Cr3+ cross sections. Chosen: 300 ppma*cm (one factor). Why: between the Pink and the Ruby default (800 until 2026-11-03); GIA's Cr3+ color circles at 200 and 375 ppma*cm (calculated 'both' L*a*b* 64.34 / 44.64 / -16.54 and 50.00 / 62.74 / -18.87) bracket the reached lightness and chroma.
 
 **Target and reached** (L* / C* / h, dE2000 between the color of the measured / recipe spectrum, the target, and the stored rounded bands, the reached; the pinned values are the reached ones):
 
@@ -239,7 +267,7 @@ Key `ruby.pinkish_red`; `estimated = false`; 8 bands per ray (o_ray / e_ray).
 
 Key `ruby.thai`; `estimated = true`; 8 bands per ray (o_ray / e_ray).
 
-**Measured, chosen, why.** Measured: the E perp c spectrum of one Thai ruby (Caltech GRR 1843, Chanthaburi, 0.758 mm, 27 C), with ONE factor of 4.76 over the whole spectrum (face-up Cr3+ density 800 ppma*cm, the Ruby default's own density, over the sample's 168 ppma*cm). Baseline: the constant mean absorbance at 740-780 nm (0.069) removed; the Cr3+ R lines (684-702 nm) interpolated. Not measured: the E par c ray (no Thai ruby has one); it is the GIA Cr3+ E par c cross section at 800 ppma*cm plus the o-ray's excess over the GIA Cr3+ o-ray (the extra window absorption of this stone, from 400 nm on), assuming the excess centers (h.-Cr3+, Fe3+) are nearly non-dichroic as GIA states. This replaces an earlier recipe (Cr3+ 800 + h.-Cr3+ 0.3 + Fe3+ 960 ppma*cm, 34.4 / 66.2 / 22 face-up) whose window absorption was 3.7 times the measured excess (window ratio A(474)/A(562): measured 0.094, Cr3+ alone 0.075, recipe 0.146).
+**Measured, chosen, why.** Measured: the E perp c spectrum of one Thai ruby (Caltech GRR 1843, Chanthaburi, 0.758 mm, 27 C), with ONE factor of 4.76 over the whole spectrum (face-up Cr3+ density 800 ppma*cm, the Ruby default's own density until 2026-11-03, over the sample's 168 ppma*cm). Baseline: the constant mean absorbance at 740-780 nm (0.069) removed; the Cr3+ R lines (684-702 nm) interpolated. Not measured: the E par c ray (no Thai ruby has one); it is the GIA Cr3+ E par c cross section at 800 ppma*cm plus the o-ray's excess over the GIA Cr3+ o-ray (the extra window absorption of this stone, from 400 nm on), assuming the excess centers (h.-Cr3+, Fe3+) are nearly non-dichroic as GIA states. This replaces an earlier recipe (Cr3+ 800 + h.-Cr3+ 0.3 + Fe3+ 960 ppma*cm, 34.4 / 66.2 / 22 face-up) whose window absorption was 3.7 times the measured excess (window ratio A(474)/A(562): measured 0.094, Cr3+ alone 0.075, recipe 0.146).
 
 **Target and reached** (L* / C* / h, dE2000 between the color of the measured / recipe spectrum, the target, and the stored rounded bands, the reached; the pinned values are the reached ones):
 
@@ -258,7 +286,7 @@ Key `ruby.thai`; `estimated = true`; 8 bands per ray (o_ray / e_ray).
 
 Key `ruby.pigeons_blood`; `estimated = true`; 6 bands per ray (o_ray / e_ray).
 
-**Measured, chosen, why.** Measured: the GIA Cr3+ cross sections. Chosen: 1000 ppma*cm, 1.25 of the Ruby default density (estimated, owner decision 2026-10-27). Why: Mogok marble-hosted ruby is Cr only (Fe mean 35 ppma, GIA W2019) and the trade look is a vivid, saturated pure red; GIA's Cr3+ colors at 750 and 1500 ppma*cm bracket it. It differs from the Ruby default only by the density, so it adds little.
+**Measured, chosen, why.** Measured: the GIA Cr3+ cross sections. Chosen: 1000 ppma*cm, 1.25 of the then Ruby default density (estimated, owner decision 2026-10-27; the default is Cr 400 + Fe3+ 1000 ppma*cm since 2026-11-03). Why: Mogok marble-hosted ruby is Cr only (Fe mean 35 ppma, GIA W2019) and the trade look is a vivid, saturated pure red; GIA's Cr3+ colors at 750 and 1500 ppma*cm bracket it. It differed from the then Ruby default only by the density; since the default carries Fe3+ it is the Fe-poor alternative.
 
 **Target and reached** (L* / C* / h, dE2000 between the color of the measured / recipe spectrum, the target, and the stored rounded bands, the reached; the pinned values are the reached ones):
 
@@ -349,9 +377,9 @@ Key `spinel.purple`; `estimated = true`; 6 bands per ray (one set, cubic).
 **Per direction (reached, D65).** o / alpha: 61.7 / 29.3 / 303; e / gamma: 61.7 / 29.3 / 303. Cubic: one color for every direction.
 
 
-### Chrysoberyl Greenish Yellow
+### Chrysoberyl Greenish Yellow (Material Default since 2026-11-03)
 
-Key `chrysoberyl__yellow_.greenish_yellow`; `estimated = true`; 6 bands per ray (o_ray / e_ray / beta_ray).
+Key `chrysoberyl__yellow_.greenish_yellow` until 2026-11-03; since then 0.5 x these bands (in model units, per mm x 9.905) plus 0.15 x the Alexandrite Cr3+, refitted, are the Chrysoberyl (Yellow) Material Default (`chrysoberyl__yellow_.default`). `estimated = true`; 6 bands per ray (o_ray / e_ray / beta_ray).
 
 **Measured, chosen, why.** Measured: Caltech GRR 171 greenish-yellow chrysoberyl (Minas Gerais, 1.193 mm), beta (E||a) and gamma (E||b) rays; constants 0.2618 and 0.1597 (mean A at 740-780 nm) removed. ONE factor 0.3 over all three rays in the 0.88 cm convention. Not measured: the alpha (E||c) ray, no such spectrum exists (confirmed absent on the Caltech server); estimated as the mean of the beta and gamma optical depths. Why 0.3: a light greenish yellow (the sample is itself labelled greenish-yellow).
 
@@ -371,9 +399,18 @@ Key `chrysoberyl__yellow_.greenish_yellow`; `estimated = true`; 6 bands per ray 
 **Oriented face-up views** (two eigenmodes, D65 / 3200 K): alpha + beta (looking along b: the app's default orientation, the gamma axis is the stone's `c_axis`): 90.6 / 31.6 / 100 / 91.5 / 29.8 / 86; beta + gamma (looking along c): 89.5 / 35.7 / 98 / 90.6 / 34.2 / 84; alpha + gamma (looking along a): 88.4 / 45.7 / 97 / 89.7 / 43.5 / 84. The pinned face-up value above is the app's `body_colors` unpolarised color, the equal mean of the three rays.
 
 
-### Alexandrite Strong Change
 
-Key `alexandrite.strong_change`; `estimated = true`; 6 bands per ray (o_ray / e_ray / beta_ray).
+### Chrysoberyl Golden
+
+Key `chrysoberyl__yellow_.golden`; `estimated = true`; 5 bands per ray (o_ray / e_ray / beta_ray).
+
+**Measured, chosen, why.** The Chrysoberyl (Yellow) Material Default from 2026-10-27 to 2026-11-03 (owner decision O1, a golden yellow): the GRR 171 beta and gamma rays and the estimated alpha ray of the built-in's own fit (five energy Gaussians a ray, `aquamarine_through_citrine.rs`), ONE factor 0.7, stored per mm (model-unit peaks / 9.905, widths as sigma). It left the default when the dealer photos showed a greenish yellow.
+
+**Reached** (the pinned values; Python replica of the app's colorimetry): face-up (alpha + beta, gamma along the view) 73.7 / 48.0 / 88 at D65 and 75.6 / 48.0 / 75 at 3200 K; alpha 71.6 / 56.5 / 84, beta 75.8 / 41.9 / 92, gamma 68.7 / 66.7 / 77; unpolarised 72.1 / 52.7 / 83.
+
+### Alexandrite Material Default
+
+The built-in Alexandrite's own tensor since 2026-11-03, `alexandrite.default`; until then it was the variant `alexandrite.strong_change` (Strong Change), removed when it became the default. The earlier tuned Material Default (two Gaussians per ray after Farrell & Newnham) turned orange under a warm lamp, never red: on Pentalume Sapphire, Light Tent h 129, C* 10, and Incandescent h 45, C* 7. This fit renders a bluish green (Light Tent h 164) that turns purplish red (Incandescent h 333, C* 15). The built-in stores the same bands in model units: peaks x 9.905 mm, the face-up path of a 7 mm stone; widths written as FWHM (sigma x 2.35482). `estimated = true`; 6 bands per ray (o_ray / e_ray / beta_ray).
 
 **Measured, chosen, why.** Measured: Caltech GRR 874 alexandrite (Lake Manyara, 0.717 mm), beta (E||a) and gamma (E||b) rays; constants 0.1108 and 0.1552 removed, the Cr3+ R line (672-690 nm) interpolated; one factor Cr 0.15 over both rays. Fe3+: the GRR 171 beta and gamma rays with one factor 0.10 (alpha: their mean). Estimated: the alpha (E||c) ray, no spectrum exists: built from the measured gamma ray by splitting it at 490 nm into its 4T2 and 4T1 halves, moving the 4T2 half from 597 to 568 nm at 0.6 times the strength and the 4T1 half from 415 to 418 nm at 1.0 times (Farrell & Newnham Fig. 4, figure-read: 4T2 c:b = 19:31 and 4T1 c about 1.24 b, the 1.0 adopted by the research doc to discount their Fe3+ contamination). These per-band ratios describe an unmeasured ray, not a fit to a target color. Chosen: the two factors, by the target colors: green by daylight and red to purplish red by incandescent light (3-ray mean).
 
@@ -397,7 +434,7 @@ Key `alexandrite.strong_change`; `estimated = true`; 6 bands per ray (o_ray / e_
 
 Key `alexandrite.brazilian`; `estimated = true`; 6 bands per ray (o_ray / e_ray / beta_ray).
 
-**Measured, chosen, why.** As Strong Change (same Cr3+ factor 0.15) with more Fe3+: factor 0.25 (GIA W2019: Brazil Cr 2960, Fe 6350 ppmw, about 2.3 times Russia's Fe at the same Cr). Chosen by the target colors: a yellower green by daylight, an orange-red by incandescent light.
+**Measured, chosen, why.** As the Material Default (same Cr3+ factor 0.15) with more Fe3+: factor 0.25 (GIA W2019: Brazil Cr 2960, Fe 6350 ppmw, about 2.3 times Russia's Fe at the same Cr). Chosen by the target colors: a yellower green by daylight, an orange-red by incandescent light.
 
 **Target and reached** (L* / C* / h, dE2000 between the color of the measured / recipe spectrum, the target, and the stored rounded bands, the reached; the pinned values are the reached ones):
 
@@ -419,7 +456,7 @@ Key `alexandrite.brazilian`; `estimated = true`; 6 bands per ray (o_ray / e_ray 
 
 Key `alexandrite.sri_lankan`; `estimated = true`; 7 bands per ray (o_ray / e_ray / beta_ray).
 
-**Measured, chosen, why.** As Strong Change with weak Cr3+, factor 0.06, and Fe3+ 0.35 (GIA W2019: Sri Lanka Cr 702, Fe 7680 ppmw, the weak, yellowish change). Chosen by the target colors: a yellow-green by daylight and a weak shift to orange-brown under the lamp.
+**Measured, chosen, why.** As the Material Default with weak Cr3+, factor 0.06, and Fe3+ 0.35 (GIA W2019: Sri Lanka Cr 702, Fe 7680 ppmw, the weak, yellowish change). Chosen by the target colors: a yellow-green by daylight and a weak shift to orange-brown under the lamp.
 
 **Target and reached** (L* / C* / h, dE2000 between the color of the measured / recipe spectrum, the target, and the stored rounded bands, the reached; the pinned values are the reached ones):
 

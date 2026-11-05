@@ -38,9 +38,9 @@ use parsers::{
     parse_retarget, parse_solve, parse_sweep, parse_validate,
 };
 pub use types::{
-    Batch, CensusArgs, Command, ExportArgs, ExportFormat, InfoArgs, JobCommandKind, MaterialArg,
-    MetricsArgs, Mode, OptimizeArgs, RenderJobArgs, ReportFormat, ReportStyle, RetargetArgs,
-    SolveArgs, SweepArgs, Topic, ValidateArgs, lighting_name, preset_name,
+    Batch, CensusArgs, Command, ExportArgs, ExportFormat, Exposure, InfoArgs, JobCommandKind,
+    MaterialArg, MetricsArgs, Mode, OptimizeArgs, RenderJobArgs, ReportFormat, ReportStyle,
+    RetargetArgs, SolveArgs, SweepArgs, Topic, ValidateArgs, lighting_name, preset_name,
 };
 #[cfg(test)]
 pub use types::{CensusBuiltins, CensusOutput};

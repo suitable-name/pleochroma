@@ -38,6 +38,22 @@ fn record_recent_native_file_caps_at_max_recent_native_files() {
     );
 }
 
+#[test]
+fn forget_recent_native_file_removes_only_that_entry() {
+    let mut settings = AppSettings::default();
+    for name in ["a.psdd", "b.psdd", "c.psdd"] {
+        settings.record_recent_native_file(name.to_string());
+    }
+    settings.forget_recent_native_file("b.psdd");
+    assert_eq!(
+        settings.recent_native_files,
+        vec!["c.psdd".to_string(), "a.psdd".to_string()]
+    );
+    // A path that is not listed changes nothing.
+    settings.forget_recent_native_file("missing.psdd");
+    assert_eq!(settings.recent_native_files.len(), 2);
+}
+
 // --- Suppressed confirmations: AppSettings::suppressed_confirmations ---
 
 #[test]

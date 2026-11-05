@@ -31,6 +31,11 @@ pub struct OpticalDiagnostics {
     pub queued_requests: usize,
     /// Requests being processed by the worker, including host work and CUDA waits.
     pub active_requests: usize,
+    /// Sum of processed request wait times from admission to service, including batch collection.
+    /// Requests cancelled before service are excluded.
+    pub queue_wait_micros: u64,
+    /// Worker wall time spent collecting already queued Fast requests.
+    pub batch_collection_micros: u64,
     /// Cumulative worker service time in microseconds, excluding queue wait and batch collection.
     ///
     /// Includes host processing and CUDA waits; this is not measured GPU kernel time.
@@ -53,6 +58,8 @@ pub(super) struct Counters {
     pub queued: AtomicUsize,
     pub active: AtomicUsize,
     pub service_micros: AtomicU64,
+    pub queue_micros: AtomicU64,
+    pub collection_micros: AtomicU64,
     pub(super) error: Arc<Mutex<Option<String>>>,
 }
 #[cfg(feature = "cuda")]
@@ -93,6 +100,8 @@ impl Counters {
             },
             queued_requests: self.queued.load(Ordering::Relaxed),
             active_requests: self.active.load(Ordering::Relaxed),
+            queue_wait_micros: self.queue_micros.load(Ordering::Relaxed),
+            batch_collection_micros: self.collection_micros.load(Ordering::Relaxed),
             service_wall_micros: self.service_micros.load(Ordering::Relaxed),
             first_error: self.error(),
         }

@@ -56,7 +56,7 @@ pub fn unique_temp_dir(label: &str) -> std::path::PathBuf {
     dir
 }
 
-pub(super) fn tiny_scene() -> SceneState {
+pub fn tiny_scene() -> SceneState {
     SceneState {
         engine: pleochroma::renderer::engine::EngineSpec::default(),
         width: 4,
@@ -292,7 +292,7 @@ pub(super) const fn live_progressive(cadence_ms: u32) -> pleochroma_net::message
     }
 }
 
-pub(super) const fn final_only(cadence_ms: u32) -> pleochroma_net::messages::StreamConfig {
+pub const fn final_only(cadence_ms: u32) -> pleochroma_net::messages::StreamConfig {
     pleochroma_net::messages::StreamConfig {
         transfer_mode: pleochroma_net::messages::TransferMode::FinalOnly,
         cadence_ms,

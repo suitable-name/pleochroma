@@ -5,7 +5,7 @@ use std::{
     cmp::Ordering as CmpOrdering,
     collections::BinaryHeap,
     panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
-    sync::{PoisonError, RwLock, atomic::Ordering, mpsc},
+    sync::{Arc, Mutex, PoisonError, RwLock, atomic::Ordering, mpsc},
     time::Duration,
 };
 
@@ -22,6 +22,99 @@ pub struct ProbePlan {
 pub struct StagedLimits {
     pub threads: usize,
     pub pending: usize,
+    pub shared: Option<Arc<PendingBudget>>,
+}
+
+/// Shared admission across rollout streams for started probes and finish work.
+///
+/// A reservation spans preparation, waiting, and completion, including parked
+/// continuations. Completed probe values are released from this budget: they must
+/// remain available until their item's probes join, without blocking later probes.
+/// Rollout probe values are small `TierProbe` records, bounded by concurrent slots
+/// and the number of free tiers, and contain no outstanding optical request.
+pub struct PendingBudget {
+    capacity: usize,
+    state: Mutex<BudgetState>,
+}
+
+#[derive(Default)]
+struct BudgetState {
+    used: usize,
+    idle: usize,
+}
+
+impl PendingBudget {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            capacity: capacity.max(1),
+            state: Mutex::new(BudgetState::default()),
+        }
+    }
+
+    fn register(&self) -> BudgetLease<'_> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.idle += 1;
+        BudgetLease {
+            budget: self,
+            held: 0,
+        }
+    }
+}
+
+struct BudgetLease<'a> {
+    budget: &'a PendingBudget,
+    held: usize,
+}
+
+impl BudgetLease<'_> {
+    fn acquire(&mut self) -> bool {
+        let mut state = self
+            .budget
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        // Borrow unused capacity, leaving a place for each other participant
+        // without work in flight. An idle participant may still enter when
+        // there are more participants than places, ensuring forward progress.
+        let idle_others = state.idle - usize::from(self.held == 0);
+        let spare = self.budget.capacity.saturating_sub(state.used);
+        if spare == 0 || (self.held > 0 && spare <= idle_others) {
+            return false;
+        }
+        if self.held == 0 {
+            state.idle -= 1;
+        }
+        state.used += 1;
+        self.held += 1;
+        true
+    }
+
+    fn release(&mut self) {
+        let mut state = self
+            .budget
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        state.used -= 1;
+        self.held -= 1;
+        if self.held == 0 {
+            state.idle += 1;
+        }
+    }
+}
+
+impl Drop for BudgetLease<'_> {
+    fn drop(&mut self) {
+        let mut state = self
+            .budget
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        state.used -= self.held;
+        if self.held == 0 {
+            state.idle -= 1;
+        }
+    }
 }
 
 /// Readiness checks run on the caller and must not block or perform CPU preparation.
@@ -139,10 +232,12 @@ where
     let limits = StagedLimits {
         threads: limits.threads.max(1).min(width),
         pending: limits.pending.max(1),
+        shared: limits.shared,
     };
     let tail = Tail {
         unfinished: std::sync::atomic::AtomicUsize::new(0),
         pool_width: width,
+        shared_pool: super::is_shared_work_pool(pool),
     };
     // Coordination remains on the caller, so every pool thread can run CPU or nested work.
     let result = match pool {
@@ -210,10 +305,13 @@ impl<W, P, F, R> State<W, P, F, R> {
         }
     }
 
-    fn poll<T, S>(&mut self, plans: &[ProbePlan], stages: &S)
+    /// Moves completed tickets and runnable continuations to the ready queue; returns whether
+    /// any moved.
+    fn poll<T, S>(&mut self, plans: &[ProbePlan], stages: &S) -> bool
     where
         S: ItemStages<T, ProbeWork = W, Probe = P, FinishWork = F, Output = R>,
     {
+        let mut moved = false;
         let mut index = 0;
         while index < self.waiting.len() {
             if !stages.poll_probe(&mut self.waiting[index].work) {
@@ -226,6 +324,7 @@ impl<W, P, F, R> State<W, P, F, R> {
                 identity: (item, probe, 1),
                 job: Job::Complete { item, probe, work },
             });
+            moved = true;
         }
         let mut index = 0;
         while index < self.finishing.len() {
@@ -239,15 +338,22 @@ impl<W, P, F, R> State<W, P, F, R> {
                 identity: (item, usize::MAX, 3),
                 job: Job::Advance { item, work },
             });
+            moved = true;
         }
+        moved
     }
 
-    fn next(&mut self, limits: &StagedLimits) -> Option<Ready<W, F>> {
+    fn next(
+        &mut self,
+        limits: &StagedLimits,
+        lease: &mut Option<BudgetLease<'_>>,
+    ) -> Option<Ready<W, F>> {
         let start_next = self.pending < limits.pending
             && self
                 .starting
                 .peek()
                 .is_some_and(|next| self.ready.peek().is_none_or(|other| next > other));
+        let start_next = start_next && lease.as_mut().is_none_or(BudgetLease::acquire);
         let next = if start_next {
             self.starting.pop()
         } else {
@@ -290,6 +396,34 @@ impl<W, P, F, R> State<W, P, F, R> {
     }
 }
 
+/// How long the coordinator waits for an event while optical tickets are pending.
+///
+/// Tickets send no event when they complete, so the coordinator polls them. Each wait that ends
+/// without an event doubles the next one from [`Self::FIRST`] up to [`Self::LONGEST`]; an event
+/// or a completed ticket resets it. A burst of completions is still seen within tens of
+/// microseconds, while a long optical wait costs each coordinator about a thousand wake-ups per
+/// second instead of twenty thousand.
+struct PollBackoff {
+    wait: Duration,
+}
+
+impl PollBackoff {
+    const FIRST: Duration = Duration::from_micros(50);
+    const LONGEST: Duration = Duration::from_millis(1);
+
+    const fn new() -> Self {
+        Self { wait: Self::FIRST }
+    }
+
+    const fn reset(&mut self) {
+        self.wait = Self::FIRST;
+    }
+
+    fn grow(&mut self) {
+        self.wait = self.wait.saturating_mul(2).min(Self::LONGEST);
+    }
+}
+
 fn drive<'scope, T, S>(
     scope: Option<&rayon::Scope<'scope>>,
     cells: &'scope [RwLock<&mut T>],
@@ -308,10 +442,25 @@ where
 {
     let (send, receive) = mpsc::channel();
     let mut state = State::new(plans);
+    let mut lease = limits.shared.as_ref().map(|budget| budget.register());
+    let mut backoff = PollBackoff::new();
     while state.finished < plans.len() {
-        state.poll::<T, S>(plans, stages);
+        match catch_unwind(AssertUnwindSafe(|| state.poll::<T, S>(plans, stages))) {
+            Ok(true) => backoff.reset(),
+            Ok(false) => {}
+            Err(panic) => {
+                while state.active > 0 {
+                    if receive.recv().is_err() {
+                        break;
+                    }
+                    state.active -= 1;
+                }
+                drop(state);
+                return Err(panic);
+            }
+        }
         while state.active < limits.threads {
-            let Some(next) = state.next(limits) else {
+            let Some(next) = state.next(limits, &mut lease) else {
                 break;
             };
             let probes = if let Job::Begin { item } = &next.job {
@@ -331,11 +480,16 @@ where
             tail.unfinished
                 .store(state.workload(limits), Ordering::Relaxed);
             let send = send.clone();
+            // Counted against the shared pool's spare capacity until a worker starts it.
+            let queued = super::SharedQueuedGuard::enter(tail.shared_pool);
             let execute = move || {
-                let event = catch_unwind(AssertUnwindSafe(|| {
-                    execute_job(cells, plans, stages, tail, next.job, probes)
-                }))
-                .unwrap_or_else(Event::Panicked);
+                let event = {
+                    let _active = queued.start();
+                    catch_unwind(AssertUnwindSafe(|| {
+                        execute_job(cells, plans, stages, tail, next.job, probes)
+                    }))
+                    .unwrap_or_else(Event::Panicked)
+                };
                 let _ = send.send(event);
             };
             if let Some(scope) = scope {
@@ -347,14 +501,44 @@ where
         tail.unfinished
             .store(state.workload(limits), Ordering::Relaxed);
         // Only the coordinator waits; all pool threads remain available for nested work.
-        let event = match receive.recv_timeout(Duration::from_millis(1)) {
-            Ok(event) => event,
-            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+        // Pending tickets are polled with a growing wait, since their completion sends nothing.
+        let tickets = !state.waiting.is_empty() || !state.finishing.is_empty();
+        let poll_timeout = if tickets {
+            backoff.wait
+        } else {
+            PollBackoff::LONGEST
+        };
+        let event = match receive.recv_timeout(poll_timeout) {
+            Ok(event) => {
+                backoff.reset();
+                event
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if tickets {
+                    backoff.grow();
+                }
+                continue;
+            }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 unreachable!("the coordinator retains an event sender")
             }
         };
-        state.accept(event, plans)?;
+        let releases = matches!(&event, Event::Probed { .. } | Event::Finished { .. });
+        if let Err(panic) = state.accept(event, plans) {
+            // Keep the shared reservations until all spawned jobs have returned and their
+            // payloads have been dropped, even when a stage panics.
+            while state.active > 0 {
+                if receive.recv().is_err() {
+                    break;
+                }
+                state.active -= 1;
+            }
+            drop(state);
+            return Err(panic);
+        }
+        if releases && let Some(lease) = &mut lease {
+            lease.release();
+        }
     }
     Ok(state
         .results

@@ -10,7 +10,7 @@ use std::{
 
 use crate::{
     dataset::{self, DatasetSplit},
-    runner::{self, DeviceChoice, IterationReport, TrainingRunner},
+    runner::{self, DeviceChoice, IterationReport, RunnerStats, TrainingRunner},
     throughput_args::{Args, Scenario},
     throughput_output::{Heartbeat, Journal, Output},
 };
@@ -188,10 +188,12 @@ fn pipeline(session: &Session<'_>, mut split: DatasetSplit) -> Result<Value, Fai
     let mut measured_steps = 0;
     let mut measured_start = None;
     let mut warmup_sync_secs = 0.0;
+    let mut warmup_drained_update = Value::Null;
     for index in 0..session.args.warmup + session.args.iterations {
         session.check()?;
         if index == session.args.warmup {
             warmup_sync_secs = synchronize(session, &mut runner, "warmup_boundary_sync")?;
+            warmup_drained_update = update_diagnostics(runner.stats());
             measured_start = Some(Instant::now());
         }
         let measured = index >= session.args.warmup;
@@ -223,6 +225,7 @@ fn pipeline(session: &Session<'_>, mut split: DatasetSplit) -> Result<Value, Fai
             measured,
             iterate_secs,
             explicit_sync_secs,
+            session.args.sync_every_iteration.then(|| runner.stats()),
         );
         session.journal.event(
             "iteration_complete",
@@ -247,6 +250,8 @@ fn pipeline(session: &Session<'_>, mut split: DatasetSplit) -> Result<Value, Fai
     Ok(json!({
         "scenario": "pipeline", "backend": runner.device_label(), "initialization_wall_secs": initialization_secs,
         "warmup_sync_update_wall_secs": warmup_sync_secs, "final_sync_update_wall_secs": final_sync_secs,
+        "warmup_drained_update": warmup_drained_update,
+        "final_drained_update": update_diagnostics(runner.stats()),
         "measured_steps": measured_steps, "measured_window_wall_secs": measured_wall_secs,
         "measured_steps_per_second": measured_steps as f64 / measured_wall_secs.max(f64::EPSILON),
         "iterations": iterations, "final_stats": runner.stats(), "final_snapshot": progress.snapshot(),
@@ -268,7 +273,8 @@ fn synchronize(
     let elapsed = started.elapsed().as_secs_f64();
     session.journal.event(
         "sync_complete",
-        json!({"kind": kind, "wall_secs": elapsed, "snapshot": runner.progress().snapshot()}),
+        json!({"kind": kind, "wall_secs": elapsed, "snapshot": runner.progress().snapshot(),
+            "installed_update": update_diagnostics(runner.stats())}),
     )?;
     Ok(elapsed)
 }
@@ -279,8 +285,9 @@ fn iteration(
     measured: bool,
     iterate: f64,
     sync: f64,
+    synchronized: Option<&RunnerStats>,
 ) -> Value {
-    json!({
+    let mut row = json!({
         "iteration": number, "measured": measured, "iterate_wall_secs": iterate,
         "explicit_sync_update_wall_secs": sync, "steps": report.steps,
         "rollout_secs": report.rollout_secs, "label_secs": report.label_secs,
@@ -291,6 +298,40 @@ fn iteration(
         "labels": report.labels_this_round, "accepted_frac": report.accepted_frac,
         "mean_step_reward": report.mean_step_reward, "oracle_gain_mean": report.oracle_gain_mean,
         "diagnostics": report.diagnostics, "imitation": report.imitation,
+        "rollout_scheduling": report.rollout_scheduling,
+        "update_attribution": "production_install_lag",
+    });
+    if let Some(stats) = synchronized {
+        // `iterate` intentionally reports the previously installed update in imitation mode.
+        // An explicit drain completes this rollout's own update after that report was built.
+        row["production_reported_update"] = json!({
+            "iteration_zero_based": report.update_of_iteration,
+            "wall_secs": report.update_secs, "packing_ms": report.packing_ms,
+            "training_host_ms": report.training_host_ms,
+            "weight_export_ms": report.weight_export_ms, "imitation": report.imitation,
+        });
+        let update = update_diagnostics(stats);
+        row["reported_update_secs"] = update["wall_secs"].clone();
+        row["reported_update_of_iteration_zero_based"] = update["iteration_zero_based"].clone();
+        row["packing_ms"] = update["packing_ms"].clone();
+        row["training_host_ms"] = update["training_host_ms"].clone();
+        row["weight_export_ms"] = update["weight_export_ms"].clone();
+        row["imitation"] = update["imitation"].clone();
+        row["update_attribution"] = json!("explicit_same_iteration");
+    }
+    row
+}
+
+fn update_diagnostics(stats: &RunnerStats) -> Value {
+    let Some(iteration) = stats.update_of_iteration else {
+        return Value::Null;
+    };
+    json!({
+        "iteration_zero_based": iteration, "wall_secs": stats.update_secs,
+        "weight_export_ms": stats.weight_export_secs * 1000.0,
+        "packing_ms": stats.last_imitation.map_or(stats.last_train.packing_ms, |m| m.packing_ms),
+        "training_host_ms": stats.last_imitation.map_or(stats.last_train.update_ms, |m| m.update_ms),
+        "train": stats.last_train, "imitation": stats.last_imitation,
     })
 }
 
@@ -466,6 +507,46 @@ fn projection_failures(report: &pleochroma_ai::env::ProjectionProbeReport) -> Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_sync_reports_its_own_update_and_retains_production_lag() {
+        let input = ["--database", "unused.sqlite", "--output", "unused-output"].map(str::to_owned);
+        let args = crate::throughput_args::parse(&input).unwrap().unwrap();
+        let mut config = args.config();
+        config.device = DeviceChoice::Cpu;
+        config.workers = 1;
+        config.rollout_size = 4;
+        config.label_every = 1;
+        config.imitation.mini_batch_size = 4;
+        config.imitation.updates_per_round = 1;
+        let mut runner = TrainingRunner::new(config, DatasetSplit::fixture()).unwrap();
+        for number in 1..=2 {
+            let report = runner.iterate(&mut || true).unwrap().unwrap();
+            let lagged = iteration(&report, number, true, 1.0, 0.0, None);
+            assert_eq!(lagged["update_attribution"], "production_install_lag");
+            assert_eq!(
+                lagged["reported_update_of_iteration_zero_based"],
+                json!(report.update_of_iteration)
+            );
+            runner.sync_update().unwrap();
+            let row = iteration(&report, number, true, 1.0, 0.5, Some(runner.stats()));
+            assert_eq!(row["update_attribution"], "explicit_same_iteration");
+            assert_eq!(
+                row["reported_update_of_iteration_zero_based"],
+                json!(number - 1)
+            );
+            assert_eq!(
+                row["production_reported_update"]["iteration_zero_based"],
+                json!(report.update_of_iteration)
+            );
+            assert_eq!(row["imitation"], json!(runner.stats().last_imitation));
+            // A final no-op drain must retain the last completed update's diagnostics.
+            let final_update = update_diagnostics(runner.stats());
+            runner.sync_update().unwrap();
+            assert_eq!(update_diagnostics(runner.stats()), final_update);
+            assert_eq!(final_update["iteration_zero_based"], json!(number - 1));
+        }
+    }
     #[test]
     fn targeted_pipeline_keeps_global_padding_and_rejects_nontraining_entries() {
         let input = ["--database", "unused.sqlite", "--output", "unused-output"].map(str::to_owned);

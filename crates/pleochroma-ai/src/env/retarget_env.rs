@@ -363,7 +363,8 @@ impl RetargetEnv {
         self.teacher_label_from_probes_adaptive(h_deg, probes, scales, &|| false)
     }
 
-    /// Finish the same label, borrowing spare Rayon capacity for gradient candidates.
+    /// Finish the same label; on a Rayon pool worker its gradient candidates fan out, off a
+    /// pool they do while `parallel` reports spare capacity.
     ///
     /// Results and costs are deterministic; the same probe provenance contract applies.
     #[must_use]

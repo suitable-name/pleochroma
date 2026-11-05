@@ -412,5 +412,43 @@ pub fn absorption_path_scale_for(
     (scale.is_finite() && scale > 0.0).then_some(scale)
 }
 
+/// The stone width in millimetres that [`absorption_path_scale_for`] turns into `scale` for
+/// `unit` on a design `model_width` model units wide: its inverse, up to rounding.
+///
+/// For a caller that holds only a sized material (a frozen render job's scene) and must size a
+/// tensor of another unit for the same stone. `None` when `scale` is not finite and positive,
+/// or for [`AbsorptionUnit::PerMm`] without a positive `model_width`; a
+/// [`AbsorptionUnit::ModelUnit`] scale takes [`REFERENCE_MODEL_WIDTH`] then, as the forward rule
+/// does. A `ModelUnit` scale of an unset width gives 7 mm, the width it stands for.
+#[must_use]
+pub fn stone_width_for_scale(
+    unit: AbsorptionUnit,
+    scale: f32,
+    model_width: Option<f64>,
+) -> Option<f32> {
+    if !(scale.is_finite() && scale > 0.0) {
+        return None;
+    }
+    let scale = f64::from(scale);
+    let width_mm = match unit {
+        AbsorptionUnit::ModelUnit => {
+            let model_width = model_width
+                .filter(|w| *w > 1e-9)
+                .unwrap_or(REFERENCE_MODEL_WIDTH);
+            scale
+                * (model_width / REFERENCE_MODEL_WIDTH)
+                * f64::from(PHYSICS_DEFAULT_STONE_WIDTH_MM)
+                * f64::from(MODEL_UNIT_FACE_UP_PATH)
+        }
+        AbsorptionUnit::PerMm => scale * model_width.filter(|w| *w > 1e-9)?,
+    };
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "f32 is the precision of every stored width; a stone width is a few dozen mm"
+    )]
+    let width_mm = width_mm as f32;
+    (width_mm.is_finite() && width_mm > 0.0).then_some(width_mm)
+}
+
 #[cfg(test)]
 mod tests;

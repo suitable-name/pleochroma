@@ -1,5 +1,7 @@
 //! Exact-state certificates from the original production gate, retained only
 //! inside one immutable episode projection. No tolerance or hash-based key match.
+#[cfg(any(feature = "cuda", test))]
+use super::network::Plane;
 use pleochroma::geometry::meet_solver::SolvedTier;
 use pleochroma_cut_core::{
     Design,
@@ -8,6 +10,57 @@ use pleochroma_cut_core::{
 use std::{collections::VecDeque, sync::Mutex};
 
 const CAPACITY: usize = 8;
+
+/// Only completed CUDA arrangement refutations belong here.
+///
+/// The owning projection fixes all proof metadata. Keys retain production plane
+/// order and every coefficient bit, including signed zero. Eight 256-plane keys
+/// retain at most 64 KiB of coefficient payload per episode.
+#[cfg(any(feature = "cuda", test))]
+#[derive(Default)]
+pub(super) struct ArrangementRefutations(Mutex<VecDeque<Vec<[u64; 4]>>>);
+
+#[cfg(any(feature = "cuda", test))]
+fn plane_bits((normal, distance): &Plane) -> [u64; 4] {
+    [
+        normal.x.to_bits(),
+        normal.y.to_bits(),
+        normal.z.to_bits(),
+        distance.to_bits(),
+    ]
+}
+
+#[cfg(any(feature = "cuda", test))]
+impl ArrangementRefutations {
+    pub fn contains(&self, planes: &[Plane]) -> bool {
+        self.0.lock().is_ok_and(|entries| {
+            entries.iter().rev().any(|entry| {
+                entry.len() == planes.len()
+                    && entry.iter().copied().eq(planes.iter().map(plane_bits))
+            })
+        })
+    }
+
+    pub fn insert_refuted(&self, planes: &[Plane]) {
+        if !(3..=256).contains(&planes.len())
+            || planes
+                .iter()
+                .any(|(normal, distance)| !normal.is_finite() || !distance.is_finite())
+        {
+            return;
+        }
+        let key = planes.iter().map(plane_bits).collect::<Vec<_>>();
+        if let Ok(mut entries) = self.0.lock() {
+            if let Some(index) = entries.iter().position(|entry| *entry == key) {
+                entries.remove(index);
+            }
+            entries.push_back(key);
+            while entries.len() > CAPACITY {
+                entries.pop_front();
+            }
+        }
+    }
+}
 
 #[derive(Default)]
 pub(super) struct Certificates {
@@ -159,6 +212,46 @@ pub(super) fn requested_shape_holds(
 mod tests {
     use super::*;
     use pleochroma_cut_core::meet_preservation::MeetPreservationBaseline;
+
+    #[test]
+    fn arrangement_refutations_require_exact_ordered_finite_plane_bits() {
+        use glam::DVec3;
+        let planes = vec![(DVec3::X, 0.0), (DVec3::Y, 1.0), (DVec3::Z, 2.0)];
+        let cache = ArrangementRefutations::default();
+        cache.insert_refuted(&planes);
+        assert!(cache.contains(&planes));
+        let mut changed = planes.clone();
+        changed[0].1 = -0.0;
+        assert!(!cache.contains(&changed));
+        changed = planes.clone();
+        changed[1].0.x = 0.0_f64.next_up();
+        assert!(!cache.contains(&changed));
+        changed = planes.clone();
+        changed.swap(0, 1);
+        assert!(!cache.contains(&changed));
+        assert!(!ArrangementRefutations::default().contains(&planes));
+        changed[0].1 = f64::INFINITY;
+        cache.insert_refuted(&changed);
+        assert!(!cache.contains(&changed));
+    }
+
+    #[test]
+    fn arrangement_refutations_bound_key_count_and_plane_payload() {
+        use glam::DVec3;
+        let cache = ArrangementRefutations::default();
+        let mut planes = vec![(DVec3::X, 0.0); 3];
+        for index in 0..=CAPACITY {
+            planes[0].1 = index as f64;
+            cache.insert_refuted(&planes);
+        }
+        assert!(cache.contains(&planes));
+        planes[0].1 = 0.0;
+        assert!(!cache.contains(&planes));
+        let oversized = vec![(DVec3::X, 1.0); 257];
+        cache.insert_refuted(&oversized);
+        assert!(!cache.contains(&oversized));
+        assert_eq!(cache.0.lock().unwrap().len(), CAPACITY);
+    }
 
     #[test]
     fn identity_changes_never_reuse_a_certificate_even_when_design_partial_eq_matches() {

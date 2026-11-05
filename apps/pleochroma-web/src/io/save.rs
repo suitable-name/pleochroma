@@ -7,23 +7,26 @@
 //! | Export `.gcs` (experimental) | the `.asc` schedule through `pleochroma_formats::gcs::to_gcs_string`; concave tiers ride along as footnotes | the design's name with `.gcs` |
 //! | Save design | `pleochroma_cut_core::native::design_to_file` + `pleochroma_formats::native::design::to_string`; writes the opened file's `[meta]` table (stamped) and attachments back | `<name>.psdd` |
 //! | Save to library | the same file as Save design, stored in the design library (`crate::library`) instead of downloaded | `<name>.psdd` |
-//! | Cutting sheet | `pleochroma_editor::cut_sheet::cutting_sheet_document_with_default` (the design's custom material brings its stored default axis) | `<name>_cutting_sheet.html` |
+//! | Cutting sheet (HTML) | `pleochroma_editor::cut_sheet::cutting_sheet_document_with_default` (the design's custom material brings its stored default axis): the standard template, then the renderings and further details | `<name>_cutting_sheet.html` |
+//! | Cutting sheet (PDF) | `pleochroma_editor::cut_sheet::cutting_sheet_pdf_with_default` with the same arguments: the standard template alone | `<name>_cutting_sheet.pdf` |
 //! | Diagram | `pleochroma_editor::cut_sheet::diagram_export_png` | `<name>_diagram.png` |
 //!
 //! Names follow the desktop (`pleochroma_editor::files`). A design that solves but
 //! does not close is written with the desktop's "NOT A CLOSED SOLID" header (what
 //! its "Export Anyway" confirmation writes) and a warning; one that does not solve
 //! is saved as a draft design file (the desktop's "Save Anyway") and refused for plain
-//! `.asc`, cutting sheet and diagram, exactly as the desktop refuses them.
+//! `.asc`, cutting sheet and diagram, exactly as the desktop refuses them. The PDF sheet
+//! is also refused for a design that solves but does not close (its drawings would be
+//! empty), as on the desktop.
 //!
 //! # Tutorial events
 //!
 //! Each action reports to an open lesson once its download has been handed to the browser, never
 //! on the click and never when it was refused: `DESIGN_SAVED` (Save design, a draft included),
-//! `ASC_EXPORTED`, `GCS_EXPORTED`, `SHEET_EXPORTED` and `DIAGRAM_EXPORTED`. Save to Library
-//! downloads nothing and raises none of them.
+//! `ASC_EXPORTED`, `GCS_EXPORTED`, `SHEET_EXPORTED` (either cutting sheet) and `DIAGRAM_EXPORTED`.
+//! Save to Library downloads nothing and raises none of them.
 
-use super::download::{MIME_ASC, MIME_DESIGN, MIME_HTML, MIME_PNG, download_bytes};
+use super::download::{MIME_ASC, MIME_DESIGN, MIME_HTML, MIME_PDF, MIME_PNG, download_bytes};
 use crate::{
     app::{
         Ctx,
@@ -40,8 +43,14 @@ use pleochroma_cut_core::{
     native::{DesignExtras, design_to_file},
 };
 use pleochroma_editor::{
-    cut_sheet::{SheetDetails, cutting_sheet_document_with_default, diagram_export_png},
-    files::{cutting_sheet_file_name, degenerate_marker_header, diagram_file_name},
+    cut_sheet::{
+        SheetDetails, cutting_sheet_document_with_default, cutting_sheet_pdf_with_default,
+        diagram_export_png,
+    },
+    files::{
+        cutting_sheet_file_name, cutting_sheet_pdf_file_name, degenerate_marker_header,
+        diagram_file_name,
+    },
     guide::viewing_events::{
         ASC_EXPORTED, DESIGN_SAVED, DIAGRAM_EXPORTED, GCS_EXPORTED, SHEET_EXPORTED,
     },
@@ -356,7 +365,7 @@ pub fn save_to_library(ctx: &Ctx) {
     });
 }
 
-/// File > Download cutting sheet: the printable HTML sheet with its embedded
+/// File > Download Cutting Sheet (HTML): the printable HTML sheet with its embedded
 /// diagram.
 pub fn download_cutting_sheet(ctx: &Ctx) {
     with_solved(ctx, |ctx, solved| {
@@ -394,6 +403,58 @@ pub fn download_cutting_sheet(ctx: &Ctx) {
             show_message(ctx, MessageKind::Success, &format!("Downloaded {name}."));
             // A tutorial step may wait for the sheet to be written.
             raise(ctx, SHEET_EXPORTED);
+        }
+    });
+}
+
+/// File > Download Cutting Sheet (PDF): the standard template alone, on US Letter pages.
+///
+/// Built from what [`download_cutting_sheet`] uses (the solve, the page's custom materials, the
+/// stored default axis of the design's custom material and the design's own header words). A
+/// design that does not solve gets the same refusal as the HTML sheet; one that solves but does
+/// not close to a solid has no drawings for the template, so the builder's reason is shown and
+/// nothing is downloaded.
+pub fn download_cutting_sheet_pdf(ctx: &Ctx) {
+    with_solved(ctx, |ctx, solved| {
+        let solved = match solved {
+            Ok(solved) => solved,
+            Err(missing) => {
+                show_message(
+                    ctx,
+                    MessageKind::Error,
+                    &format!("Cannot build a cutting sheet: {missing}."),
+                );
+                return;
+            }
+        };
+        let built = {
+            let app = ctx.state.borrow();
+            let Some(state) = &app.design else {
+                return;
+            };
+            let design = &state.session.design;
+            cutting_sheet_pdf_with_default(
+                design,
+                &solved,
+                &app.custom_materials,
+                stored_default_orientation(state.custom_snapshot()),
+                &SheetDetails::from_design(design),
+            )
+            .map(|pdf| (pdf, cutting_sheet_pdf_file_name(&state.save_asc_name())))
+        };
+        match built {
+            Ok((pdf, name)) => {
+                if deliver(ctx, &name, MIME_PDF, &pdf) {
+                    show_message(ctx, MessageKind::Success, &format!("Downloaded {name}."));
+                    // A tutorial step may wait for the sheet to be written.
+                    raise(ctx, SHEET_EXPORTED);
+                }
+            }
+            Err(message) => show_message(
+                ctx,
+                MessageKind::Error,
+                &format!("Cannot build a cutting sheet: {message}"),
+            ),
         }
     });
 }

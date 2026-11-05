@@ -261,9 +261,51 @@ sequence into an MP4 (or an animated GIF if `ffmpeg` is not on your PATH).
 
 ![The Tilt Performance dialog with the Export Tilt Video section unfolded.](../../../../assets/tilt_performance_export.png)
 
-The section opens with the settings of your last video (resolution, samples, bounces,
-color space, transfer and the folder-name template); starting a video remembers the
-ones it used (the tilt video's *output defaults*, Chapter 2). A line in the section
+**Axes.** The chips at the top of the section choose which of the chart's four
+axes (0° length, 45°, 90° width, 135°) the video shows. With none chosen, the
+video follows the axis selected in the chart, as one pass from **Start** to **End**.
+With two or more, the video shows them one after the other, and each one rocks through
+face-up: 0° → End → Start → 0°. Every change of axis happens with the table facing
+the camera, and the picture is turned so the stone keeps the same orientation on
+screen for every axis, so the video has no cut: the stone tilts one way, comes back
+table-up, then tilts the next way. Rocking shows each angle twice, so a multi-axis
+video has roughly twice as many frames per axis as a single pass, but each picture is
+rendered only once: a frame that repeats an earlier one (the way back, and face-up
+between the legs) is a copy of it. The line below the step field gives the frame count
+and how many of them are rendered, and the time estimate counts only those. With Keep
+PNG Frames on, a repeated frame is a link to the first one where the drive allows it,
+so it takes no extra space.
+
+**Order of the axes.** No chip is clicked at first; the video then follows the chart's
+axis. The axes play in the order you click them: the first one clicked plays first, the
+second one second, and each clicked chip shows its place, such as **1 · 90°** and
+**2 · 0°**. Click a chip again to take it out: the ones after it move up, so if you take
+out the first, the second becomes the first. To move an axis to the end, click it off and
+on again. The Start and End pictures, the `{axis}` part of the folder name (for example
+`90+0`) and a job added to the queue all follow the order, and it is remembered with the
+other video settings.
+
+**Turn Stone 90°.** The video shows the stone the way the live view does, turned for
+each axis as described above. Switch on **Turn Stone 90°** below the axis chips to turn
+every frame a quarter turn: a long stone, such as an oval or an emerald cut, then lies
+upright instead of across the picture, or the other way round. The Start and End
+pictures show the turned stone. For an upright stone in a tall picture, choose a custom
+resolution that is higher than wide.
+
+**Start and End pictures.** Below the frame count the section draws the stone at the
+Start and the End angle of every chosen axis, with the solid renderer and the same
+camera, framing and picture shape as the video's frames. They update as you change
+the angles, the axes or the resolution, so you can see which way a negative or a
+positive angle tips the stone before rendering anything. They show the stone the
+viewport holds; the video itself always draws the finished gem.
+
+The section opens with the settings you left it with, also after the program was
+closed: the axes, Turn Stone 90°, the angle range and step, the frame rate, resolution,
+samples, bounces, color space, transfer, the folder-name template, the performance values
+on the frames and Keep PNG Frames. Starting a video, adding it to the queue or closing
+the dialog remembers them (the tilt video's *output defaults*, Chapter 2). The video is
+saved in the same export folder as still pictures; **Change...** next to it picks
+another one, and a folder chosen here is remembered for both. A line in the section
 names the material the frames will be drawn in; during a "Preview As..." session the
 amber **Previewing** badge appears there too (Chapter 6).
 

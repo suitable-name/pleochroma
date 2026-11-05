@@ -7,7 +7,12 @@
 use glam::Vec3;
 use pleochroma::{
     color::{
-        ColorSpace, ToneMap, TransferFunction, cie1931::cie_1931_cmf, gamut::project_to_gamut,
+        ColorSpace, HighlightRule, ToneMap, TransferFunction,
+        cie1931::cie_1931_cmf,
+        gamut::{
+            KEEP_COLOR_KNEE, KEEP_COLOR_WHITE, fit_keeping_color, project_to_gamut,
+            project_to_gamut_bounded,
+        },
     },
     optics::raytracer::{aces_tonemap, xyz_to_srgb_gamma},
 };
@@ -600,6 +605,162 @@ fn aces_highlight_clipping_desaturates_instead_of_clamping_one_channel() {
          (per-channel clamp) saturation={old_sat:.4}, new (gamut-projected) \
          saturation={new_sat:.4} (old_clamped={old_clamped:?}, new={new_rgb:?})"
     );
+}
+
+// ---------------------------------------------------------------------------------
+// 8. The keep-color highlight rule (`HighlightRule::KeepColor`): an over-bright body
+//    color keeps its chromaticity and is dimmed; only light above diffuse white whitens.
+// ---------------------------------------------------------------------------------
+
+/// A deep red (linear sRGB `(1.0, 0.05, 0.12)`, `Y` about 0.26 at `R = 1`) at luminance `y`.
+fn deep_red_at(y: f32) -> Vec3 {
+    let xyz = matvec(
+        invert_3x3(ColorSpace::Srgb.xyz_to_rgb_matrix()),
+        Vec3::new(1.0, 0.05, 0.12),
+    );
+    xyz * (y / xyz.y)
+}
+
+/// The luminance `Y` of linear sRGB `rgb`.
+fn srgb_luminance(rgb: Vec3) -> f32 {
+    matvec(invert_3x3(ColorSpace::Srgb.xyz_to_rgb_matrix()), rgb).y
+}
+
+#[test]
+fn keep_color_dims_a_bright_red_instead_of_turning_it_pink() {
+    // Luminance 0.45: below KEEP_COLOR_KNEE.
+    let xyz = deep_red_at(0.45);
+    let input_uv = uv_prime(xyz);
+
+    let kept = fit_keeping_color(xyz, ColorSpace::Srgb);
+    assert!(
+        (kept.max_element() - 1.0).abs() < 1e-4,
+        "the largest channel lands on 1.0: {kept:?}"
+    );
+    assert!(kept.min_element() >= 0.0, "{kept:?}");
+    let kept_uv = uv_prime(matvec(
+        invert_3x3(ColorSpace::Srgb.xyz_to_rgb_matrix()),
+        kept,
+    ));
+    let drift = (kept_uv.0 - input_uv.0).hypot(kept_uv.1 - input_uv.1);
+    assert!(drift < 2e-4, "the chromaticity is kept, drift {drift}");
+    assert!(
+        srgb_luminance(kept) < 0.45,
+        "the color is dimmed, not whitened: Y {}",
+        srgb_luminance(kept)
+    );
+
+    let whitened = project_to_gamut_bounded(xyz, ColorSpace::Srgb, 1.0);
+    let whitened_uv = uv_prime(matvec(
+        invert_3x3(ColorSpace::Srgb.xyz_to_rgb_matrix()),
+        whitened,
+    ));
+    let walked = (whitened_uv.0 - input_uv.0).hypot(whitened_uv.1 - input_uv.1);
+    assert!(
+        walked > 0.02,
+        "the whiten rule walks this red far toward white ({walked}), the reason for the rule"
+    );
+}
+
+#[test]
+fn keep_color_passes_colors_that_fit_through_unchanged() {
+    for xyz in [
+        deep_red_at(0.2),
+        Vec3::new(0.3, 0.4, 0.5),
+        Vec3::new(0.05, 0.03, 0.4),
+    ] {
+        assert_eq!(
+            fit_keeping_color(xyz, ColorSpace::Srgb),
+            project_to_gamut(xyz, ColorSpace::Srgb),
+            "{xyz:?}"
+        );
+    }
+}
+
+/// Brighter light never shows darker, and from [`KEEP_COLOR_WHITE`] on the luminance is kept,
+/// as the whiten rule keeps it.
+#[test]
+fn keep_color_is_monotonic_and_keeps_the_luminance_of_light_above_white() {
+    let mut previous = 0.0f32;
+    // Y from 0.25 to exactly 1.0 in hundredths; above 1.0 the result is a grey above 1.0 that
+    // `encode`'s final clamp takes, as the whiten rule's white fallback is.
+    for hundredths in 25..=100u8 {
+        let y = f32::from(hundredths) / 100.0;
+        let rgb = fit_keeping_color(deep_red_at(y), ColorSpace::Srgb);
+        assert!(
+            rgb.max_element() <= 1.0 + 1e-4,
+            "Y {y}: every channel fits, {rgb:?}"
+        );
+        let shown = srgb_luminance(rgb);
+        assert!(
+            shown >= previous - 1e-4,
+            "Y {y}: shown luminance {shown} fell below {previous}"
+        );
+        previous = shown;
+        if y < KEEP_COLOR_KNEE {
+            // The red's own ceiling: Y about 0.257 at R = 1.
+            assert!(
+                shown < 0.27,
+                "Y {y}: below the knee the red is dimmed to what fits, shown {shown}"
+            );
+        }
+        if y >= KEEP_COLOR_WHITE {
+            assert!(
+                (shown - y).abs() < 5e-3,
+                "Y {y}: light above white keeps its luminance, shown {shown}"
+            );
+        }
+    }
+}
+
+#[test]
+fn encode_keeps_a_bright_red_saturated_only_under_keep_color() {
+    // ACES maps 0.35 to about 0.49: a bright body color, below the knee.
+    let xyz = deep_red_at(0.35);
+    let tonemap = ToneMap::AcesFilmic { exposure: 1.0 };
+    let whitened = ColorSpace::Srgb.encode_with(xyz, tonemap, HighlightRule::Whiten);
+    let kept = ColorSpace::Srgb.encode_with(xyz, tonemap, HighlightRule::KeepColor);
+    let whitened_chroma = uv_chroma_distance_from_white(whitened, ColorSpace::Srgb);
+    let kept_chroma = uv_chroma_distance_from_white(kept, ColorSpace::Srgb);
+    assert!(
+        kept_chroma > whitened_chroma + 0.05,
+        "keep-color {kept:?} (chroma {kept_chroma}) against whiten {whitened:?} \
+         (chroma {whitened_chroma})"
+    );
+    assert!(
+        u8_saturation(kept) > u8_saturation(whitened),
+        "{kept:?} {whitened:?}"
+    );
+}
+
+#[test]
+fn encode_uses_the_keep_color_rule_unless_told_otherwise() {
+    // No test in this binary sets the process-wide rule.
+    assert_eq!(
+        pleochroma::color::highlight_rule(),
+        HighlightRule::KeepColor
+    );
+    assert_eq!(HighlightRule::default(), HighlightRule::KeepColor);
+    let tonemap = ToneMap::AcesFilmic { exposure: 1.0 };
+    for xyz in [
+        deep_red_at(0.35),
+        deep_red_at(0.9),
+        Vec3::new(0.3, 0.4, 0.5),
+    ] {
+        assert_eq!(
+            ColorSpace::Srgb.encode(xyz, tonemap),
+            ColorSpace::Srgb.encode_with(xyz, tonemap, HighlightRule::KeepColor),
+            "{xyz:?}"
+        );
+    }
+    for rule in [HighlightRule::Whiten, HighlightRule::KeepColor] {
+        assert_eq!(HighlightRule::from_cli_word(rule.cli_word()), Some(rule));
+    }
+    assert_eq!(
+        HighlightRule::from_cli_word(" Keep-Color "),
+        Some(HighlightRule::KeepColor)
+    );
+    assert_eq!(HighlightRule::from_cli_word("pink"), None);
 }
 
 // ---------------------------------------------------------------------------------

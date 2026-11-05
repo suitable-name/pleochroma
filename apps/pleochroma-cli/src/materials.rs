@@ -143,7 +143,9 @@ impl Catalogue {
     }
 
     /// The material named exactly `name` (any letter case): a custom material first, then a
-    /// built-in one. Unlike a design's own lookup this never matches part of a name.
+    /// built-in one, then the built-in a second name stands for ("Sphene" is "Titanite
+    /// (Sphene)", [`GemMaterial::alias_target`]). Unlike a design's own lookup this never
+    /// matches part of a name.
     #[must_use]
     pub fn lookup_exact(&self, name: &str) -> Option<GemMaterial> {
         self.custom
@@ -151,6 +153,7 @@ impl Catalogue {
             .find(|known| known.name.eq_ignore_ascii_case(name))
             .cloned()
             .or_else(|| built_in_material_by_exact_name(name))
+            .or_else(|| GemMaterial::alias_target(name).and_then(built_in_material_by_exact_name))
     }
 
     /// Whether the design's own lookup (the one every desktop view uses) finds `name`.

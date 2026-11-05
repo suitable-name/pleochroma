@@ -42,7 +42,15 @@ export global TiltModel {
     in-out property <int> hover_axis: 0;
     in-out property <float> hover_tilt: 0;
     callback cancel_hover();
-    changed dialog_open => { if !dialog_open { cancel_hover(); } }
+    // Closing the dialog keeps the video section's values for the next start of the app
+    // (`gui::tilt::video_export`, `output_defaults::remember_tilt`).
+    callback dialog_closed();
+    changed dialog_open => {
+        if !dialog_open {
+            cancel_hover();
+            dialog_closed();
+        }
+    }
 
     callback request_tilt_hover_preview(int, float);
 
@@ -69,6 +77,15 @@ export global TiltModel {
             }
         }
     }
+}
+
+// One axis's Start and End pictures in the video section: the solid stone at the Start
+// and End angle, posed and framed like the video's frames (`gui::tilt::video_export::
+// pose_preview`). `axis_index` indexes the dialog's axis labels.
+export struct TiltPosePreview {
+    axis_index: int,
+    start: image,
+    end: image,
 }
 
 // Settings and progress for exporting a tilt-performance video clip (a rendered frame
@@ -99,6 +116,23 @@ export global TiltVideoExportModel {
     // (`gui::tilt::video_export::params::clamp_step_deg`); a value that fails to parse
     // falls back to `1.0`, matching that function's own "non-finite -> 1.0" rule.
     pure callback parse_step_deg(string) -> float;
+    // The axes the video shows, IN THE ORDER THEY WERE CLICKED, which is the order the video
+    // shows them: indices of the chart's axes (0: 0°, 1: 45°, 2: 90°, 3: 135°), each at most
+    // once. Empty (no chip clicked, the default) means the chart's selected axis alone. One
+    // axis is one Start -> End pass; several rock through face-up in turn, 0 -> End -> Start
+    // -> 0 each, so the video has no cut (`gui::tilt::video_export::params::frame_poses`).
+    // Only Rust writes it (`toggle_video_axis`, the remembered settings).
+    in-out property <[int]> video_axes: [];
+    // Clicks an axis chip: an axis not chosen goes last; a chosen one leaves and the ones after
+    // it move up (the last one leaves too, back to none).
+    callback toggle_video_axis(int);
+    // "Turn Stone 90°": every frame, and the Start and End pictures, turned a quarter turn,
+    // so a long stone lies upright instead of across the picture (or the other way).
+    in-out property <bool> quarter_turn: false;
+    // The Start and End pictures of every axis, drawn by Rust after
+    // `request_pose_previews(chart_axis)`.
+    in property <[TiltPosePreview]> pose_previews: [];
+    callback request_pose_previews(int);
     in-out property <int> fps_index: 1; // 0: 24fps, 1: 30fps, 2: 60fps
 
     // Resolution: an index into `gui::tilt::video_export::params::RESOLUTION_PRESETS`
@@ -148,7 +182,8 @@ export global TiltVideoExportModel {
     // `performance_graph_dialog.slint`'s own doc comment on that property) so the
     // preview's `{axis}` substitution -- and the rest of the real open design/material
     // it now resolves against -- matches what "Start Video Export" would actually run.
-    pure callback preview_video_folder_name(string, int) -> string;
+    // The third is `video_axes`, passed so the preview follows the axis chips and their order.
+    pure callback preview_video_folder_name(string, int, [int]) -> string;
 
     // Overlay: whether to draw the swept metrics into each frame, and which ones.
     // Always available: brilliance/windowing/extinction (the curve's own three
@@ -171,8 +206,11 @@ export global TiltVideoExportModel {
     // Frame-count/duration/cost estimate -- `frame_count` is a pure callback into
     // `gui::tilt::video_export::params::frame_count` (not reimplemented in Slint)
     // so the number shown here can never disagree with how many frames the export
-    // will actually render.
-    pure callback frame_count(float, float, float) -> int;
+    // will actually render. The fourth argument is `video_axes`.
+    pure callback frame_count(float, float, float, [int]) -> int;
+    // How many of those frames are rendered: a rocking video shows every angle again on its
+    // way back, and those frames are copies (`params::rendered_pose_count`).
+    pure callback rendered_frame_count(float, float, float, [int]) -> int;
     // A rough per-frame render-time estimate, in seconds -- 0.0 until the first frame
     // of a run (this session or a prior one) has actually landed. `0.0` means "no
     // estimate yet", not "instant".

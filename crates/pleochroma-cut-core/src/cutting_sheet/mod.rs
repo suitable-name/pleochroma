@@ -38,5 +38,5 @@ pub use orientation::{SheetOrientation, SheetRuleCheck};
 pub(crate) use sheet::format_index;
 pub use sheet::{
     ConcaveRowInfo, CutSheetRow, CuttingSheet, SHEET_NAME_WIDTH, format_sheet_index,
-    format_sheet_indices,
+    format_sheet_index_on_gear, format_sheet_indices, format_sheet_indices_on_gear,
 };

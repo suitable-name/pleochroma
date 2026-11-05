@@ -35,6 +35,11 @@ pub trait FrameReporter {
     /// Frame `index` (0-based) is on disk. `frames_done` counts every frame now on disk,
     /// including the ones that were already there.
     fn frame_saved(&mut self, index: usize, frames_done: usize, total: usize, frame_secs: f32);
+
+    /// The share (0..=1) of this run's rendering work that is done, said right before each
+    /// [`Self::frame_saved`]. A frame that repeats an earlier pose is copied and costs nothing,
+    /// so a time estimate follows this rather than the frame count. The default ignores it.
+    fn work_done(&mut self, _fraction: f64) {}
 }
 
 /// How a run of the frame loop ended.
@@ -131,9 +136,7 @@ fn file_names(dir: &Path) -> impl Iterator<Item = String> {
 pub fn save_png_atomic(path: &Path, width: u32, height: u32, rgba: &[u8]) -> Result<(), String> {
     let image = image::RgbaImage::from_raw(width, height, rgba.to_vec())
         .ok_or_else(|| "pixel buffer size did not match dimensions".to_string())?;
-    let mut partial_name = path.file_name().unwrap_or_default().to_os_string();
-    partial_name.push(PARTIAL_SUFFIX);
-    let partial = path.with_file_name(partial_name);
+    let partial = partial_path(path);
     let written = image
         .save_with_format(&partial, image::ImageFormat::Png)
         .map_err(|e| e.to_string())
@@ -217,10 +220,23 @@ fn prepare_legend(request: &VideoExportRequest, frames_done: usize) -> Result<()
         return Err(reason.to_string());
     }
     let path = request.out_dir.join(LEGEND_FILE);
-    let sweep = format!(
-        "Sweep axis {}; start {}; end {}; step {} degrees; every frame is traced at its exact signed pose.",
-        request.axis_index, request.start_deg, request.end_deg, request.step_deg
-    );
+    // One axis keeps the wording it always had, so a folder rendered before several axes
+    // existed still resumes.
+    let sweep = if let [axis] = request.axes.as_slice() {
+        format!(
+            "Sweep axis {axis}; start {}; end {}; step {} degrees; every frame is traced at its exact signed pose.",
+            request.start_deg, request.end_deg, request.step_deg
+        )
+    } else {
+        let axes: Vec<String> = request.axes.iter().map(ToString::to_string).collect();
+        format!(
+            "Sweep axes {} in turn, each rocked 0 -> end -> start -> 0; start {}; end {}; step {} degrees; every frame is traced at its exact signed pose.",
+            axes.join(", "),
+            request.start_deg,
+            request.end_deg,
+            request.step_deg
+        )
+    };
     let Some(legend) = sweep_legend(&request.scene, request.width, request.height, &sweep) else {
         if frames_done == 0 {
             let _ = std::fs::remove_file(&path);
@@ -293,10 +309,31 @@ fn acquire_gpu(local_compute: LocalComputeTarget, needs_render: bool) -> GpuBack
     }
 }
 
+/// The image roll, in radians, added to the scene's own for frames about `axis_index` in a
+/// video over `axes`: the first axis's azimuth minus this one's.
+///
+/// Table-up, the camera's image basis turns with the azimuth (`Camera::new`), so without
+/// this every axis would show the face-up stone turned by the angle between the axes and a
+/// multi-axis video would jump at each joint. Rolled back by that angle, the stone keeps
+/// the orientation the first axis shows it in, and each axis tilts it in its own direction
+/// on screen. Zero for the first axis, so a one-axis video is unchanged.
+#[must_use]
+pub fn axis_roll(axes: &[usize], axis_index: usize) -> f32 {
+    let azimuth = |index: usize| {
+        pleochroma::color::metrics::PROFILE_AZIMUTHS_DEG
+            .get(index)
+            .copied()
+            .unwrap_or(0.0)
+    };
+    let first = axes.first().copied().unwrap_or(axis_index);
+    (azimuth(first) - azimuth(axis_index)).to_radians()
+}
+
 /// Draws the optical diagnostics (and their caption) over frame `(index, total)`'s `rgba`,
 /// when the scene asks for them. They fill the second half of the frame's progress.
 fn overlay_diagnostics(
     request: &VideoExportRequest,
+    scene: &crate::bridge::export_thread::SceneSnapshot,
     pose: [f32; 2],
     (index, total): (usize, usize),
     rgba: &mut [u8],
@@ -307,7 +344,7 @@ fn overlay_diagnostics(
         reporter.frame_progress(index, total, fraction.mul_add(0.5, 0.5), None);
     };
     let applied = crate::bridge::optical_overlay::export::apply(
-        &request.scene,
+        scene,
         pose,
         crate::bridge::optical_overlay::export::Picture {
             width: request.width,
@@ -322,6 +359,38 @@ fn overlay_diagnostics(
         draw_diagnostic_caption(rgba, request.width, request.height);
     }
     Ok(())
+}
+
+/// The name a frame is written under until it is complete.
+fn partial_path(path: &Path) -> PathBuf {
+    let mut partial_name = path.file_name().unwrap_or_default().to_os_string();
+    partial_name.push(PARTIAL_SUFFIX);
+    path.with_file_name(partial_name)
+}
+
+/// Writes frame `path` as the same picture as the earlier frame `source`: a hard link where
+/// the file system has them (no second copy of the bytes), a plain copy otherwise. It goes
+/// through the `.partial` name like a rendered frame, so a frame on disk is always whole.
+fn reuse_frame(source: &Path, path: &Path) -> std::io::Result<()> {
+    let partial = partial_path(path);
+    let _ = std::fs::remove_file(&partial);
+    if std::fs::hard_link(source, &partial).is_err() {
+        std::fs::copy(source, &partial)?;
+    }
+    let renamed = std::fs::rename(&partial, path);
+    if renamed.is_err() {
+        let _ = std::fs::remove_file(&partial);
+    }
+    renamed
+}
+
+/// `done` of `total` frames to render as a share (0..=1); nothing to render counts as done.
+fn work_share(done: usize, total: usize) -> f64 {
+    if total == 0 {
+        1.0
+    } else {
+        done as f64 / total as f64
+    }
 }
 
 /// How a sweep ends when the diagnostic pass of a frame stops with `message`: cancelled
@@ -344,7 +413,9 @@ fn diagnostics_stopped(message: String, cancel: &AtomicBool, frames_done: usize)
 /// once per frame, and reuses both across every frame via [`render::render_frame_rgba`],
 /// the tilt video's thin wrapper around the SAME
 /// `bridge::export_thread::render_accumulation` core the still-image export uses. With
-/// `skip_existing`, a frame whose PNG is already on disk is not rendered again. `cancel`
+/// `skip_existing`, a frame whose PNG is already on disk is not rendered again. A frame that
+/// repeats an earlier pose (`params::earlier_same_frame`) is never rendered: it is linked or
+/// copied from that frame's PNG. `cancel`
 /// is checked between frames, not mid-frame: a frame's own trace is already parallelised
 /// internally and not worth interrupting partway through.
 #[expect(
@@ -357,11 +428,20 @@ pub fn render_frames(
     cancel: &AtomicBool,
     reporter: &mut dyn FrameReporter,
 ) -> FramesOutcome {
-    // The full angle list, not a per-index `frame_angle_deg` call: at most 18001 `f64`s
-    // (~144KB even at the finest required 0.01° step), negligible next to the per-frame
-    // RGBA buffers this loop deliberately never holds more than one of at a time.
-    let angles = params::frame_angles(request.start_deg, request.end_deg, request.step_deg);
+    // The full pose list, not a per-index computation: at most four axes rocked at the
+    // finest 0.01° step (~72k small poses, about a megabyte), negligible next to the
+    // per-frame RGBA buffers this loop deliberately never holds more than one of at a time.
+    let poses = request.poses();
     let total = request.total_frames;
+    if poses.len() != total {
+        return FramesOutcome::Failed {
+            message: format!(
+                "The sweep gives {} frames, but the video expects {total}.",
+                poses.len()
+            ),
+            frames_done: 0,
+        };
+    }
     let mut frame_paths = Vec::with_capacity(total);
     let existing = if skip_existing {
         existing_frames(&request.out_dir, total)
@@ -370,6 +450,16 @@ pub fn render_frames(
     };
     let is_on_disk = |index: usize| existing.get(index).copied().unwrap_or(false);
     let mut frames_done = (0..total).filter(|&index| is_on_disk(index)).count();
+    // A pose the video shows again (the way back of a rocking axis, face-up between its legs)
+    // is the same picture: copied from the frame that showed it first.
+    let same_as = params::earlier_same_frame(&poses);
+    // This run's rendering work: the frames neither on disk nor copies.
+    let to_render = (0..total)
+        .filter(|&index| !is_on_disk(index) && same_as[index].is_none())
+        .count();
+    let mut rendered = 0_usize;
+    // What a copied frame reports as its time: the last rendered frame's.
+    let mut last_frame_secs = 0.0_f32;
     if let Err(message) = prepare_legend(request, frames_done) {
         return FramesOutcome::Failed {
             message,
@@ -386,7 +476,7 @@ pub fn render_frames(
     // too slow to repeat every frame -- see `AccumulationCarry`'s own doc comment for
     // what `carry` seeds forward from frame to frame. A sweep with nothing left to
     // render acquires nothing.
-    let needs_render = (0..angles.len()).any(|index| !is_on_disk(index));
+    let needs_render = to_render > 0;
     // `Remote only` traces nothing here: `local_compute` becomes the CPU alone (no hybrid
     // calibration probe, which would trace locally) and no GPU adapter is acquired.
     let local_compute = frame_local_compute(request.remote.compute_target, request.local_compute);
@@ -403,8 +493,11 @@ pub fn render_frames(
         remote: request.remote.clone(),
         local_compute,
     };
+    // Only the image roll changes from axis to axis (`axis_roll`); one copy of the scene
+    // for the whole video carries it.
+    let mut scene = request.scene.clone();
 
-    for (index, &tilt_deg) in angles.iter().enumerate() {
+    for (index, pose) in poses.iter().enumerate() {
         if cancel.load(Ordering::Relaxed) {
             return FramesOutcome::Cancelled { frames_done };
         }
@@ -413,12 +506,28 @@ pub fn render_frames(
             frame_paths.push(path);
             continue;
         }
+        // Every earlier frame is on disk by now (rendered, copied or already there).
+        if let Some(first) = same_as[index] {
+            if let Err(e) = reuse_frame(&frame_paths[first], &path) {
+                return FramesOutcome::Failed {
+                    message: format!("Failed to write {}: {e}", path.display()),
+                    frames_done,
+                };
+            }
+            frame_paths.push(path);
+            frames_done += 1;
+            reporter.work_done(work_share(rendered, to_render));
+            reporter.frame_saved(index, frames_done, total, last_frame_secs);
+            continue;
+        }
         let started = Instant::now();
+        let tilt_deg = pose.tilt_deg;
         let (cam_yaw, cam_pitch) =
-            tilt_hover_preview::camera_pose_for_axis_tilt(request.axis_index, tilt_deg);
+            tilt_hover_preview::camera_pose_for_axis_tilt(pose.axis_index, tilt_deg);
+        scene.camera_roll = request.scene.camera_roll + axis_roll(&request.axes, pose.axis_index);
 
         let outcome = render::render_frame_rgba(
-            &request.scene,
+            &scene,
             request.width,
             request.height,
             request.samples_per_pixel,
@@ -450,6 +559,7 @@ pub fn render_frames(
         };
         if let Err(message) = overlay_diagnostics(
             request,
+            &scene,
             [cam_yaw, cam_pitch],
             (index, total),
             &mut rgba,
@@ -458,9 +568,15 @@ pub fn render_frames(
         ) {
             return diagnostics_stopped(message, cancel, frames_done);
         }
-        if request.selection.count() > 0 {
-            let readings =
-                metrics::readings_for_frame(request.selection, &request.curves, tilt_deg);
+        let curves = request
+            .axes
+            .iter()
+            .position(|&axis| axis == pose.axis_index)
+            .and_then(|slot| request.curves.get(slot));
+        if request.selection.count() > 0
+            && let Some(curves) = curves
+        {
+            let readings = metrics::readings_for_frame(request.selection, curves, tilt_deg);
             overlay::draw_overlay(&mut rgba, request.width, request.height, &readings);
         }
 
@@ -472,7 +588,10 @@ pub fn render_frames(
         }
         frame_paths.push(path);
         frames_done += 1;
-        reporter.frame_saved(index, frames_done, total, started.elapsed().as_secs_f32());
+        rendered += 1;
+        last_frame_secs = started.elapsed().as_secs_f32();
+        reporter.work_done(work_share(rendered, to_render));
+        reporter.frame_saved(index, frames_done, total, last_frame_secs);
     }
     FramesOutcome::Done(frame_paths)
 }
@@ -500,7 +619,7 @@ mod tests {
         VideoExportRequest {
             scene: SceneSnapshot::capture(&Mutex::new(RenderContext::default()))
                 .expect("Diamond resolves"),
-            axis_index: 0,
+            axes: vec![0],
             start_deg: -2.0,
             end_deg: 2.0,
             step_deg: 2.0,
@@ -513,11 +632,7 @@ mod tests {
             out_dir: dir.to_path_buf(),
             out_name: "test".to_string(),
             selection: metrics::MetricSelection::default(),
-            curves: metrics::MetricCurves {
-                brilliance: Vec::new(),
-                windowing: Vec::new(),
-                extinction: Vec::new(),
-            },
+            curves: Vec::new(),
             keep_frames: true,
             remote: RemoteSelection::local_only(),
             local_compute: LocalComputeTarget::Cpu,
@@ -528,6 +643,8 @@ mod tests {
     struct Recorder {
         saved: Vec<(usize, usize)>,
         progress_ticks: usize,
+        /// Every `work_done` share, in order: it grows only on a rendered frame.
+        work: Vec<f64>,
     }
 
     impl FrameReporter for Recorder {
@@ -537,6 +654,10 @@ mod tests {
 
         fn frame_saved(&mut self, index: usize, frames_done: usize, _: usize, _: f32) {
             self.saved.push((index, frames_done));
+        }
+
+        fn work_done(&mut self, fraction: f64) {
+            self.work.push(fraction);
         }
     }
 
@@ -683,6 +804,116 @@ mod tests {
         assert_eq!(frames_done, 0);
         assert_eq!(recorder.saved.len(), 0);
         assert!(!holds_frames(&dir), "nothing may be traced locally");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Table-up, every axis of a multi-axis video shows the stone the way the first axis
+    /// does: the rolled image basis equals the first axis's, so the joints do not jump.
+    #[test]
+    fn axis_roll_makes_face_up_look_the_same_on_every_axis() {
+        use pleochroma::optics::raytracer::Camera;
+        let axes = [1, 3, 0, 2];
+        let face_up = |axis: usize| {
+            let (yaw, pitch) = tilt_hover_preview::camera_pose_for_axis_tilt(axis, 0.0);
+            Camera::new(yaw, pitch, 2.4, 40.0).with_roll(axis_roll(&axes, axis))
+        };
+        let first = face_up(axes[0]);
+        for axis in axes {
+            let camera = face_up(axis);
+            assert!(
+                camera.right.distance(first.right) < 1e-5,
+                "axis {axis}: right {:?} vs {:?}",
+                camera.right,
+                first.right
+            );
+            assert!(camera.up.distance(first.up) < 1e-5, "axis {axis}");
+        }
+        assert_eq!(axis_roll(&[2], 2), 0.0, "one axis is never rolled");
+    }
+
+    /// Two axes rock through face-up: `0, 2, 0, -2, 0` for the first axis and `2, 0, -2, 0`
+    /// for the second (its table-up start is the first axis's end), 9 frames. Each pose is
+    /// rendered once (frames 0, 1, 3, 5, 6, 7); the way back and the repeated face-up (frames
+    /// 2, 4 and 8) are byte-identical copies of the first frame of their pose.
+    #[test]
+    fn a_two_axis_video_renders_each_pose_once_and_copies_the_way_back() {
+        let dir = test_dir("two_axes");
+        let mut request = request(&dir);
+        request.axes = vec![0, 2];
+        request.total_frames = params::pose_count(&request.axes, -2.0, 2.0, 2.0);
+        assert_eq!(request.total_frames, 9);
+        let mut recorder = Recorder::default();
+        let outcome = render_frames(&request, false, &AtomicBool::new(false), &mut recorder);
+        let FramesOutcome::Done(paths) = outcome else {
+            panic!("expected every frame on disk");
+        };
+        assert_eq!(paths.len(), 9);
+        let bytes = |index: usize| std::fs::read(&paths[index]).unwrap();
+        for (copy, first) in [(2, 0), (4, 0), (8, 6)] {
+            assert_eq!(
+                bytes(copy),
+                bytes(first),
+                "frame {copy} repeats frame {first}"
+            );
+        }
+        // Six frames to render; the share grows only on a rendered frame.
+        let expected: Vec<f64> = [1, 2, 2, 3, 3, 4, 5, 6, 6]
+            .iter()
+            .map(|&done: &usize| done as f64 / 6.0)
+            .collect();
+        assert_eq!(recorder.work, expected);
+        assert_eq!(
+            recorder.saved.len(),
+            9,
+            "every frame is reported, copies too"
+        );
+        assert!(!holds_partials(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A resumed video copies a repeated pose from a frame that was already on disk.
+    #[test]
+    fn a_resumed_video_copies_a_repeat_from_a_frame_already_on_disk() {
+        let dir = test_dir("two_axes_resume");
+        let mut request = request(&dir);
+        request.axes = vec![0, 2];
+        request.total_frames = params::pose_count(&request.axes, -2.0, 2.0, 2.0);
+        save_png_atomic(&frame_path(&dir, 0, 9), 8, 8, &[7; 8 * 8 * 4]).unwrap();
+        let mut recorder = Recorder::default();
+        let outcome = render_frames(&request, true, &AtomicBool::new(false), &mut recorder);
+        assert!(matches!(outcome, FramesOutcome::Done(ref paths) if paths.len() == 9));
+        for copy in [2, 4] {
+            let first_pixel = image::open(frame_path(&dir, copy, 9))
+                .unwrap()
+                .to_rgba8()
+                .as_raw()[0];
+            assert_eq!(
+                first_pixel, 7,
+                "frame {copy} is a copy of the frame on disk"
+            );
+        }
+        // Frames 1, 3, 5, 6 and 7 are rendered.
+        assert_eq!(recorder.work.last().copied(), Some(1.0));
+        assert_eq!(recorder.work.first().copied(), Some(0.2));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_frame_count_that_does_not_match_the_sweep_fails_before_rendering() {
+        let dir = test_dir("mismatch");
+        let mut request = request(&dir);
+        request.axes = vec![0, 2];
+        let outcome = render_frames(
+            &request,
+            false,
+            &AtomicBool::new(false),
+            &mut Recorder::default(),
+        );
+        assert!(matches!(
+            outcome,
+            FramesOutcome::Failed { frames_done: 0, .. }
+        ));
+        assert!(!holds_frames(&dir));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

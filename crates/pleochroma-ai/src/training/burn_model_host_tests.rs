@@ -194,6 +194,60 @@ fn forward_host_matches_the_pure_twin_on_full_and_padded_samples() {
 }
 
 #[test]
+fn profiled_forward_preserves_outputs_and_exposes_actual_padded_shapes() {
+    let model = model_of(&pure_network(19));
+    let (_, states, n_tiers) = batch();
+    let (profiled, stages) = model.forward_host_profiled(&states, &n_tiers).unwrap();
+    assert_eq!(profiled, model.forward_host(&states, &n_tiers).unwrap());
+    assert_eq!(
+        (stages.real_rows, stages.padded_rows, stages.padded_tiers),
+        (3, 4, 5)
+    );
+    for millis in [
+        stages.validation_ms,
+        stages.inference_view_ms,
+        stages.packing_ms,
+        stages.forward_submit_ms,
+        stages.readback_ms,
+        stages.unpacking_ms,
+    ] {
+        assert!(millis.is_finite() && millis >= 0.0);
+    }
+    let (empty, stages) = model.forward_host_profiled(&[], &[]).unwrap();
+    assert_eq!(empty, HostPolicyBatch::default());
+    assert_eq!(stages, HostForwardDiagnostics::default());
+}
+
+#[test]
+fn padded_batch_rows_match_single_rows_and_pure_twin() {
+    let net = pure_network(17);
+    let model = model_of(&net);
+    // Exercise both sides of multiple row-bucket boundaries and a non-power-of-two
+    // tier cap. The one-tier case is the smallest valid public input.
+    for count in [1, 2, 3, 4, 5, 8, 9] {
+        let observations: Vec<_> = (0..count)
+            .map(|i| observation(i, 1 + i % MAX_TIERS))
+            .collect();
+        let states: Vec<_> = observations.iter().map(|o| o.flatten(MAX_TIERS)).collect();
+        let counts: Vec<_> = observations.iter().map(|o| o.tiers.len()).collect();
+        let batched = model.forward_host(&states, &counts).unwrap();
+        assert_eq!(batched.values.len(), count);
+        for (i, observation) in observations.iter().enumerate() {
+            let single = model.forward_host(&states[i..=i], &counts[i..=i]).unwrap();
+            let (pure, value) = net
+                .forward(&observation.tier_tokens(), &observation.global_token())
+                .unwrap();
+            assert_close(&batched.means[i], &single.means[0], "single mean");
+            assert_close(&batched.log_stds[i], &single.log_stds[0], "single log std");
+            assert_close(&batched.means[i], &pure.mean, "pure mean");
+            assert_close(&batched.log_stds[i], &pure.log_std, "pure log std");
+            assert!((batched.values[i] - single.values[0]).abs() < TWIN_TOLERANCE);
+            assert!((batched.values[i] - value).abs() < TWIN_TOLERANCE);
+        }
+    }
+}
+
+#[test]
 fn a_sample_does_not_depend_on_its_batch_its_position_or_its_padding() {
     let model = model_of(&pure_network(5));
     let (observations, states, n_tiers) = batch();
@@ -232,7 +286,7 @@ fn a_sample_does_not_depend_on_its_batch_its_position_or_its_padding() {
     // Padding holds junk in a real run (the model masks it): it changes nothing.
     let mut junk = states[1].clone();
     for value in &mut junk[GLOBAL_DIM + n_tiers[1] * TIER_DIM..] {
-        *value = 5.0;
+        *value = f32::MAX;
     }
     let junked = model.forward_host(&[junk], &n_tiers[1..=1]).unwrap();
     assert_close(
@@ -410,7 +464,8 @@ fn pack_states_lays_out_globals_tiers_and_the_real_tier_mask() {
         d_tier: TIER_DIM,
         max_tiers: MAX_TIERS,
     };
-    let (_, states, _) = batch();
+    let (_, mut states, _) = batch();
+    states[1][GLOBAL_DIM + 3 * TIER_DIM..].fill(f32::MAX);
     // Packed in another order than the data lies, as a shuffled mini-batch is, with a padded
     // sample (3 of 5 tiers) and a full one.
     let rows = [(states[1].as_slice(), 3), (states[0].as_slice(), 5)];
@@ -424,7 +479,11 @@ fn pack_states_lays_out_globals_tiers_and_the_real_tier_mask() {
     assert_eq!(globals[GLOBAL_DIM..], states[0][..GLOBAL_DIM]);
     let tiers = host_vec(packed.tiers).unwrap();
     let width = MAX_TIERS * TIER_DIM;
-    assert_eq!(tiers[..width], states[1][GLOBAL_DIM..]);
+    assert_eq!(
+        tiers[..3 * TIER_DIM],
+        states[1][GLOBAL_DIM..GLOBAL_DIM + 3 * TIER_DIM]
+    );
+    assert!(tiers[3 * TIER_DIM..width].iter().all(|&value| value == 0.0));
     assert_eq!(tiers[width..], states[0][GLOBAL_DIM..]);
     assert_eq!(
         host_vec(packed.mask).unwrap(),

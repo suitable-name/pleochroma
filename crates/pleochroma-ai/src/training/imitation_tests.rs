@@ -275,13 +275,17 @@ fn older_serialized_imitation_metrics_default_component_support_and_timings() {
     let metrics: ImitationMetrics = serde_json::from_value(old).unwrap();
     assert_eq!(metrics.action_loss, 0.0);
     assert_eq!(metrics.action_samples, 0);
+    assert_eq!(metrics.objective_revision, 0);
+    assert_eq!(metrics.skipped_minibatches, 0);
     assert_eq!(metrics.component_support, [0; N_COMPONENTS]);
     assert_eq!((metrics.packing_ms, metrics.update_ms), (0.0, 0.0));
+    assert_eq!(metrics.stages, ImitationStageDiagnostics::default());
 }
 
 fn metric_core(mut metrics: ImitationMetrics) -> ImitationMetrics {
     metrics.packing_ms = 0.0;
     metrics.update_ms = 0.0;
+    metrics.stages = ImitationStageDiagnostics::default();
     metrics
 }
 
@@ -617,12 +621,49 @@ fn a_diverged_loss_is_reported_and_the_step_is_skipped() {
     let mut trainer = trainer(MAX_TIERS, 1);
     let before = export(&trainer);
     let result = trainer.train_imitation_epochs(&fx.batch(), &ImitationConfig::default());
+    // Every mini-batch holds sample 0, so every one is skipped and the round fails as a whole.
     assert!(
         matches!(result, Err(TrainError::NonFinite(_))),
         "{result:?}"
     );
     assert_eq!(trainer.update_count(), 0);
     assert_eq!(export(&trainer), before);
+}
+
+#[test]
+fn a_diverged_mini_batch_is_skipped_and_the_others_still_train() {
+    let mut fx = Fixture::from_teacher(8, MAX_TIERS, 11);
+    // Only the mini-batch that holds sample 0 has an infinite loss.
+    fx.sensitivities[0][0] = component_row([3.0e30, 0.0, 0.0, 0.0]);
+    let config = ImitationConfig {
+        mini_batch_size: 4,
+        epochs_per_round: 1,
+        ..epoch_config()
+    };
+    let mut via_call = trainer(MAX_TIERS, 5);
+    let metrics = via_call
+        .train_imitation_epochs(&fx.batch(), &config)
+        .unwrap();
+    assert_eq!((metrics.updates, metrics.skipped_minibatches), (1, 1));
+    assert_eq!(via_call.update_count(), 1);
+    assert!(all_finite(&metrics), "{metrics:?}");
+
+    // The same schedule by hand with the poisoned mini-batch left out: equal weights show the
+    // skipped mini-batch left the weights, the Adam moments and the schedule position alone.
+    let mut by_hand = trainer(MAX_TIERS, 5);
+    let batch = fx.batch();
+    let mut order: Vec<usize> = (0..batch.len()).collect();
+    by_hand.shuffle.shuffle(&mut order);
+    for chunk in order.chunks(4).filter(|chunk| !chunk.contains(&0)) {
+        let prepared = by_hand.pack_imitation(&batch, chunk);
+        let local_rows: Vec<usize> = (0..chunk.len()).collect();
+        let outcome = by_hand
+            .imitation_update(&prepared, &local_rows, &config)
+            .unwrap();
+        assert!(outcome.stepped().is_some());
+    }
+    assert_eq!(by_hand.update_count(), 1);
+    assert_eq!(export(&via_call), export(&by_hand));
 }
 
 #[test]

@@ -25,6 +25,7 @@ fn blank_report(update_of_iteration: Option<usize>) -> IterationReport {
         training_host_ms: 0.0,
         weight_export_ms: 0.0,
         rollout_forward_ms: 0.0,
+        rollout_scheduling: Default::default(),
         update_wait_secs: 0.04,
         update_of_iteration,
         evaluations_this_round: 0,

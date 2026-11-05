@@ -2,7 +2,9 @@
 //! coordinator on loopback with a joined CPU worker.
 
 use super::{
-    fixtures::{bundle, coordinator_args, fan_out_config, pki_with_server, start, wait_for},
+    fixtures::{
+        bundle, coordinator_args, fan_out_config, pki_with_server, start, tls_client, wait_for,
+    },
     support::{collect, render, scene, send, spawn_worker, viewer},
 };
 use crate::{
@@ -10,7 +12,12 @@ use crate::{
     render_core::trace_samples,
 };
 use pleochroma::{
-    optics::raytracer::{Camera, DEFAULT_FOV_DEG},
+    optics::{
+        absorption::{AbsorptionBand, AbsorptionTensor},
+        materials::GemMaterial,
+        raytracer::{Camera, DEFAULT_FOV_DEG},
+        zoning::{Zone, ZoneAbsorption, ZoneShape, ZonedAbsorption},
+    },
     renderer::{
         denoise::AtrousDenoiser,
         frame_denoise::{DenoiseScratch, FirstHitSnapshot, denoise_and_tonemap_frame},
@@ -19,7 +26,9 @@ use pleochroma::{
     },
 };
 use pleochroma_net::{
-    display,
+    SceneState,
+    client::{handshake_with_hello, send_final_image_request},
+    display, handshake,
     messages::{
         Backend, ClientMessage, DisplayEncoding, FinalImageRequest, FinalOutput, PayloadEncoding,
         PeerRole, RequestIntent, StreamEvent, TILT_CURVE_AXIS_COUNT, TiltCurvesRequest,
@@ -84,6 +93,79 @@ fn a_final_image_is_byte_identical_to_the_gui_tonemap_of_the_same_sum() {
             "{color_space:?}: PNG differs from the GUI tonemap"
         );
     }
+}
+
+/// A bicolor stone: the base absorbs red, a half space (+X side) absorbs blue.
+fn zoned_material() -> GemMaterial {
+    let band = |center: f32| {
+        ZoneAbsorption::per_mm(AbsorptionTensor::isotropic(vec![AbsorptionBand::new(
+            center, 60.0, 1.0,
+        )]))
+    };
+    let mut zoned = ZonedAbsorption::new(band(640.0));
+    zoned.zones.push(Zone {
+        shape: ZoneShape::HalfSpace {
+            normal: glam::DVec3::X,
+            offset: 0.0,
+        },
+        absorption: band(450.0),
+    });
+    GemMaterial::diamond().with_zoning(zoned)
+}
+
+/// v36: a zoned `FinalImageRequest` through a render-less coordinator keeps its zones. The
+/// coordinator advertises the capability to a zoning viewer, re-attaches the zones the viewer
+/// sent ahead of the request and sends them again ahead of the joined worker's chunk: the
+/// picture is byte-identical to the GUI tonemap of the zoned scene traced here, and differs
+/// from the unzoned stone's.
+#[test]
+fn a_zoned_final_image_through_a_joined_worker_keeps_its_zones() {
+    let pki = pki_with_server("pictures-zoned");
+    let viewer_bundle = bundle(&pki, "laptop", PeerRole::Viewer);
+    let worker_bundle = bundle(&pki, "box", PeerRole::Worker);
+    let handle = start(&coordinator_args(&pki), LivenessConfig::default());
+    let registry = Arc::clone(handle.registry.as_ref().unwrap());
+    spawn_worker(handle.worker_addr.unwrap(), &worker_bundle);
+    assert!(wait_for(WAIT, || registry.capacity().workers == 1));
+
+    let mut client = tls_client(handle.viewer_addr, &viewer_bundle);
+    let welcome = handshake_with_hello(&mut client, &handshake::local_hello_zoning()).unwrap();
+    assert!(
+        welcome.zoning,
+        "a coordinator advertises zoning to a zoning viewer"
+    );
+
+    let image = SceneState {
+        material: zoned_material(),
+        ..scene(9, 7)
+    };
+    // The zones go first, then the request (whose scene carries none on the wire).
+    send_final_image_request(
+        &mut client,
+        &FinalImageRequest {
+            request_id: 1,
+            scene: image.clone(),
+            first_sample: 5,
+            samples: 2,
+            width: 9,
+            height: 7,
+            color_space: WireColorSpace::Srgb,
+            output: FinalOutput::PngRgba8,
+            viewer_samples: 0,
+        },
+    )
+    .unwrap();
+    let transcript = collect(&mut client, (9, 7), |_, _| {});
+    let done = transcript.done.expect("DONE after FINAL_IMAGE");
+    assert!(!done.cancelled && done.request_id == 1 && done.stats.samples_done == 2);
+    let (_, png) = transcript.final_image.expect("one FINAL_IMAGE");
+    let pixels = display::decode_rgba8(DisplayEncoding::Png, 9, 7, &png).unwrap();
+    let zoned_sum = trace_samples(&image, 5, 2, 2);
+    let expected = tonemap_accumulation(9, 7, 2, &zoned_sum, WireColorSpace::Srgb.into());
+    assert_eq!(pixels, expected, "the joined worker traced the zoned stone");
+    let unzoned_sum = trace_samples(&scene(9, 7), 5, 2, 2);
+    let unzoned = tonemap_accumulation(9, 7, 2, &unzoned_sum, WireColorSpace::Srgb.into());
+    assert_ne!(pixels, unzoned, "the zones change the picture");
 }
 
 /// v16: `viewer_samples` reserves the request's tail for the viewer; the server plans

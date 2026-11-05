@@ -224,8 +224,8 @@ export component EmptyState inherits Rectangle {
                 // Import a Folder -- a real action: it runs the same folder picker
                 // the toolbar's Import popup runs (`LibraryModel.pick_asc_folder`,
                 // handled in `gui::library::local::import::wiring`). The picker opens
-                // and, once a folder is chosen, the import of every .asc, .gem and
-                // .gcs file directly inside it starts in the same step, with its
+                // and, once a folder is chosen, the import of every .psdd, .asc, .gem
+                // and .gcs file directly inside it starts in the same step, with its
                 // progress and result shown where an import started from the toolbar
                 // shows them. Subfolders are not walked from here (`false`); the
                 // popup's "include subfolders" switch is the way to ask for that.
@@ -234,10 +234,10 @@ export component EmptyState inherits Rectangle {
                     x: root.wide ? 360px : 180px;
                     y: 110px;
                     title: "Import a Folder";
-                    body: "Choose a folder of .asc, .gem or .gcs files to add to your library.";
+                    body: "Choose a folder of .psdd, .asc, .gem or .gcs files to add to your library.";
                     label: "Import a Folder";
                     hint: GuideModel.allows_file_ops()
-                        ? "Pick a folder; every .asc, .gem and .gcs file directly inside it is added to your library."
+                        ? "Pick a folder; every .psdd, .asc, .gem and .gcs file directly inside it is added to your library."
                         : GuideModel.locked_hint;
                     enabled: GuideModel.allows_file_ops();
                     dim_opacity: GuideModel.allows_file_ops() ? 1.0 : 0.55;

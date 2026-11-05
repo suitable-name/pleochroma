@@ -305,7 +305,14 @@ pub use zoning::{
 /// 35: HDR environment header metadata is applied (`EXPOSURE` and `COLORCORR` divide the
 ///     texels, per the Radiance format). No message changed shape, but a worker on 34 would
 ///     light a file carrying those lines differently from this viewer, so the bump refuses it.
-pub const PROTOCOL_VERSION: u16 = 35;
+/// 36: a coordinator serves zoned scenes. It advertises the zoning capability to a viewer that
+///     sent the marker, re-attaches the zones a viewer sends ahead of a `RenderRequest` or
+///     `FinalImageRequest`, and sends them again (`ClientMessage::ZoningPayload`) ahead of every
+///     chunk it gives a joined worker. No message changed shape. The bump also separates the
+///     builds whose Ray-Traced engine tints by the binned absorption spectrum (`WHITTED_VERSION`
+///     3) and whose final pictures use the keep-color highlight rule by default from earlier 35
+///     builds, which would render the same scene differently from this viewer.
+pub const PROTOCOL_VERSION: u16 = 36;
 
 #[cfg(test)]
 mod tests {
@@ -330,7 +337,8 @@ mod tests {
     /// 33: camera image-plane roll (`SceneState::camera_roll`).
     /// 34: a material's own inclusions (`SceneEffects::material_inclusions`).
     /// 35: HDR header `EXPOSURE` / `COLORCORR` applied (no message changed shape).
+    /// 36: a coordinator forwards zones; Ray-Traced binned tint; keep-color by default.
     fn protocol_version_matches_constant() {
-        assert_eq!(super::PROTOCOL_VERSION, 35);
+        assert_eq!(super::PROTOCOL_VERSION, 36);
     }
 }

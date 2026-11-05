@@ -1,6 +1,6 @@
 //! Canonically ordered teacher candidates separated by nonblocking optical waits.
 
-use super::{EnvCore, TeacherLabel, TierProbe, Winner, finish_label, offer};
+use super::{EnvCore, TeacherLabel, TierProbe, Winner, finish_label, offer, on_pool_worker};
 use crate::env::{stepping::CandidateWork, teacher::action_from_direction};
 use rayon::prelude::*;
 
@@ -63,43 +63,52 @@ impl EnvCore {
             search_enabled,
             done: !search_enabled,
         };
-        self.prepare_next_teacher_candidate(&mut work, parallel);
+        self.prepare_teacher_phase(&mut work, parallel);
         work
     }
 
+    /// Complete every ready candidate in list order and prepare the next phase.
+    ///
+    /// A phase whose candidates are all ready at once (refused before scoring, or answered
+    /// while this worker prepared them) is completed in the same call.
     pub(in crate::env) fn advance_teacher_label(
         &self,
         work: &mut TeacherLabelWork,
         parallel: &(dyn Fn() -> bool + Sync),
     ) -> bool {
-        if work.done {
-            return true;
-        }
-        if !work.poll() {
-            return false;
-        }
-        for pending in std::mem::take(&mut work.pending) {
-            let outcome = self.complete_candidate(pending);
-            work.label.evaluations += usize::from(outcome.evaluated);
-            if outcome.is_accepted() {
-                let action = &work.actions[work.index];
-                offer(
-                    &mut work.best,
-                    Winner {
-                        raw: action.raw.clone(),
-                        gain: self.current_eval.score
-                            - outcome.score().expect("accepted candidate has a score"),
-                        scale: action.scale,
-                    },
-                );
+        while !work.done {
+            if !work.poll() {
+                return false;
             }
-            work.index += 1;
+            for pending in std::mem::take(&mut work.pending) {
+                let outcome = self.complete_candidate(pending);
+                work.label.evaluations += usize::from(outcome.evaluated);
+                if outcome.is_accepted() {
+                    let action = &work.actions[work.index];
+                    offer(
+                        &mut work.best,
+                        Winner {
+                            raw: action.raw.clone(),
+                            gain: self.current_eval.score
+                                - outcome.score().expect("accepted candidate has a score"),
+                            scale: action.scale,
+                        },
+                    );
+                }
+                work.index += 1;
+            }
+            self.prepare_teacher_phase(work, parallel);
         }
-        self.prepare_next_teacher_candidate(work, parallel);
-        work.done
+        true
     }
 
-    fn prepare_next_teacher_candidate(
+    /// Prepare every remaining candidate of the current phase at once.
+    ///
+    /// Every gradient action is always evaluated, and every rescue action once rescue
+    /// starts (no winner after the gradient phase), so a phase holds no speculative work.
+    /// Its projections fan out on the pool ([`on_pool_worker`], or `parallel` off a pool)
+    /// and its optical requests wait together; completion keeps list order.
+    fn prepare_teacher_phase(
         &self,
         work: &mut TeacherLabelWork,
         parallel: &(dyn Fn() -> bool + Sync),
@@ -118,18 +127,58 @@ impl EnvCore {
             }
         }
         let remaining = &work.actions[work.index..];
+        if remaining.is_empty() {
+            work.done = true;
+            return;
+        }
         let prepare = |action: &Winner| {
             self.prepare_candidate(
                 &action_from_direction(&action.raw, self.settings.max_step_deg),
                 1.0,
             )
         };
-        if parallel() && remaining.len() > 1 {
-            work.pending = remaining.par_iter().map(prepare).collect();
-        } else if let Some(action) = remaining.first() {
-            work.pending = vec![prepare(action)];
+        work.pending = if remaining.len() > 1 && (on_pool_worker() || parallel()) {
+            remaining.par_iter().map(prepare).collect()
         } else {
-            work.done = true;
+            remaining.iter().map(prepare).collect()
+        };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::env::{DEFAULT_LINE_SEARCH, test_fixtures::fixture_env};
+
+    #[test]
+    fn pool_workers_prepare_each_phase_at_once_and_keep_the_serial_label() {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(2)
+            .build()
+            .expect("test pool");
+        let env = fixture_env();
+        let count = env.current_design().tiers.len();
+        let probes: Vec<_> = (0..count).map(|tier| env.probe_tier(tier, 0.25)).collect();
+        for scales in [&DEFAULT_LINE_SEARCH[..], &[][..]] {
+            let expected = env.teacher_label_from_probes(0.25, &probes, scales);
+            // Spare capacity is never reported; pool workers fan out regardless.
+            let actual = pool.install(|| {
+                let mut work = env
+                    .core
+                    .prepare_teacher_label(0.25, &probes, scales, &|| false);
+                assert_eq!(work.pending.len(), work.actions.len() - work.index);
+                while !env.core.advance_teacher_label(&mut work, &|| false) {
+                    assert!(
+                        work.poll(),
+                        "CPU fixture has no asynchronous optical request"
+                    );
+                }
+                work.complete()
+            });
+            assert_eq!(
+                serde_json::to_value(actual).expect("staged label"),
+                serde_json::to_value(&expected).expect("serial label")
+            );
         }
     }
 }

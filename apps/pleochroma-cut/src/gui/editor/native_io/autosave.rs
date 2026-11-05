@@ -351,6 +351,32 @@ pub(super) fn record_recent_native_file(ui: &MainWindow, native_path_display: &s
         file.settings
             .record_recent_native_file(native_path_display.to_string());
     });
+    show_recent_native_files(ui, &persister);
+}
+
+/// The startup offer's Discard: removes `native_path_display` from the recent design files
+/// ([`crate::settings::model::AppSettings::forget_recent_native_file`]), through the same
+/// [`SettingsPersister`] as [`record_recent_native_file`], and refreshes File > Open Recent. The
+/// file itself is not touched.
+pub(in crate::gui::editor) fn forget_recent_native_file(
+    ui: &MainWindow,
+    native_path_display: &str,
+) {
+    let Some(persister) = SettingsPersister::installed_for_this_thread() else {
+        warn!(
+            "No settings persister is installed; not removing {native_path_display} from the recent files"
+        );
+        return;
+    };
+    persister.update(|file| {
+        file.settings.forget_recent_native_file(native_path_display);
+    });
+    show_recent_native_files(ui, &persister);
+}
+
+/// Puts the persister's recent design files into `MainWindow.recent_native_files` (File > Open
+/// Recent).
+fn show_recent_native_files(ui: &MainWindow, persister: &SettingsPersister) {
     ui.set_recent_native_files(ModelRc::new(VecModel::from(
         persister
             .snapshot()

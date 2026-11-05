@@ -53,8 +53,10 @@ mod tests {
     fn gui_path_matches_the_pinned_pleochroma_hash() {
         // The same value as the twin in `pleochroma::renderer::frame_denoise`: pinned with
         // background pixels passing through the denoiser unfiltered and the sRGB encode's
-        // round-to-nearest quantisation.
-        const PINNED: u64 = 0x4b0e_fd3c_897e_809c;
+        // round-to-nearest quantisation. Re-pinned on 2026-11-04 with its twin: the encode's
+        // default highlight rule became `HighlightRule::KeepColor` on 2026-11-03 (it was
+        // 0x4b0e_fd3c_897e_809c under Whiten).
+        const PINNED: u64 = 0x50f9_945c_3ecd_b2a7;
         let (width, height, samples) = (24_u32, 16_u32, 3_u32);
         let planes = pleochroma::geometry::cuts::StandardGemCuts::standard_round_brilliant();
         let accum: Vec<Vec3> = (0..(width * height) as usize)

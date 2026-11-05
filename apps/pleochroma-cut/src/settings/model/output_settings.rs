@@ -138,7 +138,8 @@ impl RemoteAvailability {
 // ---------------------------------------------------------------------------------------
 
 /// The still export dialog's persisted values: it seeds its controls from them when it
-/// opens and writes the values used back when an export starts ("last used").
+/// opens and writes the values back when an export starts and when the dialog closes ("last
+/// used").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct StillOutput {
@@ -185,9 +186,14 @@ impl Default for StillOutput {
     }
 }
 
-/// The tilt-video export dialog's persisted values (same seed-and-write-back rule). The
-/// compute pill is NOT repeated here: it already persists as
+/// The tilt-video export section's persisted values (same seed-and-write-back rule: a video
+/// that starts or is added to the queue, and closing the Tilt Performance dialog, write them).
+/// The compute pill is NOT repeated here: it already persists as
 /// `AppSettings::tilt_video_compute_target`.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent switches of the section, not a state machine"
+)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TiltVideoOutput {
@@ -211,7 +217,42 @@ pub struct TiltVideoOutput {
     pub transfer: Option<ExportTransfer>,
     /// The output folder-name template (`TiltVideoExportModel.filename_template`).
     pub filename_template: String,
+    /// The sweep's Start angle in degrees (`TiltVideoExportModel.start_angle_deg`), -90..=90.
+    pub start_angle_deg: i32,
+    /// The sweep's End angle in degrees, -90..=90.
+    pub end_angle_deg: i32,
+    /// The step between frames in hundredths of a degree, within
+    /// [`TILT_STEP_HUNDREDTHS_RANGE`] (0.01..=5.0 degrees). Whole numbers keep these settings
+    /// `Eq` and read a typed step back exactly.
+    pub step_hundredths_deg: u32,
+    /// `TiltVideoExportModel.fps_index`: 0 = 24, 1 = 30, 2 = 60 frames per second.
+    pub fps_index: i32,
+    /// The chosen axis chips, as indices into `PROFILE_AZIMUTHS_DEG` in the order the video
+    /// plays them (the order they were chosen; files written before 2026-11-04 hold them in
+    /// ascending order). Empty means the axis selected in the chart, alone.
+    pub axes: Vec<u8>,
+    /// "Turn Stone 90°": every frame turned a quarter turn, so a long stone lies the other way
+    /// in the picture.
+    pub quarter_turn: bool,
+    /// "Show Performance Values" on every frame.
+    pub show_values: bool,
+    /// The brilliance reading among the shown values.
+    pub metric_brilliance: bool,
+    /// The windowing reading among the shown values.
+    pub metric_windowing: bool,
+    /// The extinction reading among the shown values.
+    pub metric_extinction: bool,
+    /// The tilt brilliance score among the shown values.
+    pub metric_tilt_brilliance: bool,
+    /// The tilt angle among the shown values.
+    pub metric_angle: bool,
+    /// "Keep PNG Frames After Muxing".
+    pub keep_frames: bool,
 }
+
+/// The tilt video's step field limits in hundredths of a degree (0.01..=5.0 degrees, the
+/// field's own `gui::tilt::video_export::params` range).
+pub const TILT_STEP_HUNDREDTHS_RANGE: (u32, u32) = (1, 500);
 
 /// The tilt-video folder-name template a fresh install starts with.
 pub const DEFAULT_TILT_VIDEO_FILENAME_TEMPLATE: &str =
@@ -235,6 +276,19 @@ impl Default for TiltVideoOutput {
             color_space_index: 0,
             transfer: None,
             filename_template: DEFAULT_TILT_VIDEO_FILENAME_TEMPLATE.to_string(),
+            start_angle_deg: -90,
+            end_angle_deg: 90,
+            step_hundredths_deg: 100,
+            fps_index: 1,
+            axes: Vec::new(),
+            quarter_turn: false,
+            show_values: false,
+            metric_brilliance: true,
+            metric_windowing: true,
+            metric_extinction: true,
+            metric_tilt_brilliance: false,
+            metric_angle: true,
+            keep_frames: false,
         }
     }
 }
@@ -278,6 +332,19 @@ impl OutputSettings {
         if self.tilt_video.filename_template.trim().is_empty() {
             self.tilt_video.filename_template = DEFAULT_TILT_VIDEO_FILENAME_TEMPLATE.to_string();
         }
+        self.tilt_video.start_angle_deg = self.tilt_video.start_angle_deg.clamp(-90, 90);
+        self.tilt_video.end_angle_deg = self.tilt_video.end_angle_deg.clamp(-90, 90);
+        self.tilt_video.step_hundredths_deg = self
+            .tilt_video
+            .step_hundredths_deg
+            .clamp(TILT_STEP_HUNDREDTHS_RANGE.0, TILT_STEP_HUNDREDTHS_RANGE.1);
+        self.tilt_video.fps_index = self.tilt_video.fps_index.clamp(0, 2);
+        let axis_count = pleochroma::color::metrics::PROFILE_AZIMUTHS_DEG.len();
+        self.tilt_video
+            .axes
+            .retain(|&axis| usize::from(axis) < axis_count);
+        self.tilt_video.axes.sort_unstable();
+        self.tilt_video.axes.dedup();
         self
     }
 }
@@ -321,6 +388,50 @@ mod tests {
                 .disabled_reason(true)
                 .is_some()
         );
+    }
+
+    /// The sweep, the axes, the 90° turn and the frame toggles come back from the file, and a
+    /// hand-edited file cannot seed an angle, step, frame rate or axis the section lacks.
+    #[test]
+    fn the_tilt_video_sweep_round_trips_and_is_limited_to_what_the_section_allows() {
+        use crate::settings::model::SettingsFile;
+        let mut file = SettingsFile::default();
+        file.settings.output.tilt_video = TiltVideoOutput {
+            start_angle_deg: -30,
+            end_angle_deg: 45,
+            step_hundredths_deg: 25,
+            fps_index: 2,
+            axes: vec![1, 3],
+            quarter_turn: true,
+            show_values: true,
+            metric_angle: false,
+            keep_frames: true,
+            ..TiltVideoOutput::default()
+        };
+        let text = toml::to_string(&file).expect("serialise");
+        let parsed: SettingsFile = toml::from_str(&text).expect("parse");
+        assert_eq!(
+            parsed.settings.output.tilt_video,
+            file.settings.output.tilt_video
+        );
+
+        let odd = OutputSettings {
+            tilt_video: TiltVideoOutput {
+                start_angle_deg: -200,
+                end_angle_deg: 400,
+                step_hundredths_deg: 0,
+                fps_index: 9,
+                axes: vec![3, 7, 1, 3],
+                ..TiltVideoOutput::default()
+            },
+            ..OutputSettings::default()
+        }
+        .sanitised()
+        .tilt_video;
+        assert_eq!((odd.start_angle_deg, odd.end_angle_deg), (-90, 90));
+        assert_eq!(odd.step_hundredths_deg, TILT_STEP_HUNDREDTHS_RANGE.0);
+        assert_eq!(odd.fps_index, 2);
+        assert_eq!(odd.axes, vec![1, 3]);
     }
 
     #[test]

@@ -1,9 +1,9 @@
 use super::{
-    Command, ExportFormat, JobCommandKind, MaterialArg, Mode, RenderJobArgs, ReportFormat, Topic,
-    parse,
+    Command, ExportFormat, Exposure, JobCommandKind, MaterialArg, Mode, RenderJobArgs,
+    ReportFormat, Topic, parse,
     types::{LIGHTING_NAMES, PRESET_NAMES},
 };
-use pleochroma::optics::LightingPreset;
+use pleochroma::{color::HighlightRule, optics::LightingPreset};
 use pleochroma_cut_core::{CANONICAL_LIGHTING_PRESET, ObjectivePreset};
 use pleochroma_editor::{
     optimize_view::{DEFAULT_BUDGET, DEFAULT_CANDIDATES, DEFAULT_STARTS},
@@ -363,7 +363,7 @@ fn sweep_names_what_is_missing() {
 fn export_needs_a_format_and_an_output() {
     assert!(error("export a.asc --format asc").contains("needs --out FILE"));
     assert!(error("export a.asc --out thing").contains("needs --format"));
-    assert!(error("export a.asc --format pdf --out x").contains("unknown format"));
+    assert!(error("export a.asc --format docx --out x").contains("unknown format"));
     let Command::Export(args) = parsed("export a.asc --format gcs --out x.dat") else {
         panic!("expected export");
     };
@@ -380,6 +380,8 @@ fn export_can_infer_the_format_from_the_output_name() {
         ("a.gcs", ExportFormat::Gcs),
         ("a.html", ExportFormat::Html),
         ("a.htm", ExportFormat::Html),
+        ("a.pdf", ExportFormat::Pdf),
+        ("a.PDF", ExportFormat::Pdf),
     ] {
         let Command::Export(args) = parsed(&format!("export in.gem --out {name}")) else {
             panic!("expected export");
@@ -417,6 +419,11 @@ fn render_defaults_to_both_engines_and_the_jobs_own_choices() {
     assert_eq!(args.remote, None);
     assert_eq!(args.cert_dir, None);
     assert!(!args.contribute_local && !args.restart && !args.quiet);
+    assert_eq!(args.exposure, Exposure::AsJob);
+    assert_eq!(args.highlights, HighlightRule::KeepColor);
+    assert_eq!(args.material, None);
+    assert_eq!(args.color_variant, None);
+    assert_eq!(args.color_pattern, None);
     assert!(matches!(parsed("render a.job.json"), Command::Render(_)));
     assert!(matches!(
         parsed("tilt-video a.job.json"),
@@ -428,7 +435,8 @@ fn render_defaults_to_both_engines_and_the_jobs_own_choices() {
 fn render_takes_every_flag() {
     let args = render_args(
         "render a.job.json --out pic.png --local gpu --remote box:7878 --cert-dir certs \
-         --compute both --transfer final --contribute-local --quiet",
+         --compute both --transfer final --contribute-local --quiet --highlights whiten \
+         --material Ruby --color-variant ruby.thai --color-pattern hexagonal-banding --meter",
     );
     assert_eq!(
         args,
@@ -445,6 +453,11 @@ fn render_takes_every_flag() {
             contribute_local: true,
             restart: false,
             quiet: true,
+            highlights: HighlightRule::Whiten,
+            material: Some("Ruby".to_string()),
+            color_variant: Some("ruby.thai".to_string()),
+            color_pattern: Some("hexagonal-banding".to_string()),
+            exposure: Exposure::Metered,
         }
     );
 }
@@ -470,8 +483,39 @@ fn tilt_video_takes_every_flag() {
             contribute_local: false,
             restart: true,
             quiet: true,
+            highlights: HighlightRule::KeepColor,
+            material: None,
+            color_variant: None,
+            color_pattern: None,
+            exposure: Exposure::AsJob,
         }
     );
+}
+
+#[test]
+fn the_highlight_rule_and_the_color_variant_are_checked_words() {
+    for (word, rule) in [
+        ("whiten", HighlightRule::Whiten),
+        ("keep-color", HighlightRule::KeepColor),
+        ("KEEP-COLOR", HighlightRule::KeepColor),
+    ] {
+        assert_eq!(
+            render_args(&format!("tilt-video v.job.json --highlights {word}")).highlights,
+            rule,
+            "{word}"
+        );
+    }
+    let message = error("render a.job.json --highlights pink");
+    assert!(
+        message.contains("unknown highlight rule \"pink\""),
+        "{message}"
+    );
+    assert!(message.contains("whiten or keep-color"), "{message}");
+    assert_eq!(
+        render_args("render a.job.json --color-variant thai").color_variant,
+        Some("thai".to_string())
+    );
+    assert!(error("render a.job.json --color-variant").contains("--color-variant"));
 }
 
 #[test]

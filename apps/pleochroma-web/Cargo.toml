@@ -48,7 +48,7 @@ pleochroma-solid = { workspace = true }
 # on, and a member cannot switch it off. Without it the crate is pure Rust (no C SQLite).
 # Nothing else in this crate's graph may depend on the vault with default features, or Cargo
 # unification turns `sqlite` back on.
-pleochroma-vault = { path = "../../crates/pleochroma-vault", default-features = false, version = "0.10.0" }
+pleochroma-vault = { path = "../../crates/pleochroma-vault", default-features = false }
 # The Worker pool (`host::WorkerPool`: render Workers + the solve Worker), the scene
 # spec, display/export pipeline and the persisted settings payload.
 pleochroma-web-core = { workspace = true }
@@ -57,7 +57,7 @@ pleochroma-web-core = { workspace = true }
 image = { workspace = true, features = ["hdr", "png"] }
 # `Uint8Array` copies in and out of JS: a dropped file's `arrayBuffer()` bytes, a
 # download's `Blob` parts.
-js-sys = "0.3.106"
+js-sys = "0.3.107"
 # The async file picker: on wasm32 a hidden `<input type="file">`. `file-handle-inner`
 # gives the picked `web_sys::File`, whose `size` is checked before the file is read.
 rfd = { workspace = true, features = ["file-handle-inner"] }
@@ -74,9 +74,9 @@ slint = { workspace = true, features = [
 # The console subscriber in `src/app/diagnostics.rs` receives the shared crates'
 # `tracing` events.
 tracing = { workspace = true }
-wasm-bindgen = "0.2.129"
-wasm-bindgen-futures = "0.4.79"
-web-sys = { version = "0.3.106", default-features = false, features = [
+wasm-bindgen = "0.2.130"
+wasm-bindgen-futures = "0.4.80"
+web-sys = { version = "0.3.107", default-features = false, features = [
     "BeforeUnloadEvent",
     "Blob",
     "BlobPropertyBag",

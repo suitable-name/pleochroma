@@ -87,26 +87,33 @@ impl GemMaterial {
                 // U4+ lines, a stone no sample of the server is. The measured continuum
                 // lives in the `zircon.*` variants (brown, green, blue).
                 // Calibration record: docs/chromophores/calibration-records.md#zircon
+                // 2026-11-03 (owner: "match the pictures of actual gemstones"): every line x 0.05.
+                // Eighteen dealer photos of white zircon (GemSelect, measured in the lead's private
+                // comparison) are colorless (C* 0.7); the lines at the Mogok crystal's full
+                // strength rendered a lilac stone (Light Tent C* 11 h 307). A colorless gem zircon
+                // holds little uranium (Ratanakiri about 120 ppm, Zeug et al. 2018), far less than
+                // the green, radiation-damaged Mogok zircon the lines were measured on, so the
+                // lines stay, about a twentieth as strong: swatch L*99 C*1 (it was L*93 C*12).
                 absorption: AbsorptionTensor::uniaxial(
                     vec![
                         // o-ray (E perp c)
-                        AbsorptionBand::energy(483.4, 120.0, 3.15),
-                        AbsorptionBand::energy(515.7, 170.0, 3.84),
-                        AbsorptionBand::energy(537.2, 120.0, 2.91),
-                        AbsorptionBand::energy(562.3, 100.0, 1.75),
-                        AbsorptionBand::energy(589.7, 100.0, 3.36),
-                        AbsorptionBand::energy(653.4, 105.0, 11.4),
-                        AbsorptionBand::energy(659.5, 150.0, 3.07),
-                        AbsorptionBand::energy(690.9, 65.0, 6.74),
+                        AbsorptionBand::energy(483.4, 120.0, 0.157_5),
+                        AbsorptionBand::energy(515.7, 170.0, 0.192),
+                        AbsorptionBand::energy(537.2, 120.0, 0.145_5),
+                        AbsorptionBand::energy(562.3, 100.0, 0.087_5),
+                        AbsorptionBand::energy(589.7, 100.0, 0.168),
+                        AbsorptionBand::energy(653.4, 105.0, 0.57),
+                        AbsorptionBand::energy(659.5, 150.0, 0.153_5),
+                        AbsorptionBand::energy(690.9, 65.0, 0.337),
                     ],
                     vec![
                         // e-ray (E par c)
-                        AbsorptionBand::energy(511.5, 150.0, 3.28),
-                        AbsorptionBand::energy(542.0, 120.0, 1.83),
-                        AbsorptionBand::energy(589.1, 100.0, 4.78),
-                        AbsorptionBand::energy(616.0, 150.0, 3.49),
-                        AbsorptionBand::energy(652.8, 110.0, 5.43),
-                        AbsorptionBand::energy(660.5, 80.0, 4.32),
+                        AbsorptionBand::energy(511.5, 150.0, 0.164),
+                        AbsorptionBand::energy(542.0, 120.0, 0.091_5),
+                        AbsorptionBand::energy(589.1, 100.0, 0.239),
+                        AbsorptionBand::energy(616.0, 150.0, 0.174_5),
+                        AbsorptionBand::energy(652.8, 110.0, 0.271_5),
+                        AbsorptionBand::energy(660.5, 80.0, 0.216),
                     ],
                 ),
                 c_axis: Vec3::Y,
@@ -158,11 +165,10 @@ impl GemMaterial {
                 },
                 // n_gamma - n_alpha at the D line of the two principal curves below.
                 birefringence_delta: 0.007_581,
-                // TRICHROISM: figure-read from Farrell & Newnham's Table 1 and Figs.
-                // 3-4 (same figure-read provenance tier the Sapphire entry's
-                // E-parallel-c amplitude uses).
+                // TRICHROISM: the axes and colors after Farrell & Newnham (the band data
+                // itself is measured, see 2026-11-03 below).
                 //
-                // Source: E.F. Farrell & R.E. Newnham, "Crystal-field spectra of
+                // Axes and colors: E.F. Farrell & R.E. Newnham, "Crystal-field spectra of
                 // chrysoberyl, alexandrite, peridot, and sinhalite," American
                 // Mineralogist 50, 1972 (1965). Polarized absorption at 77K, space
                 // group Pnma (a=9.40, b=5.48, c=4.43 A -- same axis convention as this
@@ -181,46 +187,62 @@ impl GemMaterial {
                 // the crystallographic axes land as: alpha = crystal c (RED), beta =
                 // crystal a (YELLOW), gamma = crystal b (GREEN, along `c_axis` below).
                 //
-                // Band positions (cited, F&N Table 1, natural alexandrite): E||c: 4T2
-                // at 565nm, 4T1 the unresolved 410/430nm pair (420nm midpoint used);
-                // E||a: 4T2 at 560nm, 4T1 at 422nm; E||b: 4T2 at 595nm, 4T1 the
-                // 410/430/440nm group (430nm central peak used). Widths (40nm/32nm)
-                // tuned (77K bands sharpen relative to room temperature, so published
-                // low-temperature widths aren't used directly).
+                // 2026-11-03 (photorealism round): REPLACED the tuned two-band sets
+                // (F&N band positions, 40/32 nm widths, figure-read amplitudes x0.1/x0.14)
+                // by the former `alexandrite.strong_change` color variant, which is now
+                // this Material Default (the variant was removed). The tuned sets turned
+                // ORANGE under a warm lamp (Pentalume Sapphire, Light Tent h 129 C* 10;
+                // Incandescent h 45 C* 7): no ray changed by more than 20 deg, so the stone
+                // went from a yellowish green to an orange, never to red. These sets turn
+                // the stone from a bluish green to a purplish red (Light Tent h 164;
+                // Incandescent h 333 C* 15), the classic alexandrite change.
                 //
-                // Amplitude ratios (figure-read, F&N Figs. 3-4, net peak height above
-                // baseline): 4T2 from Fig. 4 (natural, all three axes): E||a 6.5,
-                // E||b 31, E||c 19 cm^-1 -> the 0.65:3.1:1.9 split below (x0.1 scale).
-                // 4T1 E||a:E||b from Fig. 3 (synthetic, Cr-only, cleaner than Fig. 4's
-                // Fe3+-contaminated region): 25:10.5 cm^-1 ~= 2.4:1. 4T1 E||c not
-                // separately measurable (F&N: c-polarization "proved impracticable"
-                // on synthetic platelets); estimated from Fig. 4's Fe-contaminated
-                // natural c:b ratio (~1.24) applied to the synthetic E||b value -- the
-                // one lower-confidence amplitude here. Overall per-band scales (x0.1
-                // for 4T2, x0.14 for 4T1) tuned for plausible saturation.
+                // Source: beta (E||a) and gamma (E||b) are the measured rays of Caltech
+                // GRR 874 (Lake Manyara, 0.717 mm; G. R. Rossman, CC BY-NC 4.0;
+                // `data/reference_spectra/caltech_chrysoberyl_grr874_beta_ch874a_0p717mm.csv`
+                // and `variant_alexandrite_grr874_gamma_0p717mm.csv`), constants removed,
+                // the Cr3+ R line interpolated, at one Cr factor 0.15, plus the Fe3+ bands
+                // of GRR 171 (the Chrysoberyl (Yellow) spectra) at 0.10. ESTIMATED: the
+                // alpha (E||c) ray, which no spectrum measures: the gamma ray split at
+                // 490 nm, its 4T2 half moved from 597 to 568 nm at 0.6 x and its 4T1 half
+                // from 415 to 418 nm at 1.0 x (F&N Fig. 4 ratios, figure-read); and the two
+                // factors, chosen for a green by daylight and a red to purplish red under
+                // 3200 K. Six energy Gaussians per ray fitted to those spectra, per mm,
+                // here x 9.905 mm (the face-up path of a 7 mm stone) in model units; the
+                // widths are FWHM (`AbsorptionBand::energy` takes the FWHM).
+                // Swatch (7 mm): alpha L*42 C*20 h 339 (D65) / C*41 h 344 (3200 K), beta
+                // L*68 C*44 h 93, gamma L*46 C*75 h 187 / h 206; the three-ray mean
+                // L*54 C*17 h 132 by daylight and C*12 h 20 under 3200 K. The 4T2 order
+                // at 595 nm (gamma > alpha > beta) and the 4T1 maximum on beta at 422 nm
+                // are F&N's.
+                // Fit record: docs/color_variants/fit_records/corundum_spinel_chrysoberyl.md#alexandrite-material-default
                 absorption: AbsorptionTensor::biaxial(
                     vec![
-                        // alpha -- crystal c-axis, RED: 4T2 at 565nm sits below the
-                        // 580nm critical value (Neuhaus), so the deep-red window past
-                        // ~640nm stays open; moderate 4T1 blocks blue-violet.
-                        AbsorptionBand::new(565.0, 40.0, 1.9),
-                        AbsorptionBand::new(420.0, 32.0, 1.8),
+                        // alpha -- crystal c-axis, RED (estimated from gamma, see above)
+                        AbsorptionBand::energy(401.1, 3_399.2, 3.532),
+                        AbsorptionBand::energy(578.0, 1_958.7, 3.427),
+                        AbsorptionBand::energy(435.0, 2_527.7, 3.254),
+                        AbsorptionBand::energy(537.9, 2_416.8, 2.146),
+                        AbsorptionBand::energy(444.2, 738.5, 0.824_3),
+                        AbsorptionBand::energy(683.2, 988.1, 0.035_96),
                     ],
                     vec![
-                        // beta -- crystal a-axis, YELLOW: dominated by the strongest
-                        // 4T1 of the three directions ("an intense absorption in the
-                        // dark blue (0.42u) dominates the a spectrum" -- F&N), while
-                        // its 4T2 is the weakest, leaving yellow-red mostly open.
-                        AbsorptionBand::new(560.0, 40.0, 0.65),
-                        AbsorptionBand::new(422.0, 32.0, 3.5),
+                        // beta -- crystal a-axis, YELLOW: measured (GRR 874 + GRR 171)
+                        AbsorptionBand::energy(414.5, 3_461.3, 6.962),
+                        AbsorptionBand::energy(437.7, 1_649.1, 3.006),
+                        AbsorptionBand::energy(570.6, 1_969.3, 1.135),
+                        AbsorptionBand::energy(534.9, 2_592.7, 0.626_8),
+                        AbsorptionBand::energy(467.6, 528.4, 0.465_3),
+                        AbsorptionBand::energy(641.5, 2_042.3, 0.120_5),
                     ],
                     vec![
-                        // gamma -- crystal b-axis, GREEN (along `c_axis` below): the
-                        // strongest 4T2, at 595nm above the critical value, absorbs
-                        // "both red and yellow" (F&N) leaving green transmitted; the
-                        // weakest 4T1 leaves the green window's blue edge open.
-                        AbsorptionBand::new(595.0, 40.0, 3.1),
-                        AbsorptionBand::new(430.0, 32.0, 1.5),
+                        // gamma -- crystal b-axis, GREEN (along `c_axis` below): measured
+                        AbsorptionBand::energy(410.4, 3_665.7, 5.016),
+                        AbsorptionBand::energy(585.0, 1_961.1, 4.21),
+                        AbsorptionBand::energy(615.3, 1_539.3, 3.237),
+                        AbsorptionBand::energy(441.0, 1_375.5, 2.118),
+                        AbsorptionBand::energy(565.6, 3_029.9, 1.54),
+                        AbsorptionBand::energy(469.7, 499.9, 0.213),
                     ],
                 ),
                 c_axis: Vec3::Y,
@@ -331,28 +353,47 @@ impl GemMaterial {
                 // old 620nm Gaussian of sigma 70nm). The (alpha + beta) / 2 view, what
                 // the table sees with gamma along the view axis, is L*73 C*11 h 239.
                 // Calibration record: docs/chromophores/calibration-records.md#topaz
+                // 2026-11-03 (owner: "match the pictures of actual gemstones"): REPLACED the
+                // neutron-irradiated GRR 1632 (the London-blue type: its band runs from 600 to past
+                // 800 nm and turns the blue greenish, h 231) by the electron-irradiated Caltech GRR
+                // 825c (Brazil, J. Borden, clean blue part, 5.63 mm; the Swiss and sky blue type,
+                // its band peaks at 626 nm). Alpha (E par a) and beta (E par b) measured, constant
+                // baselines (the 1200-1290 nm level) removed, four energy Gaussians a ray over
+                // 330-950 nm (rms 0.004 / 0.003 per mm); gamma is not measured and is taken equal
+                // to beta (ESTIMATED). Left out: the broad 400 nm band of both rays, the
+                // irradiation brown centre that the heating of commercial Swiss and sky blue topaz
+                // removes (with it the stone rendered h 228). Strength 2 x the crystal per mm, x
+                // 9.905 to model units. Twenty-two dealer photos of blue topaz (GemSelect) have a
+                // median hue of 247 (colored pixels); this renders h 245 (Light Tent; 3 x gave h
+                // 251). Swatch: alpha L*78 C*48 h 227, beta and gamma L*82 C*33 h 248, unpolarised
+                // L*80 C*37 h 240.
+                // 2026-11-04 (owner: "The render seems to err toward saturated"): x 0.7 (1.4 x the
+                // crystal per mm). Colored-pixel saturation s_uv: the faceted dealer photos 0.48 (a
+                // sky blue), the Commons photos 0.73-0.95 (Swiss blue), the x 1 render 0.86; the
+                // factor takes half the gap to the dealer photos in log terms. Swatch alpha L*83
+                // C*39 h 225, beta and gamma L*86 C*24 h 246, unpolarised L*85 C*29 h 238.
+                // Calibration record: docs/chromophores/calibration-records.md#saturation-round-2026-11-04
                 absorption: AbsorptionTensor::biaxial(
                     vec![
-                        // alpha (E par a): the deep blue ray
-                        AbsorptionBand::energy(322.6, 4_691.0, 7.02),
-                        AbsorptionBand::energy(424.6, 5_079.0, 1.78),
-                        AbsorptionBand::energy(622.1, 4_930.0, 4.93),
-                        AbsorptionBand::energy(719.2, 3_620.0, 2.75),
+                        // alpha
+                        AbsorptionBand::energy(314.0, 5_337.0, 17.6),
+                        AbsorptionBand::energy(626.2, 2_864.1, 1.883),
+                        AbsorptionBand::energy(660.0, 8_180.3, 0.237_7),
                     ],
                     vec![
-                        // beta (E par b): colorless but for the UV edge
-                        AbsorptionBand::energy(300.0, 6_358.0, 6.88),
-                        AbsorptionBand::energy(400.0, 8_858.0, 0.209),
-                        AbsorptionBand::energy(603.9, 3_968.0, 0.224),
+                        // beta
+                        AbsorptionBand::energy(294.3, 6_720.0, 30.94),
+                        AbsorptionBand::energy(604.7, 3_628.3, 0.921),
+                        AbsorptionBand::energy(800.0, 5_581.6, 0.302_7),
                     ],
                     vec![
-                        // gamma (E par c): the pale blue ray
-                        AbsorptionBand::energy(300.0, 6_937.0, 7.83),
-                        AbsorptionBand::energy(424.0, 5_206.0, 0.625),
-                        AbsorptionBand::energy(617.6, 5_352.0, 1.01),
-                        AbsorptionBand::energy(723.3, 3_759.0, 0.468),
+                        // gamma
+                        AbsorptionBand::energy(294.3, 6_720.0, 30.94),
+                        AbsorptionBand::energy(604.7, 3_628.3, 0.921),
+                        AbsorptionBand::energy(800.0, 5_581.6, 0.302_7),
                     ],
-                ),
+                )
+                .scaled(0.7),
                 c_axis: Vec3::Y,
                 // n_beta - n_alpha at the D line, LOWER CONFIDENCE (derived, not
                 // directly measured for a single specimen). No primary 3-index topaz

@@ -449,10 +449,10 @@ pub fn setup_remove_tag_callback(
     );
 }
 
-/// Wires up the detail header's delete confirm -> `delete_diagram`: removes the
-/// entry (cascading to its detail/angle-settings/attached-files rows, see
-/// `Database::delete_diagram_entry`) and clears the now-stale detail/3D-viewport
-/// state.
+/// Wires up the two ways to delete a design: the detail header's delete confirm ->
+/// `delete_diagram` (the selected row, already confirmed inline), and the list's
+/// context menu / Library menu -> `delete_entry(id, title)` (any row, confirmed here in
+/// the shared in-window dialog first). Both end in [`delete_entry_now`].
 ///
 /// Refuses outright while a remote library is being browsed -- see
 /// `setup_rename_callback`'s own doc comment; the same reasoning applies verbatim
@@ -472,59 +472,127 @@ pub fn setup_delete_callback(
         let Some(ui) = ui_weak.upgrade() else {
             return;
         };
-        if source_delete
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .is_remote()
-        {
-            show_toast(
-                &ui,
-                "Switch to the local library to delete a design.",
-                "error",
-            );
-            return;
-        }
         let entry_id = ui.global::<LibraryModel>().get_selected_entry_id();
-        if entry_id < 0 {
-            return;
-        }
-        let result = {
-            let db = db_delete
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            db.delete_diagram_entry(i64::from(entry_id))
-        };
-        match result {
-            Ok(()) => {
-                // This design is genuinely gone, not merely filtered out
-                // of the current list -- see
-                // `crate::gui::library::detail::clear_current_detail_display`'s own doc
-                // comment for the (narrower) case that function was pulled out for.
-                crate::gui::library::detail::clear_current_detail_display(&ui);
-                {
-                    let mut ctx = RenderContext::lock(&render_ctx_delete);
-                    // Only reset the traced geometry when the deleted row is the
-                    // one whose planes are actually loaded -- resetting unconditionally
-                    // would throw away an unrelated design being edited in the viewport.
-                    let owns_deleted_row = matches!(
-                        ctx.planes_owner,
-                        PlanesOwner::Catalogue { entry_id: owned } if owned == i64::from(entry_id)
-                    );
-                    if owns_deleted_row {
-                        ctx.claim_active_planes(
-                            std::sync::Arc::new(StandardGemCuts::standard_round_brilliant()),
-                            None,
-                            PlanesOwner::Builtin,
-                        );
-                        ctx.dirty = true;
-                    }
-                }
-                show_toast(&ui, "Diagram deleted.", "info");
-                refresh_after_library_change(&ui, &db_delete, &source_delete);
-            }
-            Err(e) => show_toast(&ui, &format!("Delete failed: {e}"), "error"),
-        }
+        delete_entry_now(
+            &ui,
+            &db_delete,
+            &source_delete,
+            &render_ctx_delete,
+            entry_id,
+        );
     });
+
+    let db_entry = Arc::clone(db);
+    let source_entry = Arc::clone(source);
+    let render_ctx_entry = render_ctx.clone();
+    let ui_weak = ui.as_weak();
+    ui.global::<LibraryModel>()
+        .on_delete_entry(move |entry_id: i32, title: SharedString| {
+            let Some(ui) = ui_weak.upgrade() else {
+                return;
+            };
+            // Refused before asking, so the cutter is never asked to confirm a delete
+            // that cannot happen; `delete_entry_now` checks again on Delete, since the
+            // browsed library may have changed while the dialog was open.
+            if entry_id < 0 || refuse_delete_while_remote(&ui, &source_entry) {
+                return;
+            }
+            let db = Arc::clone(&db_entry);
+            let source = Arc::clone(&source_entry);
+            let render_ctx = render_ctx_entry.clone();
+            crate::gui::editor::native_io::ask_write_confirm(
+                &ui,
+                "Delete Design?",
+                delete_question(title.as_str()),
+                "Delete",
+                // Never suppressible: a delete cannot be undone.
+                None,
+                move |ui| delete_entry_now(ui, &db, &source, &render_ctx, entry_id),
+            );
+        });
+}
+
+/// The question the context menu's delete asks, naming the design.
+fn delete_question(title: &str) -> String {
+    let title = title.trim();
+    let name = if title.is_empty() {
+        "This design".to_string()
+    } else {
+        format!("\u{201c}{title}\u{201d}")
+    };
+    format!(
+        "{name} and the files attached to it will be removed from your library. \
+         This cannot be undone."
+    )
+}
+
+/// Shows the "switch to the local library" toast and returns `true` while a remote
+/// library is browsed.
+fn refuse_delete_while_remote(ui: &MainWindow, source: &Arc<Mutex<LibrarySource>>) -> bool {
+    let remote = source
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .is_remote();
+    if remote {
+        show_toast(
+            ui,
+            "Switch to the local library to delete a design.",
+            "error",
+        );
+    }
+    remote
+}
+
+/// Removes the entry (cascading to its detail/angle-settings/attached-files rows, see
+/// `Database::delete_diagram_entry`) and clears whatever still shows it: the detail
+/// pane when it is the selected row, the 3D viewport when its planes are loaded.
+fn delete_entry_now(
+    ui: &MainWindow,
+    db: &Arc<Mutex<Database>>,
+    source: &Arc<Mutex<LibrarySource>>,
+    render_ctx: &Arc<Mutex<RenderContext>>,
+    entry_id: i32,
+) {
+    if entry_id < 0 || refuse_delete_while_remote(ui, source) {
+        return;
+    }
+    let result = {
+        let db = db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        db.delete_diagram_entry(i64::from(entry_id))
+    };
+    match result {
+        Ok(()) => {
+            // This design is genuinely gone, not merely filtered out
+            // of the current list -- see
+            // `crate::gui::library::detail::clear_current_detail_display`'s own doc
+            // comment for the (narrower) case that function was pulled out for. A
+            // context-menu delete of another row leaves the selected design on screen.
+            if ui.global::<LibraryModel>().get_selected_entry_id() == entry_id {
+                crate::gui::library::detail::clear_current_detail_display(ui);
+            }
+            {
+                let mut ctx = RenderContext::lock(render_ctx);
+                // Only reset the traced geometry when the deleted row is the
+                // one whose planes are actually loaded -- resetting unconditionally
+                // would throw away an unrelated design being edited in the viewport.
+                let owns_deleted_row = matches!(
+                    ctx.planes_owner,
+                    PlanesOwner::Catalogue { entry_id: owned } if owned == i64::from(entry_id)
+                );
+                if owns_deleted_row {
+                    ctx.claim_active_planes(
+                        std::sync::Arc::new(StandardGemCuts::standard_round_brilliant()),
+                        None,
+                        PlanesOwner::Builtin,
+                    );
+                    ctx.dirty = true;
+                }
+            }
+            show_toast(ui, "Diagram deleted.", "info");
+            refresh_after_library_change(ui, db, source);
+        }
+        Err(e) => show_toast(ui, &format!("Delete failed: {e}"), "error"),
+    }
 }
 
 #[cfg(test)]
@@ -656,5 +724,15 @@ mod tests {
         drop(db);
         drop(db_arc);
         std::fs::remove_file(&path).ok();
+    }
+
+    /// The context menu's delete question names the design, and says so plainly when
+    /// the row has no title.
+    #[test]
+    fn the_delete_question_names_the_design_and_warns_it_cannot_be_undone() {
+        let named = delete_question("  Emerald Estuary 21 ");
+        assert!(named.starts_with("\u{201c}Emerald Estuary 21\u{201d} and the files"));
+        assert!(named.ends_with("This cannot be undone."));
+        assert!(delete_question("").starts_with("This design and the files"));
     }
 }

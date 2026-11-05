@@ -237,13 +237,27 @@ fn tier_rows_and_formats_are_pinned() {
     // rows (and the Schedule rows after them) list the pavilion first and the table last; and
     // the table's code is `T`, no longer `Table`.
     // Re-pinned 2026-10-08 for the Schedule-tab codes/index format (first three hashes).
+    // Re-pinned 2026-11-02 (first three hashes): a table or culet (flatter than
+    // `row_format::FLAT_TIER_DEG`, 0.5 degrees) shows no light-leak badge, so the three template
+    // fixtures' flat tiers now dump `margin_text: ""` and `risk_level: -1`.
+    // Re-pinned 2026-11-05 from the owner's Linux run (first three hashes): computed meets
+    // (`cutting_sheet::build::meet_instruction`, 2026-11-04). A depth-set tier's row no longer
+    // reads "Set to mast depth ..."; the first one in cutting order says "Set stone size.", the
+    // others "Meet P1, P2" (earlier tiers sharing a corner in the finished stone) or "Cut to
+    // centerpoint.". `cutting_instructions_rows` is in the dump; the empty design, the fourth
+    // fixture and the chips did not move.
+    // Re-pinned 2026-11-05 again from the owner's Linux run (first three hashes): the
+    // template convention (`Design::sizing_tier`, `DepthPlacement::SetGirdleWidth`). The
+    // first explicit-depth GIRDLE tier in cutting order says "Set stone size." (was the first
+    // explicit-depth tier), pavilion mains ending in one point say "Cut to centerpoint." even
+    // when cut first, and the first crown tier reaching the girdle says "Set girdle width.".
     assert_eq!(
         (got, fnv1a(chips.as_bytes())),
         (
             vec![
-                9_899_944_636_254_421_460,
-                10_090_318_058_485_717_436,
-                4_380_649_056_797_232_228,
+                14_550_319_446_140_432_994,
+                6_694_807_482_979_420_800,
+                2_699_393_262_213_572_022,
                 5_527_885_909_529_035_141,
                 17_206_618_785_430_422_565,
             ],

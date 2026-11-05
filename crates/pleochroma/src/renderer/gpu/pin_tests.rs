@@ -142,6 +142,10 @@ fn cpu_accumulate_diamond_light_tent_pin() {
 /// purpose, for the 2026-10-01 re-pin to the optimised test profile's bits, and for why
 /// it is ignored off Windows; all of it applies here too.
 ///
+/// Re-pinned on 2026-11-04 (owner's Windows run 2026-11-04_154834): the dealer-photo round of
+/// 2026-11-03 scaled Zircon's U4+ lines to 0.05 (a low-uranium, near-colorless zircon), so its
+/// absorption bands changed; the diamond pin stayed.
+///
 /// Re-pinned on 2026-10-28 (owner's Windows run 2026-10-28_002425): the color variants
 /// campaign rebuilt Zircon's own tensor per axis (lane B1), so its absorption bands
 /// changed; the diamond pin stayed.
@@ -174,7 +178,7 @@ fn cpu_accumulate_zircon_frosted_daylight_pin() {
     assert_pinned(
         "zircon, frosted girdle, daylight",
         &scene,
-        [0x9776_7832_9c1f_5e9b, 0xdc1f_6daa_e1cb_8925],
+        [0xa52c_80fb_8cb3_181d, 0xdc94_1cd4_f9a7_0ab3],
     );
 }
 

@@ -16,8 +16,9 @@ use super::{
 const MAX_WHEEL_TICKS: u32 = 240;
 
 /// The spacing, in teeth, between drawn ticks: 1 up to [`MAX_WHEEL_TICKS`] teeth,
-/// then the smallest step that keeps the drawn ticks within that cap.
-fn tick_stride(gear_teeth: u32) -> u32 {
+/// then the smallest step that keeps the drawn ticks within that cap. The line-drawing
+/// views (`vector.rs`) draw their wheel with the same stride.
+pub fn tick_stride(gear_teeth: u32) -> u32 {
     gear_teeth.div_ceil(MAX_WHEEL_TICKS).max(1)
 }
 

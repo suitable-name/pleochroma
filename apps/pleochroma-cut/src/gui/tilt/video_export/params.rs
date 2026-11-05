@@ -4,6 +4,8 @@
 //! so `mod.rs`'s wiring and `render.rs`'s per-frame loop build on the exact same
 //! numbers the dialog itself shows via `TiltVideoExportModel.frame_count`.
 
+use std::collections::{HashMap, hash_map::Entry};
+
 /// Minimum tilt-angle step the dialog must accept, in degrees -- the owner's own
 /// requirement is that any value in `0.01..=1.0` works.
 pub const MIN_STEP_DEG: f64 = 0.01;
@@ -96,6 +98,119 @@ pub fn frame_angles(start_deg: f64, end_deg: f64, step_deg: f64) -> Vec<f64> {
     (0..total)
         .map(|i| frame_angle_deg(start_deg, end_deg, step_deg, i, total))
         .collect()
+}
+
+/// One frame of a video: the sweep axis (an index into `PROFILE_AZIMUTHS_DEG`) and the
+/// exact tilt about it, in degrees.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FramePose {
+    pub axis_index: usize,
+    pub tilt_deg: f64,
+}
+
+/// The angles of one leg from `from_deg` to `to_deg` at `step_deg`, both ends included and
+/// in either direction; the last angle is pinned to `to_deg` like [`frame_angle_deg`].
+fn leg_angles(from_deg: f64, to_deg: f64, step_deg: f64) -> Vec<f64> {
+    let span = (to_deg - from_deg).abs();
+    let count = frame_count(0.0, span, step_deg);
+    let sign = if to_deg < from_deg { -1.0 } else { 1.0 };
+    (0..count)
+        .map(|i| from_deg + sign * frame_angle_deg(0.0, span, step_deg, i, count))
+        .collect()
+}
+
+/// Every frame of a video over `axes`, in order.
+///
+/// One axis is one pass, `start -> end` (the video as it always was). Several axes rock
+/// through face-up, each `0 -> end -> start -> 0`, one after the other, so every joint is
+/// the table-up pose and the video has no cut (the frame loop turns the image so that pose
+/// looks the same on every axis, see `frames::axis_roll`). A pose shared by two legs, or by
+/// two axes at face-up, is drawn once. Empty for an empty range (an end before the start)
+/// or a step that is not positive.
+#[must_use]
+pub fn frame_poses(axes: &[usize], start_deg: f64, end_deg: f64, step_deg: f64) -> Vec<FramePose> {
+    if frame_count(start_deg, end_deg, step_deg) == 0 {
+        return Vec::new();
+    }
+    if let [axis_index] = axes {
+        return frame_angles(start_deg, end_deg, step_deg)
+            .into_iter()
+            .map(|tilt_deg| FramePose {
+                axis_index: *axis_index,
+                tilt_deg,
+            })
+            .collect();
+    }
+    let mut poses: Vec<FramePose> = Vec::new();
+    for &axis_index in axes {
+        for (from, to) in [(0.0, end_deg), (end_deg, start_deg), (start_deg, 0.0)] {
+            for tilt_deg in leg_angles(from, to, step_deg) {
+                // A leg starts where the last one ended; the next axis starts table-up,
+                // where the last one ended too.
+                let repeats = poses
+                    .last()
+                    .is_some_and(|last| (last.tilt_deg - tilt_deg).abs() < 1e-9);
+                if !repeats {
+                    poses.push(FramePose {
+                        axis_index,
+                        tilt_deg,
+                    });
+                }
+            }
+        }
+    }
+    poses
+}
+
+/// The number of frames [`frame_poses`] gives.
+#[must_use]
+pub fn pose_count(axes: &[usize], start_deg: f64, end_deg: f64, step_deg: f64) -> usize {
+    frame_poses(axes, start_deg, end_deg, step_deg).len()
+}
+
+/// For every frame of `poses`, the earlier frame that shows the same picture, if any: the same
+/// axis at the same tilt. A rocking axis passes every angle between Start and End twice and
+/// face-up three times, so about half of a multi-axis video repeats an earlier frame; the frame
+/// loop copies those instead of rendering them again (`frames::render_frames`).
+///
+/// Only the same axis counts. Face-up looks alike on every axis (`frames::axis_roll`), but each
+/// axis's camera is turned by a computed angle, so its pixels are not guaranteed to match.
+#[must_use]
+pub fn earlier_same_frame(poses: &[FramePose]) -> Vec<Option<usize>> {
+    let mut first_of: HashMap<(usize, i64), usize> = HashMap::with_capacity(poses.len());
+    poses
+        .iter()
+        .enumerate()
+        .map(
+            |(index, pose)| match first_of.entry((pose.axis_index, tilt_key(pose.tilt_deg))) {
+                Entry::Occupied(first) => Some(*first.get()),
+                Entry::Vacant(slot) => {
+                    slot.insert(index);
+                    None
+                }
+            },
+        )
+        .collect()
+}
+
+/// A tilt as a whole number of millionths of a degree: the outward and the return leg reach
+/// the same angle by different sums, which may differ in the last bits.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a tilt is within ±90 degrees, so its millionths fit an i64 by far"
+)]
+fn tilt_key(tilt_deg: f64) -> i64 {
+    (tilt_deg * 1e6).round() as i64
+}
+
+/// How many frames of the video over `axes` are rendered: [`pose_count`] less the frames that
+/// repeat an earlier one ([`earlier_same_frame`]).
+#[must_use]
+pub fn rendered_pose_count(axes: &[usize], start_deg: f64, end_deg: f64, step_deg: f64) -> usize {
+    earlier_same_frame(&frame_poses(axes, start_deg, end_deg, step_deg))
+        .iter()
+        .filter(|same| same.is_none())
+        .count()
 }
 
 /// How many decimal digits `total_frames` needs so every frame's zero-padded filename
@@ -284,6 +399,122 @@ mod tests {
         for pair in angles.windows(2) {
             assert!(pair[1] >= pair[0]);
         }
+    }
+
+    #[test]
+    fn one_axis_is_the_plain_start_to_end_pass() {
+        let poses = frame_poses(&[2], -10.0, 10.0, 5.0);
+        let tilts: Vec<f64> = poses.iter().map(|pose| pose.tilt_deg).collect();
+        assert_eq!(tilts, vec![-10.0, -5.0, 0.0, 5.0, 10.0]);
+        assert!(poses.iter().all(|pose| pose.axis_index == 2));
+        assert_eq!(
+            pose_count(&[2], -90.0, 90.0, 0.01),
+            frame_count(-90.0, 90.0, 0.01)
+        );
+    }
+
+    /// Two axes rock through face-up: `0 -> end -> start -> 0` each, no pose twice in a
+    /// row, and every joint between legs and axes is table-up or a range end.
+    #[test]
+    fn several_axes_rock_through_face_up_without_repeating_a_pose() {
+        let poses = frame_poses(&[0, 2], -10.0, 10.0, 5.0);
+        let tilts: Vec<(usize, f64)> = poses
+            .iter()
+            .map(|pose| (pose.axis_index, pose.tilt_deg))
+            .collect();
+        let one_axis = |axis| {
+            vec![
+                (axis, 0.0),
+                (axis, 5.0),
+                (axis, 10.0),
+                (axis, 5.0),
+                (axis, 0.0),
+                (axis, -5.0),
+                (axis, -10.0),
+                (axis, -5.0),
+                (axis, 0.0),
+            ]
+        };
+        let mut expected = one_axis(0);
+        // The second axis starts table-up, where the first one ended: drawn once.
+        expected.extend(one_axis(2).into_iter().skip(1));
+        assert_eq!(tilts, expected);
+        assert_eq!(pose_count(&[0, 2], -10.0, 10.0, 5.0), 17);
+    }
+
+    /// The way back of a rocking axis repeats the outward angles and face-up repeats on every
+    /// leg: each repeat names the first frame of its pose, on the same axis only.
+    #[test]
+    fn a_rocked_angle_repeats_the_first_frame_of_its_pose_on_the_same_axis_only() {
+        let poses = frame_poses(&[0, 2], -10.0, 10.0, 5.0);
+        // Axis 0: 0, 5, 10, 5, 0, -5, -10, -5, 0; axis 2 without its table-up start: 5, 10, 5,
+        // 0, -5, -10, -5, 0.
+        assert_eq!(
+            earlier_same_frame(&poses),
+            vec![
+                None,
+                None,
+                None,
+                Some(1),
+                Some(0),
+                None,
+                None,
+                Some(5),
+                Some(0),
+                None,
+                None,
+                Some(9),
+                None,
+                None,
+                None,
+                Some(13),
+                Some(12),
+            ]
+        );
+        assert_eq!(rendered_pose_count(&[0, 2], -10.0, 10.0, 5.0), 10);
+        // A step of 0.1 reaches the same angles by different sums on the way back.
+        assert_eq!(pose_count(&[0, 1], -1.0, 1.0, 0.1), 81);
+        assert_eq!(rendered_pose_count(&[0, 1], -1.0, 1.0, 0.1), 42);
+        // One axis is one pass: nothing repeats.
+        assert_eq!(rendered_pose_count(&[3], -90.0, 90.0, 1.0), 181);
+        assert_eq!(pose_count(&[3], -90.0, 90.0, 1.0), 181);
+    }
+
+    #[test]
+    fn a_rock_lands_exactly_on_the_ends_and_on_face_up() {
+        let poses = frame_poses(&[0, 1], -30.0, 25.0, 0.3);
+        for target in [25.0, -30.0, 0.0] {
+            assert!(
+                poses
+                    .iter()
+                    .any(|pose| (pose.tilt_deg - target).abs() < 1e-12),
+                "the rock must visit {target} exactly"
+            );
+        }
+        assert_eq!(poses.last().map(|pose| pose.tilt_deg), Some(0.0));
+        // A leg's last frame is pinned to its end, so its final gap is under two steps.
+        for pair in poses.windows(2) {
+            assert!((pair[1].tilt_deg - pair[0].tilt_deg).abs() < 0.6);
+        }
+    }
+
+    #[test]
+    fn a_rock_with_a_range_on_one_side_of_face_up_still_starts_and_ends_table_up() {
+        let tilts: Vec<f64> = frame_poses(&[0, 2], 10.0, 20.0, 10.0)
+            .iter()
+            .map(|pose| pose.tilt_deg)
+            .collect();
+        assert_eq!(
+            tilts,
+            vec![0.0, 10.0, 20.0, 10.0, 0.0, 10.0, 20.0, 10.0, 0.0]
+        );
+    }
+
+    #[test]
+    fn an_empty_range_gives_no_poses_for_any_axis_count() {
+        assert!(frame_poses(&[0], 10.0, -10.0, 1.0).is_empty());
+        assert!(frame_poses(&[0, 1], 10.0, -10.0, 1.0).is_empty());
+        assert!(frame_poses(&[0, 1], -10.0, 10.0, 0.0).is_empty());
     }
 
     #[test]

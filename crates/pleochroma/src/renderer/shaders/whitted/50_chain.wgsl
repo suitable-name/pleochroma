@@ -1,5 +1,8 @@
+// `fresnel` is the product of the Fresnel factors so far, `length`/`axial` the path inside;
+// `weight` is fresnel times the path's transmission (the chain's Branch twin).
 struct WtBranch {
     origin: vec3<f32>, dir: vec3<f32>, weight: vec3<f32>,
+    fresnel: f32, length: f32, axial: f32,
     inside: bool, depth: u32, primary: bool,
 }
 // Scalar slots, not a function-local array: avoids AMD/FXC array lowering failures.
@@ -24,18 +27,25 @@ fn wt_pop(stack: ptr<function, WtStack>) -> WtBranch {
         default: { return (*stack).d; }
     }
 }
-fn wt_emit(stack: ptr<function, WtStack>, sum: ptr<function, vec3<f32>>,
-    point: vec3<f32>, dir: vec3<f32>, weight: vec3<f32>, observer: vec3<f32>, depth: u32) {
+// A branch continuing `parent`'s path from `point` along `dir`, scaled by the Fresnel `factor`.
+fn wt_child(parent: WtBranch, point: vec3<f32>, dir: vec3<f32>, factor: f32, inside: bool,
+    depth: u32) -> WtBranch {
+    return WtBranch(wt_scale_add(dir, 1e-4, point), dir, parent.weight * factor,
+        parent.fresnel * factor, parent.length, parent.axial, inside, depth, false);
+}
+fn wt_emit(stack: ptr<function, WtStack>, sum: ptr<function, vec3<f32>>, leaf: WtBranch,
+    observer: vec3<f32>) {
     if (wt.counts.y == 0u || (*stack).count >= 3u) {
-        (*sum) = (*sum) + weight * wt_leaf(dir, observer);
+        (*sum) = (*sum) + leaf.weight * wt_leaf(leaf.dir, observer);
     } else {
-        wt_push(stack, WtBranch(wt_scale_add(dir, 1e-4, point), dir, weight, false, depth, false));
+        wt_push(stack, leaf);
     }
 }
 fn wt_chain(origin: vec3<f32>, direction: vec3<f32>, n: f32, observer: vec3<f32>) -> vec3<f32> {
-    let empty = WtBranch(vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0), false, 0u, false);
+    let empty = WtBranch(vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0), 0.0, 0.0, 0.0,
+        false, 0u, false);
     var stack = WtStack(empty, empty, empty, empty, 0u);
-    wt_push(&stack, WtBranch(origin, direction, vec3<f32>(1.0), false, 0u, true));
+    wt_push(&stack, WtBranch(origin, direction, vec3<f32>(1.0), 1.0, 0.0, 0.0, false, 0u, true));
     var sum = vec3<f32>(0.0);
     loop {
         if (stack.count == 0u) { break; }
@@ -48,8 +58,9 @@ fn wt_chain(origin: vec3<f32>, direction: vec3<f32>, n: f32, observer: vec3<f32>
         }
         if (hit.side != 0u) { branch.inside = hit.side == 2u; }
         if (branch.inside) {
-            let attenuation = -wt_alpha(branch.dir) * hit.t;
-            branch.weight = branch.weight * vec3<f32>(exp_poly(attenuation.x), exp_poly(attenuation.y), exp_poly(attenuation.z));
+            branch.length = branch.length + hit.t;
+            branch.axial = branch.axial + wt_axial(branch.dir, hit.t);
+            branch.weight = wt_transmission(branch.length, branch.axial) * branch.fresnel;
         }
         let frost = wt_frost[hit.facet];
         if (frost.w != 0.0) { sum = sum + branch.weight * frost.xyz; continue; }
@@ -63,16 +74,16 @@ fn wt_chain(origin: vec3<f32>, direction: vec3<f32>, n: f32, observer: vec3<f32>
         let depth = branch.depth + 1u;
         if (branch.inside) {
             if (transmitted.valid) {
-                wt_emit(&stack, &sum, point, transmitted.dir, branch.weight * (1.0 - r), observer, depth);
+                wt_emit(&stack, &sum,
+                    wt_child(branch, point, transmitted.dir, 1.0 - r, false, depth), observer);
             }
-            wt_push(&stack, WtBranch(wt_scale_add(reflected, 1e-4, point), reflected,
-                branch.weight * r, true, depth, false));
+            wt_push(&stack, wt_child(branch, point, reflected, r, true, depth));
         } else {
             let glare = select(1.0, wt.values.x, branch.primary);
-            wt_emit(&stack, &sum, point, reflected, branch.weight * (r * glare), observer, depth);
+            wt_emit(&stack, &sum, wt_child(branch, point, reflected, r * glare, false, depth),
+                observer);
             if (transmitted.valid) {
-                wt_push(&stack, WtBranch(wt_scale_add(transmitted.dir, 1e-4, point), transmitted.dir,
-                    branch.weight * (1.0 - r), true, depth, false));
+                wt_push(&stack, wt_child(branch, point, transmitted.dir, 1.0 - r, true, depth));
             }
         }
     }

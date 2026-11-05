@@ -6,10 +6,47 @@ use cudarc::{
 };
 use std::sync::{Arc, Mutex};
 
+// Mirrors stone_metrics::pow2_scale_norm, including subnormal inputs.
+fn arrangement_scale(value: f64) -> f64 {
+    const MANTISSA: u64 = (1 << 52) - 1;
+    if !(value.is_finite() && value > 0.0) {
+        return 1.0;
+    }
+    let raw = value.to_bits();
+    let (bits, lift) = if raw >> 52 == 0 {
+        ((value * 18_446_744_073_709_551_616.0).to_bits(), 64_i64)
+    } else {
+        (raw, 0_i64)
+    };
+    let biased = i64::from(u16::try_from(bits >> 52).unwrap_or(1023));
+    let mantissa = f64::from_bits((bits & MANTISSA) | (1023_u64 << 52));
+    let mut exponent = biased - 1023 - lift;
+    if mantissa >= std::f64::consts::SQRT_2 {
+        exponent += 1;
+    }
+    let biased_out = u64::try_from((exponent + 1023).clamp(1, 2046)).unwrap_or(1023);
+    f64::from_bits(biased_out << 52)
+}
+
+pub(super) enum ArrangementOutcome {
+    Refuted,
+    Witnessed,
+    Uncertain,
+    /// Plane capacity or deterministic proof-work ceiling; use the original gate.
+    Capacity,
+}
+
+#[derive(Default)]
+pub(super) struct ArrangementWork {
+    pub tiles: u64,
+    pub triples: u64,
+}
+
 pub(super) struct Runtime {
     context: Arc<CudaContext>,
     residual: CudaFunction,
     gauge: CudaFunction,
+    arrangement: CudaFunction,
 }
 
 struct PrecheckFlags {
@@ -24,9 +61,10 @@ impl Runtime {
         let (major, minor) = context.compute_capability().map_err(|e| e.to_string())?;
         let ptx = compile_ptx_with_opts(
             format!(
-                "{}\n{}",
+                "{}\n{}\n{}",
                 include_str!("interval.cuh"),
-                include_str!("residuals.cu")
+                include_str!("residuals.cu"),
+                include_str!("arrangement.cuh")
             ),
             CompileOptions {
                 fmad: Some(false),
@@ -43,10 +81,142 @@ impl Runtime {
             .load_function("residuals")
             .map_err(|e| e.to_string())?;
         let gauge = module.load_function("gauge").map_err(|e| e.to_string())?;
+        let arrangement = module
+            .load_function("arrangement_proof")
+            .map_err(|e| e.to_string())?;
         Ok(Self {
             context,
             residual,
             gauge,
+            arrangement,
+        })
+    }
+
+    /// A missing witness proves rejection; all other outcomes retain the gate.
+    pub fn arrangement_proof(
+        &self,
+        net: &Network,
+        device: &DeviceNetwork,
+        planes: &[Plane],
+        work: &mut ArrangementWork,
+        check: &dyn Fn() -> Result<(), String>,
+    ) -> Result<ArrangementOutcome, String> {
+        let n = planes.len();
+        if !(3..=256).contains(&n) {
+            return Ok(ArrangementOutcome::Capacity);
+        }
+        if n != net.surfaces
+            || net.junctions.is_empty()
+            || !net.scale.is_finite()
+            || net.scale <= 0.0
+        {
+            return Ok(ArrangementOutcome::Uncertain);
+        }
+        // This optional rejection proof must never monopolize the device. A
+        // bypass is UNKNOWN, never a partial scan reported as a refutation.
+        // Check before packing, locking, uploads or scratch allocation.
+        let Some(total) = net.arrangement_triples_within_budget() else {
+            return Ok(ArrangementOutcome::Capacity);
+        };
+        let max = planes
+            .iter()
+            .map(|(_, d)| d.abs())
+            .fold(net.scale, f64::max);
+        let scale = arrangement_scale(max);
+        // These guards keep every interval intermediate finite, including the
+        // inverse of a determinant whose interval excludes zero. Cases outside
+        // this generous range keep the original gate.
+        if !(1e-100..=1e100).contains(&scale)
+            || planes.iter().any(|(normal, d)| {
+                !normal.is_finite()
+                    || !d.is_finite()
+                    || normal.abs().max_element() > 2.0
+                    || (d / scale).abs() > 2.0
+            })
+            || net
+                .junctions
+                .iter()
+                .any(|j| !j.bound.is_finite() || j.bound < 0.0)
+        {
+            return Ok(ArrangementOutcome::Uncertain);
+        }
+        let original: Vec<f64> = planes
+            .iter()
+            .flat_map(|(v, d)| [v.x, v.y, v.z, *d])
+            .collect();
+        let normalized: Vec<f64> = planes
+            .iter()
+            .flat_map(|(v, d)| [v.x, v.y, v.z, *d / scale])
+            .collect();
+        let stream = &device.stream;
+        // The device stream is shared with residual batches for this episode.
+        let _guard = device.scratch.lock().map_err(|e| e.to_string())?;
+        let raw = stream.clone_htod(&original).map_err(|e| e.to_string())?;
+        let normalized = stream.clone_htod(&normalized).map_err(|e| e.to_string())?;
+        let mut flags = stream
+            .alloc_zeros::<u32>(net.junctions.len() + 1)
+            .map_err(|e| e.to_string())?;
+        let ns = n as i32;
+        let nj = i32::try_from(net.junctions.len()).map_err(|e| e.to_string())?;
+        for start in (0..total).step_by(32_768) {
+            check()?;
+            let count = (total - start).min(32_768) as u32;
+            let mut launch = stream.launch_builder(&self.arrangement);
+            launch
+                .arg(&normalized)
+                .arg(&raw)
+                .arg(&device.meta)
+                .arg(&device.supports)
+                .arg(&device.bounds)
+                .arg(&mut flags)
+                .arg(&ns)
+                .arg(&nj)
+                .arg(&scale)
+                .arg(&start)
+                .arg(&count);
+            // SAFETY: rank is bounded by choose(n,3); all triples index uploaded
+            // planes and immutable, checked metadata; flags contains nj+1 words.
+            unsafe {
+                launch.launch(LaunchConfig {
+                    grid_dim: (count.div_ceil(128), 1, 1),
+                    block_dim: (128, 1, 1),
+                    shared_mem_bytes: 0,
+                })
+            }
+            .map_err(|e| e.to_string())?;
+            work.tiles += 1;
+            work.triples += u64::from(count);
+        }
+        check()?;
+        let flags = stream.clone_dtoh(&flags).map_err(|e| e.to_string())?;
+        if flags[net.junctions.len()] != 0 {
+            return Ok(ArrangementOutcome::Uncertain);
+        }
+        if flags[..net.junctions.len()].iter().all(|&v| v != 0) {
+            Ok(ArrangementOutcome::Witnessed)
+        } else {
+            Ok(ArrangementOutcome::Refuted)
+        }
+    }
+
+    #[cfg(test)]
+    pub fn arrangement_possible(
+        &self,
+        net: &Network,
+        device: &DeviceNetwork,
+        planes: &[Plane],
+    ) -> Result<Option<bool>, String> {
+        self.arrangement_proof(
+            net,
+            device,
+            planes,
+            &mut ArrangementWork::default(),
+            &|| Ok(()),
+        )
+        .map(|outcome| match outcome {
+            ArrangementOutcome::Refuted => Some(false),
+            ArrangementOutcome::Witnessed => Some(true),
+            ArrangementOutcome::Uncertain | ArrangementOutcome::Capacity => None,
         })
     }
 

@@ -113,7 +113,10 @@ fn ruby_shifts_redder_under_incandescent_than_d65() {
 /// the previous cited-isotropic entry measured dx = +0.0125; the trichroic entry
 /// measures dx = +0.0104 at the same rays/seeds -- a mild (~17%) softening from
 /// averaging direction-dependent band positions, same order of magnitude, comfortably
-/// above the +0.003 assertion floor shared with the ruby test above.
+/// above the +0.003 assertion floor shared with the ruby test above. Since 2026-11-03 the
+/// entry carries the measured GRR 874 rays (the former Strong Change variant), whose
+/// change runs from a bluish green to a purplish red instead of the tuned data's
+/// yellowish green to orange; the margin has not been re-measured.
 #[test]
 fn alexandrite_shifts_redder_under_incandescent_than_d65() {
     const SAMPLES: u32 = 192;

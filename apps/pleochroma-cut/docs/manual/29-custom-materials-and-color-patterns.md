@@ -518,8 +518,9 @@ zoning** in one click, in its own color, so a blue sapphire bands in its own blu
 | --- | --- |
 | Sapphire | **Hexagonal Banding** (three six-sided growth zones in a stronger shade of the stone's color, on a paler body), **Parti Color** (a six-sided core in the stone's color inside a yellow rim, or a blue rim for a yellow stone), **Color Band** (one stronger band that runs along the crystal axis, off center) |
 | Ruby | Hexagonal Banding |
-| Beryl (Emerald, Aquamarine, Morganite, Heliodor) | Hexagonal Banding, **Core and Rim** (a stronger six-sided core in a paler rim) |
-| Tourmaline | **Watermelon**, **Reverse Watermelon**, **Bicolor** (two halves along the axis), **Tricolor** (two layers around a pale middle); pink and green, or the stone's own color where it already is pink or green |
+| Emerald | Hexagonal Banding, **Core and Rim** (a stronger six-sided core in a paler rim) |
+| Aquamarine, Morganite, Heliodor | Core and Rim. These beryls zone from core to rim but do not grow the six-sided color bands of an emerald or a sapphire |
+| Tourmaline | **Watermelon**, **Reverse Watermelon**, **Bicolor** (two halves along the axis), **Tricolor** (two layers around a pale middle); pink and green, or the stone's own color where it already is pink or green. A Watermelon or Reverse Watermelon also turns the Crystal Axis through the table: watermelons are cut as slices across the axis, and with the axis in the table plane you look across the rings and pink and green blend to orange. Undo the axis turn on its own if you want the side view |
 | Amethyst | **Sectors** (three wedges of 60 degrees around the axis, in the stone's color on a paler body, the sector zoning of a rhombohedral crystal), **Split** (a strong half and a paler half) |
 | Citrine, Ametrine | **Split** (a purple half and a yellow half, as in the Ametrine material), **Sectors** (purple wedges in a yellow body) |
 | Topaz | **Bicolor** (the stone's color over a nearly colorless half) |
@@ -527,7 +528,8 @@ zoning** in one click, in its own color, so a blue sapphire bands in its own blu
 Where the species has color variants (Chapter 6, "Color Variants and Pleochroism"), the
 typical patterns use them as the colors of their zones: a Watermelon takes a Rubellite
 core and a Verdelite rim, a Parti Color sapphire a Blue and a Yellow variant, an Ametrine-type
-split the Amethyst and Citrine variants. A zone then keeps the pleochroism of its variant.
+split the Amethyst and Citrine variants. The rim of a Parti Color sapphire takes the **Golden
+Yellow** variant where there is one (a deeper yellow, since the rim is a thin zone), else the Yellow. A zone then keeps the pleochroism of its variant.
 Where the material has no variant of that name, the zone is colored from the stone's own color.
 On a pleochroic stone that color keeps its directions: a zone in the stone's own color is the
 stone's variant (or its Material Default), and a paler or stronger shade is made paler or

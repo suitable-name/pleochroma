@@ -52,12 +52,12 @@
 use super::{
     action::ContinuousTierAction,
     common::{DesignEval, EnvCore, apply_action, yield_loss_pct},
-    stepping::{candidates, usable_scales},
+    stepping::usable_scales,
 };
 
 #[path = "teacher_search.rs"]
 mod search;
-pub use search::TeacherLabelWork;
+pub use search::{TEACHER_SEARCH_RECOVERY_REVISION, TeacherLabelWork, TeacherSearchSnapshot};
 #[path = "teacher_probe_work.rs"]
 mod probe_work;
 pub use probe_work::TierProbeWork;
@@ -128,7 +128,7 @@ pub struct TeacherLabel {
 ///
 /// The unit of work of the teacher. A trainer that labels many designs makes one task of each
 /// probe and joins them with the environment's `teacher_label_from_probes` method.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct TierProbe {
     /// The tier's slopes, `None` when the tier is not a free tier of the environment, the probe
     /// size is not usable, or both the `+h` and the `-h` candidate were refused.
@@ -143,7 +143,7 @@ pub struct TierProbe {
 }
 
 /// An improving coordinate candidate measured in the unchanged source environment.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CoordinateProbe {
     /// Tier whose requested angle changes; preservation may adjust coupled coordinates.
     pub tier: usize,
@@ -237,6 +237,16 @@ pub const fn assemble_label(
     }
 }
 
+/// Whether this thread is a worker of an installed Rayon pool.
+///
+/// Teacher work that is performed anyway (both probe sides, every candidate of a search
+/// phase) always fans out there: idle workers steal it and a busy pool runs it in order on
+/// the caller, so nothing extra is computed and no thread is added. Off a pool, only an
+/// explicit request shares work, so a plain caller never starts the global pool.
+fn on_pool_worker() -> bool {
+    rayon::current_thread_index().is_some()
+}
+
 /// The seven component figures of `eval`, in the order of the `COMPONENT_*` constants.
 fn component_values(eval: &DesignEval) -> [f32; N_COMPONENTS] {
     [
@@ -325,10 +335,10 @@ impl EnvCore {
         self.oracle_outcome_with(slopes, scales, false)
     }
 
-    /// [`Self::oracle_outcome`], optionally evaluating the candidates of the line search
-    /// concurrently (`parallel`, see [`EnvCore::try_scales_parallel`]). The outcome is
-    /// bit-identical, `evaluations` included: it counts the candidates the sequential search
-    /// would have evaluated, up to and including the accepted one.
+    /// [`Self::oracle_outcome`]; `parallel` is retained for source compatibility.
+    ///
+    /// The line search is sequential: a smaller scale is evaluated only after the larger
+    /// one was rejected, so no candidate is computed and then discarded.
     pub(crate) fn oracle_outcome_with(
         &self,
         slopes: &[Option<f32>],
@@ -338,14 +348,16 @@ impl EnvCore {
         self.oracle_outcome_adaptive(slopes, scales, &|| parallel)
     }
 
-    /// Rechecks spare capacity between scales and shares a remaining suffix through the
-    /// installed Rayon pool. The outcome and evaluation count follow sequential order;
-    /// speculative candidates after the first accepted scale may also be computed.
+    /// [`Self::oracle_outcome`]; the capacity check is never consulted.
+    ///
+    /// Speculative scales cost full projections on the CPU that is already the training
+    /// bottleneck, so the oracle evaluates scales strictly in order and stops at the first
+    /// accepted one, exactly like a step.
     pub(crate) fn oracle_outcome_adaptive(
         &self,
         slopes: &[Option<f32>],
         scales: &[f64],
-        parallel: &(dyn Fn() -> bool + Sync),
+        _parallel: &(dyn Fn() -> bool + Sync),
     ) -> OracleOutcome {
         let usable: Vec<f64> = usable_scales(scales).collect();
         let has_slope = slopes.iter().flatten().any(|slope| slope.is_finite());
@@ -355,7 +367,8 @@ impl EnvCore {
         let action =
             action_from_direction(&direction_from_slopes(slopes), self.settings.max_step_deg);
         let mut evaluations = 0;
-        for (scale, outcome) in candidates(self, &action, &usable, parallel) {
+        for scale in usable {
+            let outcome = self.try_candidate(&action, scale);
             evaluations += usize::from(outcome.evaluated);
             if outcome.is_accepted()
                 && let Some(score) = outcome.score()
@@ -377,6 +390,9 @@ impl EnvCore {
     /// The slopes of `tier`: a nonuniform two-sided derivative when both probes pass, otherwise
     /// the available one-sided derivative; `None` when both fail.
     /// `evaluations` is incremented for every probe that reached the scorer.
+    ///
+    /// Both sides are always measured, so a pool worker shares them ([`on_pool_worker`]);
+    /// they are reduced in positive/negative order either way.
     fn tier_sensitivity(
         &self,
         tier: usize,
@@ -385,20 +401,23 @@ impl EnvCore {
     ) -> (Option<TierSensitivity>, Option<CoordinateProbe>) {
         let (positive_raw, positive_delta) = self.canonical_probe(tier, h_deg);
         let (negative_raw, negative_delta) = self.canonical_probe(tier, -h_deg);
-        let positive = if positive_delta > 0.0 {
-            let (result, spent) = self.probe(tier, positive_delta);
-            *evaluations += usize::from(spent);
-            result.map(|eval| (eval, positive_delta))
-        } else {
-            None
+        let side = |delta: f64, usable: bool| {
+            if usable {
+                self.probe(tier, delta)
+            } else {
+                (None, false)
+            }
         };
-        let negative = if negative_delta < 0.0 {
-            let (result, spent) = self.probe(tier, negative_delta);
-            *evaluations += usize::from(spent);
-            result.map(|eval| (eval, negative_delta.abs()))
+        let positive_side = || side(positive_delta, positive_delta > 0.0);
+        let negative_side = || side(negative_delta, negative_delta < 0.0);
+        let ((positive, positive_spent), (negative, negative_spent)) = if on_pool_worker() {
+            rayon::join(positive_side, negative_side)
         } else {
-            None
+            (positive_side(), negative_side())
         };
+        *evaluations += usize::from(positive_spent) + usize::from(negative_spent);
+        let positive = positive.map(|eval| (eval, positive_delta));
+        let negative = negative.map(|eval| (eval, negative_delta.abs()));
         self.reduce_tier_samples(tier, positive_raw, negative_raw, positive, negative)
     }
 

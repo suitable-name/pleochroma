@@ -25,8 +25,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-const DRAIN_TIME: Duration = Duration::from_millis(1);
-
 pub(super) struct Candidate {
     pub planes: Vec<GpuFacetPlane>,
     pub tools: Vec<ToolPrimitive>,
@@ -36,6 +34,7 @@ pub(super) struct Candidate {
     pub preset: LightingPreset,
     pub cancel: Arc<AtomicBool>,
     pub fan: FanGeometry,
+    admitted: Instant,
     reply: SyncSender<Result<ScoredOptics, OpticalError>>,
 }
 impl Candidate {
@@ -143,6 +142,7 @@ impl Worker {
             cancel,
             reply,
             fan,
+            admitted: Instant::now(),
         });
         Ok(work)
     }
@@ -158,6 +158,9 @@ impl Worker {
             return Err(OpticalError::Cancelled);
         }
         let sender = self.sender.as_ref().ok_or_else(|| self.disconnected())?;
+        if let Some(candidate) = work.request.as_mut() {
+            candidate.admitted = Instant::now();
+        }
         self.counters.queued.fetch_add(1, Ordering::Relaxed);
         match super::submission::try_admit(sender, &mut work.request) {
             Ok(true) => Ok(true),
@@ -237,25 +240,7 @@ fn run(mut state: CudaState, receiver: &Receiver<Candidate>, counters: &Counters
             }
             continue;
         }
-        let mut batch = vec![first];
-        let start = Instant::now();
-        while batch.len() < fast_candidates && start.elapsed() < DRAIN_TIME {
-            let remaining = DRAIN_TIME.saturating_sub(start.elapsed());
-            let next = match receiver.recv_timeout(remaining) {
-                Ok(next) => next,
-                Err(_) => break,
-            };
-            if next.cancel.load(Ordering::Relaxed) {
-                counters.dequeue(1);
-                counters.completed.fetch_add(1, Ordering::Relaxed);
-                let _ = next.reply.send(Err(OpticalError::Cancelled));
-            } else if matches!(next.fidelity, ObjectiveFidelity::Fast) {
-                batch.push(next);
-            } else {
-                pending.push_back(next);
-                break;
-            }
-        }
+        let batch = collect_fast_batch(first, receiver, &mut pending, fast_candidates, counters);
         counters.dequeue(batch.len());
         counters.active.store(batch.len(), Ordering::Relaxed);
         counters.batches.fetch_add(1, Ordering::Relaxed);
@@ -305,7 +290,54 @@ fn run(mut state: CudaState, receiver: &Receiver<Candidate>, counters: &Counters
     }
 }
 
+/// Collect already queued Fast requests and account for collection and queue time.
+fn collect_fast_batch(
+    first: Candidate,
+    receiver: &Receiver<Candidate>,
+    pending: &mut VecDeque<Candidate>,
+    fast_candidates: usize,
+    counters: &Counters,
+) -> Vec<Candidate> {
+    let mut batch = vec![first];
+    let collection_start = Instant::now();
+    // Bound inspected requests too: a stream of cancelled work must not delay
+    // the first live candidate indefinitely. Never wait to fill a sparse batch.
+    for _ in 1..fast_candidates {
+        let next = match receiver.try_recv() {
+            Ok(next) => next,
+            Err(_) => break,
+        };
+        if next.cancel.load(Ordering::Relaxed) {
+            counters.dequeue(1);
+            counters.completed.fetch_add(1, Ordering::Relaxed);
+            let _ = next.reply.send(Err(OpticalError::Cancelled));
+        } else if matches!(next.fidelity, ObjectiveFidelity::Fast) {
+            batch.push(next);
+        } else {
+            pending.push_back(next);
+            break;
+        }
+    }
+    counters.collection_micros.fetch_add(
+        u64::try_from(collection_start.elapsed().as_micros()).unwrap_or(u64::MAX),
+        Ordering::Relaxed,
+    );
+    let service_ready = Instant::now();
+    for candidate in &batch {
+        counters.queue_micros.fetch_add(
+            u64::try_from(service_ready.duration_since(candidate.admitted).as_micros())
+                .unwrap_or(u64::MAX),
+            Ordering::Relaxed,
+        );
+    }
+    batch
+}
+
 fn evaluate_full(state: &mut CudaState, request: Candidate, counters: &Counters) -> bool {
+    counters.queue_micros.fetch_add(
+        u64::try_from(request.admitted.elapsed().as_micros()).unwrap_or(u64::MAX),
+        Ordering::Relaxed,
+    );
     counters.dequeue(1);
     counters.active.store(1, Ordering::Relaxed);
     let start = Instant::now();

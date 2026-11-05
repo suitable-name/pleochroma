@@ -4,7 +4,8 @@
 //! The dialogs keep their own controls (`ExportModel`, `TiltVideoExportModel`); those are
 //! per-run overrides seeded from the persisted values. Seeding happens when the still export
 //! dialog opens and at start-up for the tilt-video section (its model persists for the
-//! session); remembering happens when a run starts. Every value read from the settings file
+//! session); remembering happens when a run starts or is added to the queue, and when the
+//! dialog closes, so values typed without exporting are kept too. Every value read from the settings file
 //! goes through `OutputSettings::sanitised`, so a hand-edited file cannot seed an impossible
 //! slider position.
 
@@ -15,11 +16,13 @@ use crate::{
         ExportTransfer, SettingsPersister, TiltVideoCompute,
         model::{
             AppSettings, EXPORT_SAMPLES_EXPONENT_RANGE, OutputSettings, StillOutput,
-            TiltVideoOutput, bounce_index, clamp_exponent, nearest_bounce_cap,
+            TILT_STEP_HUNDREDTHS_RANGE, TiltVideoOutput, bounce_index, clamp_exponent,
+            nearest_bounce_cap,
         },
     },
 };
-use slint::ComponentHandle;
+use pleochroma::color::metrics::PROFILE_AZIMUTHS_DEG;
+use slint::{ComponentHandle, Model as _, ModelRc, VecModel};
 
 /// The remote endpoint's own default transfer (what an export follows until a choice was made).
 fn endpoint_transfer(settings: &AppSettings) -> ExportTransfer {
@@ -45,6 +48,52 @@ fn as_u32(value: i32) -> u32 {
 )]
 const fn exponent_of(raw: f32) -> u32 {
     clamp_exponent(raw.round().max(0.0) as u32, EXPORT_SAMPLES_EXPONENT_RANGE)
+}
+
+/// The step field's degrees as whole hundredths, inside [`TILT_STEP_HUNDREDTHS_RANGE`]; a value
+/// that is not a number reads as 1 degree.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "rounded and clamped to the small positive step range first"
+)]
+fn step_hundredths_of(step_deg: f32) -> u32 {
+    let hundredths = (step_deg * 100.0).round();
+    if hundredths.is_finite() {
+        hundredths.clamp(
+            TILT_STEP_HUNDREDTHS_RANGE.0 as f32,
+            TILT_STEP_HUNDREDTHS_RANGE.1 as f32,
+        ) as u32
+    } else {
+        100
+    }
+}
+
+/// The section's `video_axes` for the remembered `axes`: the chart-axis indices in the order the
+/// video plays them, each once; empty when no axis was chosen, which the section reads as "the
+/// axis selected in the chart".
+fn axis_list(axes: &[u8]) -> Vec<i32> {
+    let mut list: Vec<i32> = Vec::new();
+    for &axis in axes {
+        if usize::from(axis) < PROFILE_AZIMUTHS_DEG.len() && !list.contains(&i32::from(axis)) {
+            list.push(i32::from(axis));
+        }
+    }
+    list
+}
+
+/// The chosen axes of the section's chips, in the order the video plays them.
+fn axes_of(list: &[i32]) -> Vec<u8> {
+    let mut axes: Vec<u8> = Vec::new();
+    for &axis in list {
+        if let Ok(axis) = u8::try_from(axis)
+            && usize::from(axis) < PROFILE_AZIMUTHS_DEG.len()
+            && !axes.contains(&axis)
+        {
+            axes.push(axis);
+        }
+    }
+    axes
 }
 
 const COLOR_SPACES: [&str; 3] = ["sRGB", "Display P3", "Rec.2020"];
@@ -144,6 +193,10 @@ struct StillControls {
 }
 
 /// The tilt-video section's controls as plain values (see [`StillControls`]).
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent switches of the section, not a state machine"
+)]
 #[derive(Debug, Clone, PartialEq)]
 struct TiltControls {
     engine: pleochroma::renderer::engine::EngineSpec,
@@ -156,6 +209,20 @@ struct TiltControls {
     compute_target_index: i32,
     transfer_index: i32,
     filename_template: String,
+    start_angle_deg: i32,
+    end_angle_deg: i32,
+    step_deg: f32,
+    fps_index: i32,
+    /// The axis chips in play order (`TiltVideoExportModel.video_axes`).
+    video_axes: Vec<i32>,
+    quarter_turn: bool,
+    show_values: bool,
+    metric_brilliance: bool,
+    metric_windowing: bool,
+    metric_extinction: bool,
+    metric_tilt_brilliance: bool,
+    metric_angle: bool,
+    keep_frames: bool,
 }
 
 /// What the still export dialog shows when it opens: the remembered values, limited to what
@@ -220,6 +287,19 @@ fn tilt_controls(settings: &AppSettings) -> TiltControls {
             .unwrap_or_else(|| endpoint_transfer(settings))
             .index(),
         filename_template: video.filename_template,
+        start_angle_deg: video.start_angle_deg,
+        end_angle_deg: video.end_angle_deg,
+        step_deg: video.step_hundredths_deg as f32 / 100.0,
+        fps_index: video.fps_index,
+        video_axes: axis_list(&video.axes),
+        quarter_turn: video.quarter_turn,
+        show_values: video.show_values,
+        metric_brilliance: video.metric_brilliance,
+        metric_windowing: video.metric_windowing,
+        metric_extinction: video.metric_extinction,
+        metric_tilt_brilliance: video.metric_tilt_brilliance,
+        metric_angle: video.metric_angle,
+        keep_frames: video.keep_frames,
     }
 }
 
@@ -243,6 +323,19 @@ fn tilt_from_controls(
             previous_transfer
         },
         filename_template: controls.filename_template.clone(),
+        start_angle_deg: controls.start_angle_deg,
+        end_angle_deg: controls.end_angle_deg,
+        step_hundredths_deg: step_hundredths_of(controls.step_deg),
+        fps_index: controls.fps_index,
+        axes: axes_of(&controls.video_axes),
+        quarter_turn: controls.quarter_turn,
+        show_values: controls.show_values,
+        metric_brilliance: controls.metric_brilliance,
+        metric_windowing: controls.metric_windowing,
+        metric_extinction: controls.metric_extinction,
+        metric_tilt_brilliance: controls.metric_tilt_brilliance,
+        metric_angle: controls.metric_angle,
+        keep_frames: controls.keep_frames,
     }
 }
 
@@ -264,8 +357,8 @@ pub(in crate::gui) fn seed_still_dialog(ui: &MainWindow, settings: &AppSettings)
     model.set_transfer_index(controls.transfer_index);
 }
 
-/// Seeds the tilt-video section's controls from the remembered values. Called at start-up and
-/// after a tab reset.
+/// Seeds the tilt-video section's controls from the remembered values, and the export folder
+/// it shows (shared with the still export). Called at start-up and after a tab reset.
 pub(in crate::gui) fn seed_tilt_dialog(ui: &MainWindow, settings: &AppSettings) {
     let controls = tilt_controls(settings);
     let model = ui.global::<TiltVideoExportModel>();
@@ -281,6 +374,21 @@ pub(in crate::gui) fn seed_tilt_dialog(ui: &MainWindow, settings: &AppSettings) 
     model.set_compute_target_index(controls.compute_target_index);
     model.set_transfer_index(controls.transfer_index);
     model.set_filename_template(controls.filename_template.into());
+    model.set_start_angle_deg(controls.start_angle_deg);
+    model.set_end_angle_deg(controls.end_angle_deg);
+    model.set_step_deg(controls.step_deg);
+    model.set_fps_index(controls.fps_index);
+    model.set_video_axes(ModelRc::new(VecModel::from(controls.video_axes)));
+    model.set_quarter_turn(controls.quarter_turn);
+    model.set_show_values(controls.show_values);
+    model.set_metric_brilliance(controls.metric_brilliance);
+    model.set_metric_windowing(controls.metric_windowing);
+    model.set_metric_extinction(controls.metric_extinction);
+    model.set_metric_tilt_brilliance(controls.metric_tilt_brilliance);
+    model.set_metric_angle(controls.metric_angle);
+    model.set_keep_frames(controls.keep_frames);
+    ui.global::<ExportModel>()
+        .set_directory(settings.export_directory.clone().into());
 }
 
 /// When the remote endpoint changes, a tilt video that has never made its own transfer choice
@@ -292,9 +400,10 @@ pub(in crate::gui) fn follow_remote_default_for_tilt(ui: &MainWindow, settings: 
     }
 }
 
-/// Remembers the values the still export dialog is starting a run with. `uses_remote` says
-/// whether the run sends work to the remote: only then does the transfer choice count, so a
-/// run without a remote does not pin the transfer to "full data" for later.
+/// Remembers the values of the still export dialog: an export starting, or the dialog closing.
+/// `uses_remote` says whether the run sends work to the remote: only then does the transfer
+/// choice count, so a run without a remote (or a dialog closed without a run) does not pin
+/// the transfer to "full data" for later.
 pub(in crate::gui) fn remember_still(
     ui: &MainWindow,
     settings_store: &SettingsPersister,
@@ -317,8 +426,8 @@ pub(in crate::gui) fn remember_still(
     store_and_publish(ui, settings_store, output);
 }
 
-/// Remembers the values the tilt-video section is starting a run with (see
-/// [`remember_still`] for `uses_remote`).
+/// Remembers the values of the tilt-video section: a run starting or being queued, or the
+/// dialog closing (see [`remember_still`] for `uses_remote`; closing passes `false`).
 pub(in crate::gui) fn remember_tilt(
     ui: &MainWindow,
     settings_store: &SettingsPersister,
@@ -337,6 +446,19 @@ pub(in crate::gui) fn remember_tilt(
         compute_target_index: model.get_compute_target_index(),
         transfer_index: model.get_transfer_index(),
         filename_template: model.get_filename_template().to_string(),
+        start_angle_deg: model.get_start_angle_deg(),
+        end_angle_deg: model.get_end_angle_deg(),
+        step_deg: model.get_step_deg(),
+        fps_index: model.get_fps_index(),
+        video_axes: model.get_video_axes().iter().collect(),
+        quarter_turn: model.get_quarter_turn(),
+        show_values: model.get_show_values(),
+        metric_brilliance: model.get_metric_brilliance(),
+        metric_windowing: model.get_metric_windowing(),
+        metric_extinction: model.get_metric_extinction(),
+        metric_tilt_brilliance: model.get_metric_tilt_brilliance(),
+        metric_angle: model.get_metric_angle(),
+        keep_frames: model.get_keep_frames(),
     };
     output.tilt_video = tilt_from_controls(&controls, output.tilt_video.transfer, uses_remote);
     store_and_publish(ui, settings_store, output);
@@ -424,6 +546,19 @@ mod tests {
             color_space_index: 2,
             transfer: Some(ExportTransfer::FinalPicture),
             filename_template: "video_{design}".to_string(),
+            start_angle_deg: -30,
+            end_angle_deg: 45,
+            step_hundredths_deg: 25,
+            fps_index: 2,
+            axes: vec![1, 3],
+            quarter_turn: true,
+            show_values: true,
+            metric_brilliance: false,
+            metric_windowing: true,
+            metric_extinction: false,
+            metric_tilt_brilliance: true,
+            metric_angle: false,
+            keep_frames: true,
         };
         settings.tilt_video_compute_target = TiltVideoCompute::Remote;
         settings
@@ -484,6 +619,36 @@ mod tests {
         assert_eq!(tilt.compute_target_index, TiltVideoCompute::Remote.index());
         assert_eq!(tilt.transfer_index, ExportTransfer::FinalPicture.index());
         assert_eq!(tilt.filename_template, "video_{design}");
+        // The sweep, the axes, the 90° turn and the frame toggles.
+        assert_eq!((tilt.start_angle_deg, tilt.end_angle_deg), (-30, 45));
+        assert_eq!(tilt.step_deg.to_bits(), 0.25f32.to_bits());
+        assert_eq!(tilt.fps_index, 2);
+        assert_eq!(tilt.video_axes, vec![1, 3]);
+        assert!(tilt.quarter_turn && tilt.show_values && tilt.keep_frames);
+        assert!(!tilt.metric_brilliance && tilt.metric_tilt_brilliance);
+    }
+
+    /// A typed step is kept to the hundredth inside the field's range, and no chosen axis stays
+    /// "the chart's axis" instead of becoming four unticked chips.
+    #[test]
+    fn the_step_is_kept_in_hundredths_and_no_chosen_axis_stays_the_charts_axis() {
+        assert_eq!(step_hundredths_of(0.333), 33);
+        assert_eq!(step_hundredths_of(0.001), TILT_STEP_HUNDREDTHS_RANGE.0);
+        assert_eq!(step_hundredths_of(9.0), TILT_STEP_HUNDREDTHS_RANGE.1);
+        assert_eq!(step_hundredths_of(f32::NAN), 100);
+        assert!(axis_list(&[]).is_empty());
+        assert!(axes_of(&[]).is_empty());
+        // The play order survives the round trip; repeats and indices off the chart do not.
+        assert_eq!(axes_of(&axis_list(&[2, 0])), vec![2, 0]);
+        assert_eq!(axis_list(&[3, 3, 9, 1]), vec![3, 1]);
+        assert_eq!(axes_of(&[-1, 2, 7, 2, 0]), vec![2, 0]);
+        let fresh = tilt_controls(&AppSettings::default());
+        assert!(fresh.video_axes.is_empty());
+        assert_eq!(
+            (fresh.start_angle_deg, fresh.end_angle_deg, fresh.fps_index),
+            (-90, 90, 1)
+        );
+        assert_eq!(fresh.step_deg.to_bits(), 1.0f32.to_bits());
     }
 
     #[test]

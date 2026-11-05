@@ -190,10 +190,14 @@ const fn kind_label(kind: &PickerKind) -> &'static str {
 /// The `ui-harness` feature's replacement for the native dialog: the next queued answer of
 /// `crate::harness_support` (an empty queue records an "unexpected file dialog" failure and
 /// answers "cancelled"). `Some(answer)` means "answered, do not open anything"; the outer
-/// `Option` exists so the feature-off twin below can return `None` and fall through to `rfd`.
+/// `Option` exists so the feature-off twin below can return `None` and fall through to `rfd`,
+/// and so a build the harness does not drive (`crate::harness_seams_active`) shows the real
+/// dialog.
 #[cfg(feature = "ui-harness")]
-#[allow(clippy::unnecessary_wraps)]
 fn harness_answer(request: &PickerRequest) -> Option<TestPickAnswer> {
+    if !crate::harness_seams_active() {
+        return None;
+    }
     let title = request.title.as_deref().unwrap_or("<untitled>");
     let detail = format!(
         "{title} ({}, suggested name {:?})",

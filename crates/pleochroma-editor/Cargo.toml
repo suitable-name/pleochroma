@@ -29,6 +29,8 @@ pleochroma-formats = { workspace = true }
 pleochroma-solid = { workspace = true }
 # PNG encoding of the cutting-sheet diagram (in memory, never a file).
 image = { workspace = true, features = ["png"] }
+# The cutting sheet as a PDF (`cut_sheet::pdf`), in memory, never a file.
+pdf-writer = { workspace = true }
 # One `warn!` when cutting instructions' masts do not match their tier count.
 tracing = { workspace = true }
 

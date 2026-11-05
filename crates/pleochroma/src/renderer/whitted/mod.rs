@@ -16,13 +16,17 @@ mod tint;
 pub use aa::aa_offset;
 pub use env::WhittedEnv;
 pub use frame::{whitted_pixels_interleaved_geom, whitted_primary_hit, whitted_tap_xyz};
-pub use prep::{AlphaModel, Chain, WhittedPrep};
+pub use prep::{Chain, WhittedPrep};
+pub use tint::{ABSORPTION_BINS, ABSORPTION_MODES, BinnedAbsorption};
 
 /// Increment when an intentional image change should invalidate cached drafts.
 ///
 /// 2: the backdrop is a lit tray seen by every escape (primary misses included), not a
 /// camera-only card.
-pub const WHITTED_VERSION: u32 = 2;
+/// 3: absorption follows the material's spectrum over the whole path inside the stone
+/// (forty 10 nm bins, out-of-gamut colors kept) instead of three clamped RGB coefficients
+/// fitted at one path length.
+pub const WHITTED_VERSION: u32 = 3;
 pub const CUTOFF: f32 = 1.0e-3;
 pub const WORKLIST_CAPACITY: usize = 4;
 

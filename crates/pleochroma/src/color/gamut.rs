@@ -92,6 +92,59 @@ pub fn project_to_gamut_bounded(xyz: Vec3, space: ColorSpace, max: f32) -> Vec3 
     resolved
 }
 
+/// Tone-mapped luminance from which an over-bright color starts to blend toward white under
+/// [`fit_keeping_color`].
+///
+/// The ACES curve maps a scene luminance of 1.0 (diffuse white) to about 0.80, so only light
+/// brighter than a lit white surface (specular highlights, the bright tray seen directly)
+/// whitens; the body color a stone shows stays below it.
+pub const KEEP_COLOR_KNEE: f32 = 0.8;
+
+/// Tone-mapped luminance at and above which [`fit_keeping_color`] keeps the luminance and
+/// whitens fully, as [`project_to_gamut_bounded`] does.
+pub const KEEP_COLOR_WHITE: f32 = 1.0;
+
+/// Brings a tone-mapped color whose largest channel exceeds `1.0` into `[0, 1]` while keeping
+/// its hue and saturation.
+///
+/// An out-of-gamut chromaticity (a negative channel) is walked toward white first, at constant
+/// luminance, exactly as [`project_to_gamut`] does: that is the space's gamut, not brightness.
+/// A color that is then still too bright is dimmed until its largest channel is `1.0`, keeping
+/// its chromaticity, so a saturated red stays red instead of turning pink. Above
+/// [`KEEP_COLOR_KNEE`] the result blends smoothly (smoothstep) toward the luminance-keeping
+/// rule, and from [`KEEP_COLOR_WHITE`] on the color keeps its luminance and mixes with the grey
+/// of that luminance just enough to fit, the same straight path toward white as
+/// [`project_to_gamut_bounded`] (solved exactly instead of in 32 steps).
+///
+/// The luminance is `xyz.y`. The grey of luminance `L` is `(L, L, L)`: every [`ColorSpace`]
+/// maps its own white to linear `(1, 1, 1)` at `Y = 1`.
+#[must_use]
+pub fn fit_keeping_color(xyz: Vec3, space: ColorSpace) -> Vec3 {
+    let rgb = project_to_gamut(xyz, space);
+    let peak = rgb.max_element();
+    if peak <= 1.0 {
+        return rgb;
+    }
+    let luminance = xyz.y.max(0.0);
+    let t = ((luminance - KEEP_COLOR_KNEE) / (KEEP_COLOR_WHITE - KEEP_COLOR_KNEE)).clamp(0.0, 1.0);
+    let whiten = t * t * 2.0f32.mul_add(-t, 3.0);
+    // 1 / peak keeps the color (the largest channel lands on 1.0); 1.0 keeps the luminance.
+    let fit = 1.0 / peak;
+    let scale = whiten.mul_add(1.0 - fit, fit);
+    let dimmed = rgb * scale;
+    let level = luminance * scale;
+    let top = dimmed.max_element();
+    if top <= 1.0 {
+        return dimmed;
+    }
+    if level >= 1.0 {
+        return Vec3::splat(level);
+    }
+    // The share of grey that brings the largest channel down to 1.0 exactly.
+    let mix = (top - 1.0) / (top - level);
+    dimmed + (Vec3::splat(level) - dimmed) * mix
+}
+
 /// sRGB-specialised convenience wrapper around [`project_to_gamut`].
 ///
 /// Named entry point for callers that only need sRGB, rather than plumbing

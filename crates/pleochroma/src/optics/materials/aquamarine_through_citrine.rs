@@ -26,13 +26,12 @@ impl GemMaterial {
     /// Sellmeier is used as-is per this file's primary-source-wins rule; and the two
     /// optical glasses, whose Schott catalogue Abbe numbers are already true F-C).
     ///
-    /// # Deliberately left out of this list: Sphene
+    /// # Not in this list: Sphene
     ///
-    /// Sphene (titanite) needs `birefringence_delta` up to ~0.135, well beyond every
-    /// existing Delta-n-range assumption this file's biaxial/uniaxial machinery has
-    /// been verified against (the largest here, Zircon's +0.059, is under half that),
-    /// so adding it without dedicated verification at that magnitude would ship an
-    /// unverified extrapolation, not a measurement. Left out.
+    /// Sphene (titanite) needs a `birefringence_delta` of about 0.12, beyond what this
+    /// file's biaxial/uniaxial machinery had been verified against (Zircon's +0.059), so it
+    /// was left out until it had measured indices and a check at that magnitude: it is
+    /// [`Self::built_in_material_titanite`] since 2026-11-03.
     ///
     /// Rutile needs the full anisotropic (uniaxial, extremely high birefringence
     /// +0.2957) Fresnel treatment, compounded by rutile's very strong dispersion, so
@@ -77,24 +76,40 @@ impl GemMaterial {
                 // the o- and e-ray and reads blue; with c along the view axis it
                 // would see the near-colorless o-ray only.
                 // Calibration record: docs/chromophores/calibration-records.md#aquamarine
+                // 2026-11-03 (owner: "match the pictures of actual gemstones"): REPLACED GRR 1488
+                // alone by 0.6 x it plus 0.4 x the Greenish variant (its estimated Fe3+), refitted.
+                // Twenty dealer photos (GemSelect) have a median hue of 241 (colored pixels); GRR
+                // 1488 alone rendered h 252, this mix h 240 (Light Tent). Swatch L*84 C*15 h 235
+                // (it was L*85 C*16 h 247); o-ray L*94 C*12.
+                // 2026-11-04 (owner: "The render seems to err toward saturated"): x 0.3 of that mix.
+                // Colored-pixel saturation (CIELUV s_uv of the mean colored pixel, which exposure
+                // and the photo set-up's dark reflections leave unchanged): the faceted dealer
+                // photos 0.30, the Commons photos 0.15 and 0.31, the x 1 render 0.57; x 0.25 renders
+                // 0.30 at h 233. Swatch L*92 C*10 h 233; o-ray L*98 C*4, e-ray L*78 C*35 h 245.
+                // Calibration record: docs/chromophores/calibration-records.md#saturation-round-2026-11-04
                 absorption: AbsorptionTensor::uniaxial(
                     vec![
-                        // o-ray (E perp c): near-colorless; UV/Fe3+ edge, Fe3+ 429 nm,
-                        // weak IVCT leak, Fe2+ ~830 nm tail
-                        AbsorptionBand::energy(363.0, 5_531.0, 1.19),
-                        AbsorptionBand::energy(429.0, 1_500.0, 0.214),
-                        AbsorptionBand::energy(645.0, 3_657.0, 0.198),
-                        AbsorptionBand::energy(845.0, 2_797.0, 6.54),
+                        // o-ray (E perp c)
+                        AbsorptionBand::energy(847.1, 2_828.2, 3.894),
+                        AbsorptionBand::energy(822.7, 2_158.1, 1.01),
+                        AbsorptionBand::energy(356.9, 6_124.2, 0.947_4),
+                        AbsorptionBand::energy(315.9, 13_576.9, 0.449_5),
+                        AbsorptionBand::energy(680.0, 6_336.0, 0.178_3),
+                        AbsorptionBand::energy(429.2, 1_392.4, 0.134_5),
+                        AbsorptionBand::energy(640.3, 3_372.7, 0.092_57),
                     ],
                     vec![
-                        // e-ray (E par c): the blue ray; Fe2+-Fe3+ IVCT ~600-680 nm +
-                        // Fe2+ ~830 nm
-                        AbsorptionBand::energy(378.0, 3_102.0, 0.892),
-                        AbsorptionBand::energy(428.0, 565.0, 0.317),
-                        AbsorptionBand::energy(600.0, 4_405.0, 3.26),
-                        AbsorptionBand::energy(810.0, 5_471.0, 8.82),
+                        // e-ray (E par c)
+                        AbsorptionBand::energy(823.8, 5_651.0, 6.622),
+                        AbsorptionBand::energy(604.1, 4_566.9, 2.527),
+                        AbsorptionBand::energy(381.5, 4_125.2, 0.736_1),
+                        AbsorptionBand::energy(314.9, 11_859.4, 0.522),
+                        AbsorptionBand::energy(428.0, 595.8, 0.229_3),
+                        AbsorptionBand::energy(842.9, 5_321.4, 0.149_3),
+                        AbsorptionBand::energy(295.5, 7_226.8, 0.119_7),
                     ],
-                ),
+                )
+                .scaled(0.3),
                 // c_axis set INTO the table plane (Vec3::X) rather than the Vec3::Y
                 // every other built-in defaults to, exactly as Tourmaline does -- a
                 // deliberate override, not an oversight. Aquamarine's color sits in
@@ -154,19 +169,38 @@ impl GemMaterial {
                 // pink); unpolarised L*79 C*32 h 342; e-ray L*75 C*31 h 332, the documented
                 // "light red to light violet" pleochroism (o pinker than e).
                 // Calibration record: docs/chromophores/calibration-records.md#morganite
+                // 2026-11-03 (owner: "match the pictures of actual gemstones"): REPLACED the pink
+                // set alone by 0.35 x it plus 0.65 x the Peach variant (the same red beryl bands
+                // plus measured Fe3+, GRR 309); bands that both carry are folded together. Sixteen
+                // dealer photos of pink morganite (GemSelect) have a median hue of 24 (colored
+                // pixels), a salmon pink; the pink set rendered h 348, this mix h 20 (Light Tent).
+                // Swatch L*83 C*20 h 15 (it was L*79 C*32 h 342); o-ray h 2, e-ray h 54.
+                // 2026-11-04 (owner: "The render seems to err toward saturated"): x 0.6 of that mix.
+                // Colored-pixel saturation s_uv: the faceted dealer photos 0.28, the x 1 render 0.45
+                // (x 0.25: 0.26 at h 31); the factor takes half the gap in log terms, since a dealer's
+                // commercial morganite is paler than a typical one. Swatch L*89 C*12 h 18.
+                // Calibration record: docs/chromophores/calibration-records.md#saturation-round-2026-11-04
                 absorption: AbsorptionTensor::uniaxial(
                     vec![
-                        AbsorptionBand::energy(312.7, 8_241.9, 2.34),
-                        AbsorptionBand::energy(440.0, 1_832.0, 0.102),
-                        AbsorptionBand::energy(495.9, 3_197.8, 0.661),
-                        AbsorptionBand::energy(554.6, 1_954.5, 0.593),
+                        // o-ray (E perp c)
+                        AbsorptionBand::energy(312.7, 8_241.9, 0.819),
+                        AbsorptionBand::energy(440.0, 1_832.0, 0.035_7),
+                        AbsorptionBand::energy(495.9, 3_198.0, 0.465_9),
+                        AbsorptionBand::energy(554.6, 1_954.9, 0.417_9),
+                        AbsorptionBand::energy(295.5, 10_676.5, 3.991),
+                        AbsorptionBand::energy(847.7, 1_177.4, 0.016_28),
                     ],
                     vec![
-                        AbsorptionBand::energy(319.9, 8_241.9, 2.39),
-                        AbsorptionBand::energy(440.0, 3_532.2, 0.331),
-                        AbsorptionBand::energy(543.6, 3_487.5, 1.03),
+                        // e-ray (E par c)
+                        AbsorptionBand::energy(319.9, 8_241.9, 0.836_5),
+                        AbsorptionBand::energy(440.0, 3_532.2, 0.115_8),
+                        AbsorptionBand::energy(543.6, 3_487.2, 0.725_2),
+                        AbsorptionBand::energy(315.5, 13_658.0, 1.776),
+                        AbsorptionBand::energy(403.9, 3_297.7, 1.874),
+                        AbsorptionBand::energy(902.7, 3_532.2, 0.303),
                     ],
-                ),
+                )
+                .scaled(0.6),
                 c_axis: Vec3::Y,
                 biaxial_delta_beta_alpha: None,
                 alpha_axis: None,
@@ -237,30 +271,50 @@ impl GemMaterial {
                 // unpolarised mean L*72 C*53 h 83 (alpha L*72 C*56, beta L*76 C*42, gamma
                 // L*69 C*67), against the old tuned L*97 C*56 h 103.
                 // Calibration record: docs/chromophores/calibration-records.md#chrysoberyl-yellow
+                // 2026-11-03 (owner: "match the pictures of actual gemstones"; this supersedes the
+                // 2026-10-27 golden yellow): 0.5 x the former Greenish Yellow variant's tensor (GRR
+                // 171 beta and gamma, estimated alpha) plus 0.15 x the Alexandrite built-in's Cr3+
+                // (GRR 874; a greenish-yellow chrysoberyl carries traces of Cr and V), refitted to
+                // eight energy Gaussians a ray (dE2000 below 0.1). Twenty-three dealer photos
+                // (GemSelect) have a median hue of 109 (colored pixels) and L* 64; the golden 0.7 x
+                // GRR 171 rendered h 76, the Greenish Yellow tensor alone h 93, a pale cream (a
+                // lower strength only paled it), this mix h 111 at L*64 (Light Tent). More Cr
+                // greens it further but greys it (0.6 x + 0.25 x: h 113 at L*57, a khaki): Cr3+
+                // absorbs at 580 nm, the brightest part of the yellow. The gamma ray turns green
+                // (swatch h 149), a trace of the alexandrite change. Swatch L*82 C*26 h 118. The
+                // former golden default is the Golden variant.
                 absorption: AbsorptionTensor::biaxial(
                     vec![
-                        // alpha (E par c): estimated mean of beta and gamma
-                        AbsorptionBand::energy(342.5, 2_976.0, 5.5),
-                        AbsorptionBand::energy(373.5, 1_194.0, 3.81),
-                        AbsorptionBand::energy(378.0, 3_600.0, 4.09),
-                        AbsorptionBand::energy(440.1, 1_530.0, 4.36),
-                        AbsorptionBand::energy(490.0, 7_400.0, 1.19),
+                        // alpha
+                        AbsorptionBand::energy(321.8, 5_258.4, 5.978),
+                        AbsorptionBand::energy(437.5, 2_136.1, 0.885_7),
+                        AbsorptionBand::energy(385.6, 3_140.5, 0.629_7),
+                        AbsorptionBand::energy(442.5, 865.4, 0.601_3),
+                        AbsorptionBand::energy(411.4, 2_575.1, 0.536),
+                        AbsorptionBand::energy(576.3, 1_887.6, 0.515_6),
+                        AbsorptionBand::energy(509.3, 6_019.1, 0.335_4),
+                        AbsorptionBand::energy(536.3, 1_764.2, 0.169_6),
                     ],
                     vec![
-                        // beta (E par a): measured, GRR 171
-                        AbsorptionBand::energy(337.0, 1_816.0, 4.0),
-                        AbsorptionBand::energy(369.3, 3_197.0, 3.86),
-                        AbsorptionBand::energy(377.6, 484.0, 2.81),
-                        AbsorptionBand::energy(436.0, 2_071.0, 1.97),
-                        AbsorptionBand::energy(490.0, 9_296.0, 0.865),
+                        // beta
+                        AbsorptionBand::energy(353.0, 1_946.7, 16.11),
+                        AbsorptionBand::energy(403.0, 3_021.6, 1.029),
+                        AbsorptionBand::energy(435.8, 2_230.5, 0.912),
+                        AbsorptionBand::energy(439.0, 1_000.0, 0.319_4),
+                        AbsorptionBand::energy(558.0, 4_990.5, 0.180_5),
+                        AbsorptionBand::energy(444.1, 6_698.3, 0.169_1),
+                        AbsorptionBand::energy(565.6, 1_699.2, 0.105_9),
+                        AbsorptionBand::energy(467.9, 476.2, 0.054_4),
                     ],
                     vec![
-                        // gamma (E par b): measured, GRR 171
-                        AbsorptionBand::energy(344.7, 2_813.0, 7.1),
-                        AbsorptionBand::energy(372.2, 1_190.0, 5.63),
-                        AbsorptionBand::energy(378.0, 3_600.0, 5.3),
-                        AbsorptionBand::energy(440.6, 1_455.0, 6.85),
-                        AbsorptionBand::energy(490.0, 6_304.0, 1.53),
+                        // gamma
+                        AbsorptionBand::energy(234.5, 17_746.5, 16.68),
+                        AbsorptionBand::energy(442.3, 941.0, 1.063),
+                        AbsorptionBand::energy(589.0, 2_364.9, 0.985_3),
+                        AbsorptionBand::energy(433.0, 2_429.7, 0.906_5),
+                        AbsorptionBand::energy(614.0, 1_366.6, 0.283_1),
+                        AbsorptionBand::energy(397.6, 1_659.7, 0.214_8),
+                        AbsorptionBand::energy(510.2, 3_068.9, 0.170_6),
                     ],
                 ),
                 c_axis: Vec3::Y,

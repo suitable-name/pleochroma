@@ -9,48 +9,42 @@ use pleochroma::{
     },
     optics::materials::GemMaterial,
 };
-use pleochroma_cut_core::{Design, MaterialLookup, PreformSpec, ResolvedMaterial, native};
+use pleochroma_cut_core::{
+    Design, MaterialLookup, MaterialSelection, PreformSpec, ResolvedMaterial, native,
+};
 
 use super::DbDesignRecord;
 
 /// Whether a filename carries a self-contained native design rather than ASC instructions.
-fn is_native(filename: &str) -> bool {
+pub(super) fn is_native(filename: &str) -> bool {
     Path::new(filename)
         .extension()
         .and_then(|s| s.to_str())
         .is_some_and(|s| s.eq_ignore_ascii_case("psdd"))
 }
 
+#[derive(Debug)]
+pub(super) struct LoadedDesignData {
+    pub design: Design,
+    pub authored_material: Option<ResolvedMaterial>,
+    pub physical_size_augmented: bool,
+}
+
 pub(super) fn load_design_data(
     record: &DbDesignRecord,
     max_tiers: usize,
-) -> Result<(Design, Option<ResolvedMaterial>), String> {
+) -> Result<LoadedDesignData, String> {
     if record.asc_bytes.is_empty() {
         return Err("empty design attachment".to_owned());
     }
-    let (design, authored) = if is_native(&record.filename) {
-        let text =
-            std::str::from_utf8(&record.asc_bytes).map_err(|e| format!("native UTF-8: {e}"))?;
-        let loaded = native::design_from_str(text).map_err(|e| format!("native parse: {e}"))?;
-        if loaded.draft {
-            return Err(
-                "native file is marked draft; solve and save it before training".to_owned(),
-            );
-        }
-        let source = native_source_material(&loaded)?;
-        (loaded.design, Some(source))
+    let (mut design, authored_material) = if is_native(&record.filename) {
+        load_native(&record.asc_bytes)?
     } else {
         let schedule = pleochroma_formats::asc::parse_asc_bytes(&record.asc_bytes)
             .map_err(|e| format!(".asc parse error: {e}"))?;
         let preform =
             inferred_rough(&schedule).unwrap_or_else(|| PreformSpec::block(2.0, 1.0, 2.0));
-        let mut design = Design::from_asc_schedule(preform, &schedule);
-        // ASC has no physical size. Sample one realistic width per record, explicitly labelled
-        // as training augmentation. Native rough, physical dimensions and programs stay intact.
-        let mut rng =
-            pleochroma_ai::model::Prng::from_stream(record.id.unsigned_abs(), 0x5349_5A45);
-        design.girdle_diameter_mm = Some([4.0, 5.5, 7.0, 10.0, 14.0][rng.next_index(5)]);
-        (design, None)
+        (Design::from_asc_schedule(preform, &schedule), None)
     };
     let tiers = design.tiers.len();
     if tiers == 0 {
@@ -64,7 +58,145 @@ pub(super) fn load_design_data(
     design
         .evaluate_relations()
         .map_err(|e| format!("invalid angle relation: {e}"))?;
-    Ok((design, authored))
+    let physical_size_augmented = augment_missing_size(&mut design, record.id)?;
+    Ok(LoadedDesignData {
+        design,
+        authored_material,
+        physical_size_augmented,
+    })
+}
+
+fn load_native(bytes: &[u8]) -> Result<(Design, Option<ResolvedMaterial>), String> {
+    let text = std::str::from_utf8(bytes).map_err(|e| format!("native UTF-8: {e}"))?;
+    let file = pleochroma_formats::native::design::parse(text)
+        .map_err(|e| format!("native parse: {e}"))?;
+    if file.material.custom.is_some() && file.material.name.is_none() {
+        return Err("native custom snapshot has no material name".to_owned());
+    }
+    let context = NativeSourceContext::capture(&file);
+    let loaded = native::design_from_file(file).map_err(|e| format!("native parse: {e}"))?;
+    if loaded.draft {
+        return Err("native file is marked draft; solve and save it before training".to_owned());
+    }
+    let design = &loaded.design;
+    context.validate(design)?;
+    let source_authored = context.authored
+        || loaded.restorable_custom_material.is_some()
+        || design.material != MaterialSelection::none()
+        || !design.render_effects.is_default()
+        || design.crystal_axis_plan.is_some()
+        || design
+            .file_extras
+            .as_ref()
+            .is_some_and(|extras| !extras.material.is_empty());
+    let authored_material = source_authored
+        .then(|| native_source_material(&loaded))
+        .transpose()?;
+    Ok((loaded.design, authored_material))
+}
+
+/// Source intent before the application's tolerant native reader applies compatibility defaults.
+struct NativeSourceContext {
+    authored: bool,
+    inclusion: Option<String>,
+    structure: Option<String>,
+    axis_rule: Option<String>,
+    color_variant: Option<String>,
+}
+
+impl NativeSourceContext {
+    fn capture(file: &native::DesignFile) -> Self {
+        let effects = file.render_effects.as_ref();
+        Self {
+            // Include every raw material field, even one the older core reader drops.
+            // Unknown metadata stays opaque; it must not make the source sampleable.
+            authored: file.material != native::MaterialTable::new(None, None, None)
+                || effects.is_some_and(|effects| !effects.is_empty())
+                || file.crystal_axis_plan.is_some(),
+            inclusion: effects
+                .and_then(|effects| effects.inclusions.as_ref())
+                .map(|inclusions| inclusions.preset.clone()),
+            structure: effects
+                .and_then(|effects| effects.structure.as_ref())
+                .map(|structure| structure.pattern.clone()),
+            axis_rule: file
+                .crystal_axis_plan
+                .as_ref()
+                .filter(|plan| !matches!(plan.rule.as_str(), "" | "none"))
+                .map(|plan| plan.rule.clone()),
+            color_variant: file
+                .material
+                .color_variant
+                .as_ref()
+                .filter(|variant| {
+                    // Removing a recorded fallback RGB intentionally resets an older
+                    // editor to Material Default. A changed RGB survives conversion
+                    // and is accepted by validate as the supported replacement.
+                    variant.fallback_rgb.is_none() || file.material.body_color_override.is_some()
+                })
+                .map(|variant| variant.label.clone()),
+        }
+    }
+
+    fn validate(&self, design: &Design) -> Result<(), String> {
+        if let Some(preset) = &self.inclusion
+            && design.render_effects.inclusions.is_none()
+        {
+            return Err(format!(
+                "native inclusion preset {preset:?} cannot be represented by this trainer"
+            ));
+        }
+        if let Some(pattern) = &self.structure
+            && design.render_effects.structure.is_none()
+        {
+            return Err(format!(
+                "native structure pattern {pattern:?} cannot be represented by this trainer"
+            ));
+        }
+        if let Some(rule) = &self.axis_rule
+            && !design
+                .crystal_axis_plan
+                .as_ref()
+                .is_some_and(|plan| plan.rule.is_some())
+        {
+            return Err(format!(
+                "native crystal-axis rule {rule:?} cannot be represented by this trainer"
+            ));
+        }
+        let material = &design.material;
+        if let Some(label) = &self.color_variant
+            && material.color_variant_override.is_none()
+            && material.body_color_override.is_none()
+            && material.body_color_bands_override.is_none()
+            && material.color_pattern_override.is_none()
+        {
+            return Err(format!(
+                "native color variant {label:?} cannot be represented and has no supported color fallback"
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Fill only an unanchored, dimensionless design; targets must keep their author's scale.
+fn augment_missing_size(design: &mut Design, record_id: i64) -> Result<bool, String> {
+    if let Some(width) = design.girdle_diameter_mm {
+        if !width.is_finite() || width <= 0.0 {
+            return Err("authored girdle_diameter_mm must be finite and positive".to_owned());
+        }
+        return Ok(false);
+    }
+    if !design.tier_targets.is_empty() {
+        return Err(
+            "dimensional tier targets require an authored girdle_diameter_mm; training cannot invent their physical scale"
+                .to_owned(),
+        );
+    }
+    // Match the existing ASC distribution and stream. This is in-memory training
+    // augmentation, independent of material sampling, not a recovered measurement.
+    let mut rng = pleochroma_ai::model::Prng::from_stream(record_id.unsigned_abs(), 0x5349_5A45);
+    design.girdle_diameter_mm = Some([4.0, 5.5, 7.0, 10.0, 14.0][rng.next_index(5)]);
+    Ok(true)
 }
 
 fn native_source_material(loaded: &native::LoadedDesign) -> Result<ResolvedMaterial, String> {

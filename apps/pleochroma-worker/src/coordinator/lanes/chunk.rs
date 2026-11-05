@@ -42,8 +42,8 @@ use pleochroma_dispatch::{CancelToken, marginal_rate};
 use pleochroma_net::{
     SceneState,
     messages::{
-        Cancel, ClientMessage, ContentHash, FrameHeader, RenderRequest, RequestIntent,
-        StreamConfig, StreamEvent, TransferMode, hash_hex, write_asset_message,
+        Cancel, ClientMessage, ContentHash, FrameHeader, NetError, RenderRequest, RequestIntent,
+        StreamConfig, StreamEvent, TransferMode, ZoningPayload, hash_hex, write_asset_message,
     },
     radiance::PayloadDecoder,
 };
@@ -376,6 +376,9 @@ pub(super) fn run_request(
     if let Err(e) = conn.set_timeouts(Some(POLL), Some(WRITE_TIMEOUT)) {
         return reply.broke(format!("could not arm the socket deadlines: {e}"));
     }
+    if let Err(e) = write_zones(&mut conn, &request) {
+        return reply.broke(format!("sending the chunk's color zones failed: {e}"));
+    }
     let message = ClientMessage::RenderRequest(Box::new(request));
     let ClientMessage::RenderRequest(request) = &message else {
         return reply.broke("internal error: the chunk message lost its request".to_string());
@@ -394,6 +397,22 @@ pub(super) fn run_request(
         let _ = conn.set_timeouts(None, None);
     }
     reply
+}
+
+/// Writes the color zones of `request`'s scene ahead of it, keyed by its `request_id`, when it
+/// has any (v36).
+///
+/// A zoned material is written without its zones (`GemMaterial::zoning` is `serde(skip)`);
+/// the joined worker keeps the payload for the request that follows
+/// (`crate::serve::zoning`). It runs this coordinator's protocol version and release, so it
+/// always reads it. A Ray-Traced scene carries none (it uses the base color).
+fn write_zones<W: Write>(conn: &mut W, request: &RenderRequest) -> Result<(), NetError> {
+    ZoningPayload::for_scene(request.request_id, &request.scene).map_or(Ok(()), |payload| {
+        pleochroma_net::messages::write_message(
+            conn,
+            &ClientMessage::ZoningPayload(Box::new(payload)),
+        )
+    })
 }
 
 /// Why [`forward_asset`] could not answer a `NEED_ASSET`.
@@ -677,6 +696,39 @@ mod tests {
         let client = TcpStream::connect(addr).expect("connect to our own listener");
         let (server, _) = listener.accept().expect("accept the connection just made");
         (client, server)
+    }
+
+    /// A zoned chunk is preceded by its zones under the chunk's own request id; an unzoned one
+    /// writes nothing.
+    #[test]
+    fn a_zoned_chunk_is_preceded_by_its_zones() {
+        let mut zoned = crate::serve::tests::fixtures::tiny_scene();
+        zoned.material =
+            zoned
+                .material
+                .with_zoning(pleochroma::optics::zoning::ZonedAbsorption::new(
+                    pleochroma::optics::zoning::ZoneAbsorption::per_mm(
+                        pleochroma::optics::absorption::AbsorptionTensor::isotropic(vec![]),
+                    ),
+                ));
+        let request = worker_request(77, &zoned, 0, 4);
+        assert!(
+            request.scene.material.zoning.is_some(),
+            "the chunk's scene keeps its zones in memory"
+        );
+        let mut out = Vec::new();
+        write_zones(&mut out, &request).unwrap();
+        let message: ClientMessage =
+            pleochroma_net::messages::read_message(&mut std::io::Cursor::new(out)).unwrap();
+        let ClientMessage::ZoningPayload(payload) = message else {
+            panic!("expected the zones, got {message:?}");
+        };
+        assert_eq!(Some(*payload), ZoningPayload::for_scene(77, &zoned));
+
+        let plain = worker_request(78, &crate::serve::tests::fixtures::tiny_scene(), 0, 4);
+        let mut none = Vec::new();
+        write_zones(&mut none, &plain).unwrap();
+        assert!(none.is_empty());
     }
 
     /// A heartbeat-only `Progress` (the same `samples_done` repeated) must not push back

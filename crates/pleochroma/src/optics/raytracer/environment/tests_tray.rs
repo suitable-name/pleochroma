@@ -300,6 +300,37 @@ fn tray_radiance_is_albedo_times_irradiance_and_zero_for_as_lit() {
     );
 }
 
+/// The meter shows white paper at the same radiance under every visible rig and pose, scales
+/// linearly with the compensation, and leaves the UV lamps alone.
+#[test]
+fn the_meter_shows_white_paper_alike_under_every_rig() {
+    for preset in LightingPreset::ALL {
+        for (yaw, pitch) in [
+            (0.84f32, 72.0f32.to_radians()),
+            (5.24, 25.0f32.to_radians()),
+        ] {
+            let metered = metered_exposure(1.0, preset, yaw, pitch);
+            if matches!(
+                preset,
+                LightingPreset::UvLamp365 | LightingPreset::UvLamp395
+            ) {
+                assert_eq!(metered.to_bits(), 1.0f32.to_bits(), "{preset:?}");
+                continue;
+            }
+            let paper = tray_radiance(TRAY_ALBEDO_WHITE, preset, yaw, pitch) * metered;
+            assert!(
+                (paper - METERED_PAPER_RADIANCE).abs() < 1e-4,
+                "{preset:?} at pitch {pitch}: paper {paper}"
+            );
+            let doubled = metered_exposure(2.0, preset, yaw, pitch);
+            assert!((doubled / metered - 2.0).abs() < 1e-5, "{preset:?}");
+        }
+    }
+    // The grading dome is the reference every rig is metered to: its own reading is 1.
+    let iso = metered_exposure(1.0, LightingPreset::IsoHemisphere, 0.84, 1.2);
+    assert!((iso - 1.0).abs() < 0.002, "iso {iso}");
+}
+
 /// Dragging the light by a degree must not make the surround flicker.
 #[test]
 fn tray_resolve_does_not_wobble() {

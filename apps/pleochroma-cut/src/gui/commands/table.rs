@@ -132,6 +132,15 @@ pub static COMMANDS: &[Command] = &[
         call!(EditorModel.invoke_export_cutting_sheet),
     ),
     command(
+        "file.export_cutting_sheet_pdf",
+        "Export Cutting Sheet (PDF)...",
+        Category::File,
+        "print instructions pdf letter page standard template export save",
+        None,
+        FILE_OPS_DESIGN,
+        call!(EditorModel.invoke_export_cutting_sheet_pdf),
+    ),
+    command(
         "file.export_diagram",
         "Export Diagram (PNG)...",
         Category::File,

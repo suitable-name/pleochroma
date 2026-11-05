@@ -24,7 +24,7 @@ extension. Every command that takes a design takes several: see [Several designs
 | `optimize` | The Optimize tab's search on the design's own material. Lists ranked candidates; `--out` saves the best. |
 | `retarget` | The Retarget dialog's engine and validity gate, for another material. |
 | `sweep` | Sets one tier to every angle of a range and scores each one. |
-| `export` | Writes `.asc` (GemCAD cutting instructions), `.psdd`, `.gcs` or the cutting sheet as `.html`. `--format psdd` also takes the older name `pleochroma`. |
+| `export` | Writes `.asc` (GemCAD cutting instructions), `.psdd`, `.gcs` or the cutting sheet as `.html` or `.pdf` (both in the standard cutting-instructions template; the web page adds shaded renderings, the masts and the carat estimate after it). `--format psdd` also takes the older name `pleochroma`. |
 | `census` | Read-only measurement of the meet-preserving gate over templates, files and a library. See [Census](#census). |
 | `render` | Renders a still picture from a render job file (`*.job.json`) made by the desktop app. See [Render jobs](#render-jobs). |
 | `tilt-video` | Renders a tilt performance video from a render job file, and resumes from the frames already written. |
@@ -42,6 +42,7 @@ pleochroma-cli retarget round.psdd --material Sapphire --crown-fraction 0.33 --o
 pleochroma-cli retarget round.psdd --ri 1.7681 --mode optimize --range 4 --out sapphire.psdd
 pleochroma-cli sweep round.psdd --tier "Pavilion Main" --from 39 --to 43 --step 0.5 --csv sweep.csv
 pleochroma-cli export round.psdd --format html --out sheet.html
+pleochroma-cli export round.psdd --out sheet.pdf
 pleochroma-cli export round.psdd --out round.asc
 pleochroma-cli metrics *.psdd --csv
 pleochroma-cli solve old/*.asc --out-dir converted
@@ -61,9 +62,9 @@ use (GemCAD's format needs it): in JSON a pavilion angle is negative, and every 
 `from_deg`, `to_deg` and `current_deg` is signed. A difference (a change or a margin) is a
 difference and keeps its sign in both.
 
-`export --date TEXT` sets the date that the `.html` cutting sheet prints under its title (for
-example `--date "October 2026"`). Without it no date is printed, so the page is the same every
-time.
+`export --date TEXT` sets the date that the `.html` or `.pdf` cutting sheet prints beside the
+designer (for example `--date "October 2026"`). Without it no date is printed, so the sheet is the
+same every time.
 
 ## Several designs
 
@@ -86,7 +87,8 @@ changes, byte for byte. (`render` and `tilt-video` take one job file, not design
   each design instead, named after the design without its extension and given the extension of
   the output: `DIR/<name>.psdd` for `solve`, `optimize` and `retarget`; `.txt`, `.json` or `.csv`
   for a report written by `info`, `metrics` and `validate`; `.csv` for `sweep`; the chosen format
-  for `export`, which then needs `--format` (`DIR/<name>.asc`, `.psdd`, `.gcs` or `.html`).
+  for `export`, which then needs `--format` (`DIR/<name>.asc`, `.psdd`, `.gcs`, `.html` or
+  `.pdf`).
   `DIR` must exist (exit code 3 otherwise, before anything runs), and two designs that would get
   the same file name (`a/x.asc` and `b/x.gem`, or `x.asc` and `X.ASC`: names are compared
   without regard to case) are refused before anything runs, so one file never replaces another.
@@ -280,8 +282,9 @@ the app would have made, and a remote worker is used through the app's own clien
 other commands they write their pictures themselves.
 
 ```
-pleochroma-cli render JOB.job.json [--out FILE.png] [ENGINE OPTIONS] [--quiet]
-pleochroma-cli tilt-video JOB.job.json [--out-dir FOLDER] [--restart] [ENGINE OPTIONS] [--quiet]
+pleochroma-cli render JOB.job.json [--out FILE.png] [ENGINE OPTIONS] [PICTURE OPTIONS] [--quiet]
+pleochroma-cli tilt-video JOB.job.json [--out-dir FOLDER] [--restart] [ENGINE OPTIONS]
+                          [PICTURE OPTIONS] [--quiet]
 
 ENGINE OPTIONS
   --engine path|ray           override the job renderer (Ray uses its AA tap count)
@@ -291,7 +294,24 @@ ENGINE OPTIONS
   --compute local|remote|both  replace the job's compute choice
   --transfer full|final        replace the job's transfer choice
   --contribute-local           with --transfer final: this computer renders a share too
+
+PICTURE OPTIONS
+  --material NAME              the job's stone in another built-in material, at the job's stone
+                               width
+  --color-pattern NAME         the stone in a typical color pattern of its material
+                               (hexagonal-banding, watermelon, ...), not with --color-variant
+  --color-variant KEY          the job's material in a built-in color variant (ruby.thai or thai),
+                               at the job's stone width
+  --highlights whiten|keep-color
+                               over-bright colors keep their hue and saturation and are dimmed
+                               (keep-color, default) or turn paler (whiten); whiten with a
+                               remote worker needs --transfer full
 ```
+
+- `--material`, `--color-pattern`, `--color-variant` and `--highlights whiten` change the picture, so the job gets a token of
+  its own: a tilt video needs its own `--out-dir` (the plain run's folder is another job's), and
+  a later run with the same options resumes its frames. The highlight rule is
+  `pleochroma::color::HighlightRule`, set process-wide while the job runs.
 
 - `--out` is for `render` only; `--out-dir` and `--restart` are for `tilt-video` only. Another
   command's flag is exit code 1 and names the command.

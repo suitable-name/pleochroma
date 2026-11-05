@@ -6,7 +6,9 @@
 //! editor's solver, `color_pattern::solve_pattern_colors`) and the result goes through the same
 //! guarded [`Port::apply`] as an edit in the editor: the open design takes it as one undo step, a
 //! preview keeps it for the view only. A stone or material that changed while the colors were
-//! matched is refused, never recolored.
+//! matched is refused, never recolored. A Watermelon or Reverse Watermelon then also turns the
+//! Crystal Axis through the table (the Through the Table preset, a step of its own), the way
+//! watermelons are cut.
 
 use std::{
     cell::RefCell,
@@ -16,13 +18,15 @@ use std::{
     },
 };
 
-use pleochroma_cut_core::material::pattern::{ColorPattern, typical_index, typical_patterns};
+use pleochroma_cut_core::material::pattern::{
+    ColorPattern, typical_index, typical_patterns, wants_axis_through_table,
+};
 use pleochroma_editor::lch_color::reference_path_mm;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
 use super::{Port, Target, effective_width};
 use crate::{
-    MainWindow, ViewportModel, Zoning,
+    CrystalAxisModel, MainWindow, ViewportModel, Zoning,
     gui::{
         color_pattern::{solve_pattern_colors, zone_variants},
         rough_colour::material_zones::registered_vault,
@@ -170,11 +174,24 @@ fn finish(ui: &MainWindow, ticket: u64, solved: Option<ColorPattern>) {
     };
     ui.global::<Zoning>().set_typical_pattern_busy(false);
     let result = match solved {
-        Some(pattern) => pending.port.apply(&pending.expected, Some(pattern)),
+        Some(pattern) => {
+            let through_table = wants_axis_through_table(&pattern);
+            pending
+                .port
+                .apply(&pending.expected, Some(pattern))
+                .map(|()| through_table)
+        }
         None => Err("The colors of this zoning could not be matched.".to_owned()),
     };
-    if let Err(message) = result {
-        show_toast(ui, &message, "warning");
+    match result {
+        // A watermelon is cut as a slice across c: its rings show face up only with the Crystal
+        // Axis through the table (with a tourmaline's own axis in the table plane, pink and green
+        // blend to orange). The same step as the Through the Table preset, after the pattern.
+        Ok(true) => ui
+            .global::<CrystalAxisModel>()
+            .invoke_geometry_preset_chosen(0),
+        Ok(false) => {}
+        Err(message) => show_toast(ui, &message, "warning"),
     }
     ui.global::<ViewportModel>().invoke_render_color_refresh();
     pending.port.present(ui);
@@ -218,12 +235,16 @@ mod tests {
         assert!(
             variants
                 .iter()
-                .any(|variant| variant.key == "sapphire.yellow")
+                .any(|variant| variant.key == "sapphire.golden_yellow")
         );
         let entry = typical_patterns("Sapphire")[1];
         assert_eq!(entry.template, TemplateId::PartiColor);
         let pattern = entry.for_stone([40.0, 45.0, 265.0], &variants);
-        assert_eq!(pattern.base.color.variant_key(), Some("sapphire.yellow"));
+        // The rim takes the Golden Yellow first (2026-11-03; the Yellow is its fallback).
+        assert_eq!(
+            pattern.base.color.variant_key(),
+            Some("sapphire.golden_yellow")
+        );
         // The blue core is the Sapphire's Material Default, so nothing is left to solve.
         assert_eq!(
             pattern.zones[0].color.variant_key(),

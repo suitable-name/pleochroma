@@ -152,6 +152,10 @@ export global LibraryModel {
     callback rename_diagram(string);
     callback set_shape(string);
     callback delete_diagram();
+    // Asks, then deletes the design with this entry id (any row, not only the selected
+    // one); the title names it in the question. The list's right-click and "more
+    // actions" menus and the Library menu use it (`gui::library::local::organize`).
+    callback delete_entry(int, string);
     callback export_asc();
     // Experimental Gem Cut Studio `.gcs` export of the selected design
     // (`gui::library::local::export::setup_export_asc_callback`).

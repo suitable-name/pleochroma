@@ -150,6 +150,12 @@ pleochroma-cli tilt-video FILE.job.json
 | `--out-dir FOLDER` | `tilt-video` only: use another frame folder. |
 | `--restart` | `tilt-video` only: start again from the first frame. Without it a video resumes. |
 | `--quiet` | No progress lines. Notes and errors are still printed. |
+| `--material NAME` | Render the stone in another built-in material (any letter case), at the job's stone size. An unknown name is refused with the list of materials. |
+| `--color-pattern NAME` | Render the stone in one of its material's typical color patterns (Chapter 29), built on the material's own color as the Color Pattern window builds it: `hexagonal-banding`, `watermelon`, `"Parti Color"` and so on. A Watermelon or Reverse Watermelon also turns the Crystal Axis through the table, as the app does. Not together with `--color-variant`. |
+| `--color-variant KEY` | Render the job's material in one of its built-in color variants, at the job's stone size: the full key (`ruby.thai`) or the part after the dot (`thai`). An unknown key is refused, and the message lists the material's keys. |
+| `--highlights whiten` or `keep-color` | How colors too bright for the screen are shown. `keep-color` (the default) keeps their hue and saturation and dims them; only light brighter than white turns white. `whiten`, the rule of earlier versions, keeps their brightness and makes them paler, so a bright ruby can look pink. With a remote worker, `whiten` needs `--transfer full`. |
+
+`--material`, `--color-pattern`, `--color-variant` and `--highlights whiten` make a different picture than the job describes. A tilt video run with either one needs its own `--out-dir`: the folder of the plain run belongs to another job.
 
 The tool prints one line on standard output: the path of the finished file (for a video, the MP4 or GIF, or the frame folder when no video could be made). Progress, notes and the line `wrote PATH` go to standard error.
 

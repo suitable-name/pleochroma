@@ -8,12 +8,14 @@ use std::{
     fs::File,
     io::{BufReader, BufWriter, Write},
     path::Path,
+    sync::Arc,
 };
 
 use pleochroma_ai::{
-    env::{GemstoneObservation, OBS_LAYOUT_VERSION, recovery::EpisodeSnapshot},
+    env::{EnvExecution, GemstoneObservation, OBS_LAYOUT_VERSION, recovery::EpisodeSnapshot},
     model::{Checkpoint, GemstoneSetAttentionNetwork, Prng},
     training::buffer::ReturnNormalizer,
+    training::imitation::IMITATION_OBJECTIVE_REVISION,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -26,10 +28,12 @@ use super::{
     label_cache::{CacheSnapshot, LabelCache},
     pool,
     progress::TrainingProgress,
+    recovery_identity::{self, SemanticIdentity},
     update::InstalledUpdate,
 };
 
 const VERSION: u32 = 1;
+const ROLLOUT_SCHEDULER_REVISION: u32 = 1;
 
 #[derive(Serialize, Deserialize)]
 struct SlotState {
@@ -122,6 +126,7 @@ fn restore_slots(
     states: Vec<SlotState>,
     cfg: &RunConfig,
     split: &DatasetSplit,
+    execution: Option<&Arc<EnvExecution>>,
     progress: &TrainingProgress,
 ) -> Result<Vec<Slot>, RunnerError> {
     let count = states.len();
@@ -144,13 +149,24 @@ fn restore_slots(
             let state = state
                 .take()
                 .expect("each saved slot is restored exactly once");
-            let _task = progress.task(format!(
+            let task = progress.task(format!(
                 "restore slot {}/{} design {} (saved optical scores)",
                 index + 1,
                 count,
                 state.entry,
             ));
-            state.restore(cfg, split)
+            let mut slot = state.restore(cfg, split)?;
+            if let Some(execution) = execution {
+                // Preparation stays in the bounded worker and inside this slot's task lifetime.
+                task.update_detail(format!(
+                    "restore slot {}/{} design {} (accelerator preparation)",
+                    index + 1,
+                    count,
+                    slot.entry,
+                ));
+                slot.env.set_execution(Arc::clone(execution));
+            }
+            Ok(slot)
         },
     )
     .into_iter()
@@ -160,6 +176,10 @@ fn restore_slots(
 #[derive(Serialize, Deserialize)]
 struct RunnerState {
     version: u32,
+    #[serde(default)]
+    rollout_scheduler_revision: u32,
+    #[serde(default = "legacy_imitation_objective_revision")]
+    imitation_objective_revision: u32,
     obs_layout_version: u32,
     #[serde(default = "legacy_environment_math")]
     environment_math: String,
@@ -176,6 +196,22 @@ struct RunnerState {
     warnings: Vec<String>,
     stats: RunnerStats,
     oracle_cache: Option<OracleCache>,
+    /// Field-level configuration identity; absent in bundles written before it existed.
+    #[serde(default)]
+    semantic_config: Option<SemanticIdentity>,
+    /// Field-level corpus identity; absent in bundles written before it existed.
+    #[serde(default)]
+    semantic_corpus: Option<SemanticIdentity>,
+}
+
+/// The refusal of a changed corpus, before any field-level detail.
+const CHANGED_CORPUS: &str = "recovery requires an unchanged dataset, including effective physical sizes and source-material sampling. Native files whose missing values are now augmented need a fresh run with a new output prefix; use --warm-start with the model checkpoint to retain learned weights without reusing incompatible episodes or replay";
+
+/// The refusal of a changed configuration, before any field-level detail.
+const CHANGED_CONFIG: &str = "recovery requires the original run configuration";
+
+const fn legacy_imitation_objective_revision() -> u32 {
+    1
 }
 
 fn legacy_environment_math() -> String {
@@ -208,10 +244,67 @@ fn read_state<T: DeserializeOwned>(path: &Path) -> Result<T, RunnerError> {
     rmp_serde::from_read(BufReader::new(file)).map_err(|e| error("decode recovery payload", e))
 }
 
+/// The legacy `Debug` identity a bundle records. The device is normalised: a resume may move to
+/// other hardware.
 fn config_identity(runner: &TrainingRunner) -> String {
     let mut config = runner.cfg.clone();
-    config.device = DeviceChoice::Auto; // The sole training override allowed during recovery.
+    config.device = DeviceChoice::Auto;
     format!("{config:?}")
+}
+
+/// The legacy comparison with the explicit resume overrides ignored: besides the device, the
+/// imitation learning rate and gradient-norm cap may differ, so the current configuration is
+/// rendered with the values the saved identity recorded for those two before comparing.
+fn matches_legacy_config(saved: &str, cfg: &RunConfig) -> bool {
+    let mut config = cfg.clone();
+    config.device = DeviceChoice::Auto;
+    let (learning_rate, max_grad_norm) = recovery_identity::legacy_imitation_step_size(saved);
+    if let Some(rate) = learning_rate {
+        config.imitation.learning_rate = rate;
+    }
+    if let Some(norm) = max_grad_norm {
+        config.imitation.max_grad_norm = norm;
+    }
+    matches_config_identity(saved, &format!("{config:?}"), cfg.label_memory_mib)
+}
+
+/// Accepts a saved identity when the legacy form matches or the field-level form has no
+/// changes; otherwise the refusal names the changed fields when the bundle recorded them.
+fn check_identity(
+    legacy_matches: bool,
+    saved: Option<&SemanticIdentity>,
+    current: impl FnOnce() -> SemanticIdentity,
+    added: &[(&str, &str)],
+    refusal: &str,
+) -> Result<(), RunnerError> {
+    if legacy_matches {
+        return Ok(());
+    }
+    let Some(saved) = saved else {
+        return Err(RunnerError::Data(refusal.to_owned()));
+    };
+    let changes = saved.changes(&current(), added);
+    if changes.is_empty() {
+        return Ok(());
+    }
+    Err(RunnerError::Data(format!(
+        "{refusal}. Changed: {}",
+        recovery_identity::describe_changes(&changes)
+    )))
+}
+
+fn matches_config_identity(saved: &str, current: &str, label_memory_mib: usize) -> bool {
+    if saved == current {
+        return true;
+    }
+    // Before the host budget existed, its effective value was always 512 MiB.
+    // Remove precisely that one field from the current identity; all other fields
+    // remain part of the exact comparison and non-default budgets cannot migrate.
+    let field = ", label_memory_mib: 512";
+    label_memory_mib == 512
+        && current.contains(field)
+        && !saved.contains(", label_memory_mib:")
+        && current.replacen(field, "", 1) == saved
 }
 
 impl TrainingRunner {
@@ -223,6 +316,12 @@ impl TrainingRunner {
     /// # Errors
     /// Returns an error on synchronization, export or IO failure; the bundle must not be published.
     pub fn save_recovery(&mut self, directory: &Path) -> Result<(), RunnerError> {
+        if !self.recovery_safe {
+            return Err(RunnerError::Data(
+                "cannot checkpoint a failed iteration or recovery install; keep the last committed recovery"
+                    .into(),
+            ));
+        }
         // A fatal device error can interrupt a rollout after environment mutation but
         // before its observation is committed. Keep the previous durable generation.
         if let Some(execution) = &self.execution {
@@ -236,15 +335,12 @@ impl TrainingRunner {
         self.sync_update()?;
         let state = RunnerState {
             version: VERSION,
+            rollout_scheduler_revision: ROLLOUT_SCHEDULER_REVISION,
+            imitation_objective_revision: IMITATION_OBJECTIVE_REVISION,
             obs_layout_version: OBS_LAYOUT_VERSION,
-            environment_math: if self.execution.is_some() {
-                pleochroma_ai::env::CUDA_ENVIRONMENT_MATH
-            } else {
-                "cpu-env-v1"
-            }
-            .to_owned(),
+            environment_math: self.environment_math().to_owned(),
             config: config_identity(self),
-            corpus: format!("{:?}", self.split),
+            corpus: self.split.recovery_identity(),
             network: self.net.clone(),
             rollout_network: self.rollout_model.export_to_set_attention()?,
             installed_update: self.installed_update.clone(),
@@ -260,20 +356,37 @@ impl TrainingRunner {
             warnings: self.warnings.clone(),
             stats: self.stats.clone(),
             oracle_cache: self.oracle_cache.clone(),
+            semantic_config: Some(recovery_identity::config_identity(&self.cfg)),
+            semantic_corpus: Some(recovery_identity::corpus_identity(&self.split)),
         };
         self.updater.save_training_state(directory)?;
         write_state(&directory.join("runner-state.mpk"), &state)?;
         write_state(&directory.join("replay.mpk"), &self.aggregate)
     }
 
+    /// Lets [`Self::restore_recovery`] continue a run whose environment arithmetic changed (a
+    /// resume on another device, or a new CUDA math revision): its retained labels are then
+    /// dropped and relabelled, with a warning naming how many. Off by default, so such a resume
+    /// is refused rather than silently training the rest of the run on a handful of fresh
+    /// labels while the optimizer step count and learning-rate schedule carry on.
+    pub const fn set_allow_environment_relabel(&mut self, allow: bool) {
+        self.allow_environment_relabel = allow;
+    }
+
     /// Restores a saved iteration boundary with its original corpus and settings.
     ///
-    /// Device selection may differ. Numerical identity across different hardware/backends is
-    /// not promised. Optimizer, episode and schedule state are retained; labels are rebuilt
-    /// when the environment arithmetic changes, since their actions may project differently.
+    /// Device selection may differ, and the imitation learning rate and gradient-norm cap may
+    /// be overridden explicitly. Numerical identity across different hardware/backends is not
+    /// promised. Optimizer, episode and schedule state are retained. Labels made with other
+    /// environment arithmetic project actions differently: a bundle that carries any is refused
+    /// unless [`Self::set_allow_environment_relabel`] allowed dropping them.
+    ///
+    /// The configuration and the corpus must match either the bundle's legacy identities or its
+    /// field-level ones; a refusal names the differing fields when the bundle recorded them.
     ///
     /// # Errors
-    /// Refuses changed data/configuration, incompatible state, or unavailable backend.
+    /// Refuses changed data/configuration, a change of environment arithmetic that would drop
+    /// labels without permission, incompatible state, or an unavailable backend.
     pub fn restore_recovery(&mut self, directory: &Path) -> Result<(), RunnerError> {
         self.progress.phase("decode recovery state", 1);
         let state: RunnerState = {
@@ -289,11 +402,34 @@ impl TrainingRunner {
                 "unsupported runner recovery schema or observation layout".into(),
             ));
         }
-        if state.config != config_identity(self) || state.corpus != format!("{:?}", self.split) {
-            return Err(RunnerError::Data(
-                "recovery requires the original run configuration and unchanged dataset".into(),
-            ));
+        if state.rollout_scheduler_revision > ROLLOUT_SCHEDULER_REVISION {
+            return Err(RunnerError::Data(format!(
+                "unsupported rollout scheduler revision {}",
+                state.rollout_scheduler_revision
+            )));
         }
+        if self.cfg.algo == super::Algorithm::Imitation
+            && state.imitation_objective_revision > IMITATION_OBJECTIVE_REVISION
+        {
+            return Err(RunnerError::Data(format!(
+                "unsupported imitation objective revision {}",
+                state.imitation_objective_revision
+            )));
+        }
+        check_identity(
+            matches_legacy_config(&state.config, &self.cfg),
+            state.semantic_config.as_ref(),
+            || recovery_identity::config_identity(&self.cfg),
+            recovery_identity::ADDED_CONFIG_FIELDS,
+            CHANGED_CONFIG,
+        )?;
+        check_identity(
+            state.corpus == self.split.recovery_identity(),
+            state.semantic_corpus.as_ref(),
+            || recovery_identity::corpus_identity(&self.split),
+            recovery_identity::ADDED_CORPUS_FIELDS,
+            CHANGED_CORPUS,
+        )?;
         if state.slots.len() != self.cfg.effective_workers()
             || !self.split.train.contains(&state.focus_entry)
             || state
@@ -310,21 +446,36 @@ impl TrainingRunner {
         drop(validation);
         self.progress.begin(state.stats.iteration, 0);
         self.progress.phase("restore replay", 2);
-        let aggregate: LabelledStates = {
+        let mut aggregate: LabelledStates = {
             let _task = self.progress.task("decode saved replay labels".into());
             read_state(&directory.join("replay.mpk"))?
         };
         {
             let _task = self.progress.task("validate saved replay labels".into());
-            aggregate.validate_recovery(self.cfg.label_capacity, self.split.max_tiers)?;
+            aggregate.validate_recovery(
+                self.cfg.label_capacity,
+                self.split.max_tiers,
+                self.cfg.label_memory_mib * 1024 * 1024,
+            )?;
+            aggregate.enforce_budget();
         }
-        let mut slots = restore_slots(state.slots, &self.cfg, &self.split, &self.progress)?;
+        let cached_labels = state
+            .slots
+            .iter()
+            .filter(|slot| slot.label_cache.is_some())
+            .count();
+        self.check_environment_relabel(&state.environment_math, aggregate.len(), cached_labels)?;
+        let slots = restore_slots(
+            state.slots,
+            &self.cfg,
+            &self.split,
+            self.execution.as_ref(),
+            &self.progress,
+        )?;
         if let Some(execution) = &self.execution {
-            for slot in &mut slots {
-                slot.env.set_execution(std::sync::Arc::clone(execution));
-            }
             execution.check().map_err(RunnerError::Data)?;
         }
+        self.recovery_safe = false;
         self.sync_update()?;
         self.progress.phase("restore training device", 2);
         {
@@ -346,25 +497,76 @@ impl TrainingRunner {
         self.normalizer = state.normalizer;
         self.rng = state.rng;
         self.focus_entry = state.focus_entry;
-        self.warnings = state.warnings;
+        // The saved warnings come first; this process's own (a GPU fallback, for example) stay.
+        let fresh = std::mem::replace(&mut self.warnings, state.warnings);
+        for warning in fresh {
+            if !self.warnings.contains(&warning) {
+                self.warnings.push(warning);
+            }
+        }
+        if self.cfg.algo == super::Algorithm::Imitation
+            && state.imitation_objective_revision < IMITATION_OBJECTIVE_REVISION
+        {
+            self.warnings.push(format!(
+                "Recovery imitation objective revision {} migrated to {}; subsequent gradients use robust component regression, balanced action Huber and bounded direction loss. Learned weights, optimizer moments and replay were retained as intentional continued training. This is not a bitwise continuation of the old objective's optimizer trajectory.",
+                state.imitation_objective_revision,
+                IMITATION_OBJECTIVE_REVISION,
+            ));
+        }
+        if state.rollout_scheduler_revision < ROLLOUT_SCHEDULER_REVISION
+            && self.cfg.algo == super::Algorithm::Imitation
+        {
+            self.warnings.push(format!(
+                "Recovery scheduler revision {} migrated to {}; imitation rollout streams now use deterministic per-slot RNG and fixed quotas. Existing labels and replay were retained; bitwise action replay across this scheduler change is not promised.",
+                state.rollout_scheduler_revision,
+                ROLLOUT_SCHEDULER_REVISION,
+            ));
+        }
         self.stats = state.stats;
         self.oracle_cache = state.oracle_cache;
-        self.invalidate_changed_environment_labels(&state.environment_math);
+        self.invalidate_changed_environment_labels(&state.environment_math, cached_labels);
         // A completed rollout was already consumed by the saved optimizer; collect_rollout
         // clears these on the next iteration as well. There is no partial PPO batch to resume.
         self.clear_rollout();
+        self.recovery_safe = true;
         Ok(())
     }
 
-    fn invalidate_changed_environment_labels(&mut self, previous: &str) {
-        let current = if self.execution.is_some() {
-            pleochroma_ai::env::CUDA_ENVIRONMENT_MATH
-        } else {
-            "cpu-env-v1"
-        };
+    /// Refuses, before anything changes, a resume whose environment arithmetic differs from
+    /// the saved one when that would drop `replay_labels` retained labels or `cached_labels`
+    /// slot caches and [`Self::set_allow_environment_relabel`] did not allow it.
+    fn check_environment_relabel(
+        &self,
+        previous: &str,
+        replay_labels: usize,
+        cached_labels: usize,
+    ) -> Result<(), RunnerError> {
+        let current = self.environment_math();
+        if previous == current
+            || self.allow_environment_relabel
+            || (replay_labels == 0 && cached_labels == 0)
+        {
+            return Ok(());
+        }
+        Err(RunnerError::Data(format!(
+            "recovery was saved with environment arithmetic '{previous}', but this run on {} \
+             computes '{current}'. Resuming would discard {replay_labels} retained imitation \
+             labels and {cached_labels} cached slot labels while the optimizer step count and \
+             learning-rate schedule continue, so the rest of the run would train on a few fresh \
+             labels at an already decayed learning rate. Resume on the original device, or pass \
+             --relabel to accept dropping and relabelling them",
+            self.device_label,
+        )))
+    }
+
+    /// Drops every label made with other environment arithmetic (permitted by
+    /// [`Self::check_environment_relabel`]) and says how many were dropped.
+    fn invalidate_changed_environment_labels(&mut self, previous: &str, cached_labels: usize) {
+        let current = self.environment_math();
         if previous == current {
             return;
         }
+        let replay_labels = self.aggregate.len();
         for slot in &mut self.slots {
             slot.label_cache = LabelCache::default();
         }
@@ -372,7 +574,7 @@ impl TrainingRunner {
         self.stats.labelled_samples = 0;
         self.oracle_cache = None;
         self.warnings.push(format!(
-            "Environment arithmetic changed from {previous} to {current}; model, optimizer, RNG, accepted episodes and iteration are retained. Slot labels, imitation replay and oracle cache are cleared so actions are relabelled with the new projection. Bitwise replay across revisions is not guaranteed.",
+            "Environment arithmetic changed from {previous} to {current}: dropped {replay_labels} retained imitation labels and {cached_labels} cached slot labels, which are relabelled with the new projection; the oracle cache is cleared too. Model, optimizer, RNG, accepted episodes, iteration and learning-rate schedule are retained, so the remaining iterations train on fresh labels only. Bitwise replay across revisions is not guaranteed.",
         ));
     }
 
@@ -427,3 +629,27 @@ pub(super) mod fidelity {
 #[cfg(test)]
 #[path = "runner_recovery_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod config_identity_migration_tests {
+    use super::matches_config_identity;
+
+    #[test]
+    fn legacy_budget_migration_keeps_all_other_config_checks() {
+        let current =
+            "RunConfig { label_capacity: 50000, label_memory_mib: 512, explore_std: 0.3 }";
+        let legacy = "RunConfig { label_capacity: 50000, explore_std: 0.3 }";
+        assert!(matches_config_identity(legacy, current, 512));
+        assert!(!matches_config_identity(legacy, current, 4096));
+        assert!(!matches_config_identity(
+            &legacy.replace("50000", "50001"),
+            current,
+            512
+        ));
+        assert!(!matches_config_identity(
+            &current.replace("512", "513"),
+            current,
+            512
+        ));
+    }
+}

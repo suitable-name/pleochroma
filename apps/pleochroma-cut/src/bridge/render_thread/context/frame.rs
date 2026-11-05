@@ -173,7 +173,7 @@ pub(in crate::bridge::render_thread) fn snapshot_frame_inputs(
         head_shadow_deg: ctx.head_shadow_deg,
         target_samples,
         max_bounces: ctx.max_bounces,
-        exposure: ctx.exposure,
+        exposure: ctx.effective_exposure(),
         inclusion_sigma_s: ctx.inclusion_sigma_s,
         c_axis_override: ctx.c_axis_override,
         alpha_axis_override: ctx.alpha_axis_override,

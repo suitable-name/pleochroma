@@ -7,7 +7,8 @@
 use pleochroma::{geometry::meet_solver::SolvedTier, optics::materials::GemMaterial};
 use pleochroma_cut_core::{CrystalOrientation, Design};
 use pleochroma_editor::cut_sheet::{
-    SheetDetails, cutting_sheet_document_with_default, diagram_export_png, month_year_text,
+    SheetDetails, cutting_sheet_document_with_default, cutting_sheet_pdf_with_default,
+    diagram_export_png, month_year_text,
 };
 
 use super::{CutError, NotSolved, plan};
@@ -37,6 +38,21 @@ impl SheetJob {
     #[must_use]
     pub fn html(&self) -> String {
         cutting_sheet_document_with_default(
+            &self.design,
+            &self.solved,
+            &self.custom,
+            self.stored_default,
+            &self.details,
+        )
+    }
+
+    /// The cutting sheet as a PDF: the standard template on US Letter pages, the same sheet as
+    /// the HTML's main part.
+    ///
+    /// # Errors
+    /// The reason when the design does not close to a solid.
+    pub fn pdf(&self) -> Result<Vec<u8>, String> {
+        cutting_sheet_pdf_with_default(
             &self.design,
             &self.solved,
             &self.custom,
@@ -88,6 +104,16 @@ pub fn sheet_job(state: &AppState, date_text: &str) -> Result<SheetJob, NotSolve
 /// [`NotSolved`] when the design has no solve of its current generation (or no tiers).
 pub fn cutting_sheet_html(state: &AppState, date_text: &str) -> Result<String, NotSolved> {
     sheet_job(state, date_text).map(|job| job.html())
+}
+
+/// The cutting sheet of the open design as PDF bytes.
+///
+/// # Errors
+/// [`CutError::NotSolved`] without a current solve, [`CutError::Failed`] when the design
+/// does not close to a solid.
+pub fn cutting_sheet_pdf(state: &AppState, date_text: &str) -> Result<Vec<u8>, CutError> {
+    let job = sheet_job(state, date_text)?;
+    job.pdf().map_err(CutError::Failed)
 }
 
 /// The diagram of the open design as PNG bytes.

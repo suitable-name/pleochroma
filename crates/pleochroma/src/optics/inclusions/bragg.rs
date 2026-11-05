@@ -349,12 +349,17 @@ impl StructureSpec {
                 purity: 0.05,
                 coverage: 0.8,
             },
+            // A domain's wavelength is Gaussian about the middle of the range (`domains`), so
+            // the range sets the most common flash: 400-560 nm centres on blue (480 nm) with some
+            // green, as the dealer photos flash (2026-11-04); the 470-740 nm of earlier versions
+            // centred on green-yellow and, face up with the lamellae along the table, flashed
+            // green, orange and red.
             StructureKind::Labradorite => Self {
                 pattern: StructurePattern::BroadFlash,
                 seed: DEFAULT_SEED,
                 size: None,
-                color_low_nm: 470.0,
-                color_high_nm: 740.0,
+                color_low_nm: 400.0,
+                color_high_nm: 560.0,
                 purity: 0.06,
                 coverage: 0.9,
             },

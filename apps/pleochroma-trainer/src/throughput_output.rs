@@ -104,6 +104,14 @@ pub struct Heartbeat {
     handle: Option<JoinHandle<io::Result<()>>>,
 }
 
+fn task_count(completed: usize, total: usize) -> String {
+    if total == 0 {
+        format!("{completed}/unknown")
+    } else {
+        format!("{completed}/{total}")
+    }
+}
+
 impl Heartbeat {
     pub fn start(journal: Journal) -> io::Result<Self> {
         let watch = Arc::new(Mutex::new(Watch {
@@ -127,10 +135,9 @@ impl Heartbeat {
                     let snapshot = progress.map(|progress| progress.snapshot());
                     if let Some(snapshot) = &snapshot {
                         eprintln!(
-                            "probe: {phase}; {} {}/{} tasks; {}",
+                            "probe: {phase}; {} {} tasks; {}",
                             snapshot.phase,
-                            snapshot.completed_tasks,
-                            snapshot.total_tasks,
+                            task_count(snapshot.completed_tasks, snapshot.total_tasks),
                             snapshot.oldest_active_task.as_deref().unwrap_or("waiting")
                         );
                     } else {
@@ -186,6 +193,12 @@ impl Drop for Heartbeat {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn task_count_identifies_unknown_and_known_totals() {
+        assert_eq!(task_count(17, 0), "17/unknown");
+        assert_eq!(task_count(17, 20), "17/20");
+    }
+
     #[test]
     fn artifacts_refuse_overwrite_and_case_events_are_readable_before_shutdown() {
         let temporary = tempfile::tempdir().unwrap();

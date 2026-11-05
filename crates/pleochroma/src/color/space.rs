@@ -24,9 +24,79 @@
 //! reachable via `xyz_to_rgb_in_space` but no caller currently picks a `space` other
 //! than `Srgb` (see that function's own doc comment).
 
+use std::sync::atomic::{AtomicU8, Ordering};
+
 use glam::Vec3;
 
 use super::gamut;
+
+/// How [`ColorSpace::encode`] shows a tone-mapped color that needs more than `1.0` in one
+/// RGB channel.
+///
+/// Saturated reds, blues and violets carry little luminance for their channel values (a deep
+/// red at `Y = 0.5` needs `R` near 1.9), so in a bright scene they reach the ceiling long before
+/// greens and yellows do. The rule decides what gives way: their luminance or their saturation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum HighlightRule {
+    /// Keep the luminance and walk the color toward white until it fits
+    /// ([`gamut::project_to_gamut_bounded`]): bright saturated colors turn pale (red to pink,
+    /// blue to pale blue, violet to lilac). The rule before 2026-11-03, kept for comparison
+    /// (`--highlights whiten`).
+    Whiten,
+    /// Keep the hue and saturation and dim the color until it fits; only light brighter than
+    /// diffuse white blends toward white ([`gamut::fit_keeping_color`]). The rule every render
+    /// uses unless told otherwise: a three-design comparison (2026-11-03) gave the same
+    /// lightness and hue as [`Self::Whiten`] and up to 60 % more chroma on a bright sapphire.
+    #[default]
+    KeepColor,
+}
+
+impl HighlightRule {
+    /// The command-line word: `whiten` or `keep-color`.
+    #[must_use]
+    pub const fn cli_word(self) -> &'static str {
+        match self {
+            Self::Whiten => "whiten",
+            Self::KeepColor => "keep-color",
+        }
+    }
+
+    /// Reads a command-line word, ignoring ASCII case.
+    #[must_use]
+    pub fn from_cli_word(word: &str) -> Option<Self> {
+        match word.trim().to_ascii_lowercase().as_str() {
+            "whiten" => Some(Self::Whiten),
+            "keep-color" => Some(Self::KeepColor),
+            _ => None,
+        }
+    }
+}
+
+/// The process-wide [`HighlightRule`]: `1` for [`HighlightRule::KeepColor`] (the default), `0`
+/// for [`HighlightRule::Whiten`].
+static HIGHLIGHT_RULE: AtomicU8 = AtomicU8::new(1);
+
+/// Sets the [`HighlightRule`] every later [`ColorSpace::encode`] of this process uses.
+///
+/// A comparison switch: a process sets it once before it renders (the command line's
+/// `--highlights`). It does not reach a remote worker, which tone-maps a finished picture under
+/// its own rule.
+pub fn set_highlight_rule(rule: HighlightRule) {
+    let bits = match rule {
+        HighlightRule::Whiten => 0,
+        HighlightRule::KeepColor => 1,
+    };
+    HIGHLIGHT_RULE.store(bits, Ordering::Relaxed);
+}
+
+/// The [`HighlightRule`] [`ColorSpace::encode`] uses now ([`set_highlight_rule`]).
+#[must_use]
+pub fn highlight_rule() -> HighlightRule {
+    match HIGHLIGHT_RULE.load(Ordering::Relaxed) {
+        0 => HighlightRule::Whiten,
+        _ => HighlightRule::KeepColor,
+    }
+}
 
 /// A transfer function (opto-electronic encoding curve) mapping a scene-linear value in
 /// `[0, 1]` to its encoded, display-ready counterpart, and back.
@@ -224,14 +294,22 @@ impl ColorSpace {
     /// Every channel is finite and in `0..=255` for any input, including non-positive,
     /// extreme, or far-out-of-gamut `xyz`; non-finite `xyz` maps to opaque black.
     ///
-    /// # Highlights desaturate instead of clipping a single channel
+    /// # Highlights keep their hue instead of clipping a single channel
     ///
     /// [`ToneMap::AcesFilmic`] rescales RGB by one luminance-derived factor so hue
-    /// survives; a channel pushed above `1.0` is routed through
-    /// [`gamut::project_to_gamut_bounded`] (`max = 1.0`) instead of a per-channel
-    /// clamp, so it desaturates toward white rather than hue-shifting.
+    /// survives; a channel pushed above `1.0` is brought back by the process's
+    /// [`HighlightRule`] ([`highlight_rule`]) instead of a per-channel clamp: by default
+    /// [`gamut::fit_keeping_color`], which dims the color, or
+    /// [`gamut::project_to_gamut_bounded`] (`max = 1.0`), which desaturates it toward white.
+    /// See [`Self::encode_with`].
     #[must_use]
     pub fn encode(self, xyz: Vec3, tonemap: ToneMap) -> [u8; 4] {
+        self.encode_with(xyz, tonemap, highlight_rule())
+    }
+
+    /// [`Self::encode`] under an explicit [`HighlightRule`] instead of the process's one.
+    #[must_use]
+    pub fn encode_with(self, xyz: Vec3, tonemap: ToneMap, highlights: HighlightRule) -> [u8; 4] {
         let sum = xyz.x + xyz.y + xyz.z;
         if !sum.is_finite() || sum <= 1e-6 {
             return [0, 0, 0, 255];
@@ -249,7 +327,10 @@ impl ColorSpace {
                 // call handle both compression and desaturation together.
                 let luminance_scale = (y_tm / exposed_luminance.max(1e-5)) * exposure;
                 let toned_xyz = xyz * luminance_scale;
-                gamut::project_to_gamut_bounded(toned_xyz, self, 1.0)
+                match highlights {
+                    HighlightRule::Whiten => gamut::project_to_gamut_bounded(toned_xyz, self, 1.0),
+                    HighlightRule::KeepColor => gamut::fit_keeping_color(toned_xyz, self),
+                }
             }
         };
 

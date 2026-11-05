@@ -238,7 +238,8 @@ fn start_inner(
         .local_addr()
         .map_err(|e| format!("viewer listener bound but local_addr() failed: {e}"))?;
     tracing::info!(
-        "pleochroma-worker serve: viewers on {viewer_addr} ({}; {})",
+        "pleochroma-worker serve: protocol v{}, viewers on {viewer_addr} ({}; {})",
+        pleochroma_net::messages::PROTOCOL_VERSION,
         transport_summary(&transport),
         capability_summary(args),
     );

@@ -4134,6 +4134,45 @@ total_atom_density_cm3 = 9.768284e+22  # 22 atoms per formula unit (Ca2Al3Si3O13
 
 
 [[host]]
+id = "titanite"
+name = "Titanite (Sphene)"
+formula = "CaTiSiO5"
+optical = "biaxial"
+axis_mapping_confidence = "estimate"
+uv_edge_nm = 330.0  # the beta ray's ultraviolet band centre of the measured spectrum (Caltech titanite 1478)
+materials = ["Titanite (Sphene)", "Titanite", "Sphene"]  # host added 2026-11-04: the built-in had none
+density_g_cm3 = 3.52
+formula_weight_g_mol = 196.026
+sites_per_fu = 1.0  # the Ti octahedral site, where Fe3+ (with Al) and Cr3+ substitute
+cation_site_density_cm3 = 1.081384e+22
+total_atom_density_cm3 = 8.651071e+22
+
+  [[host.chromophore]]
+  id = "Fe3+ (Ti site, yellow)"
+  kind = "ion"
+  elements = ["Fe"]
+  site = "Ti4+ octahedral site (Fe3+ + Al3+ for Ti4+ + O2-)"
+  conc_unit = "ppma_all"
+  conc_typical = [300.0, 6000.0]  # estimate: gem titanite ~0.1-2 wt% Fe2O3 (1 wt% Fe2O3 = 3069 ppma of all atoms in CaTiSiO5); recalled, no cited analysis
+  conc_max = 15000.0  # estimate: ~5 wt% Fe2O3, past the iron-rich brown titanite of granites
+  requires = []
+  excludes = []
+  quenched_by = []
+  confidence = "estimate"
+
+    [[host.chromophore.band]]
+    centre_nm = 400.0
+    shape = "edge"
+    peak_coeff = 0.002
+    pol = { a = 0.15, b = 0.5, g = 1.0 }
+    confidence = "estimate"
+    source = "no titanite row in the Report: the edge shape and strength per ppma of the Rutile Fe3+/Cr3+ row (Ti4+ octahedral site, the same substitution), placed at the measured titanite edge near 400 nm; the a / g ratio from the built-in's fit of Caltech titanite 1478 (X nearly colorless, Z golden: alpha 1.5 vs gamma 10 at 400 nm), b between them"
+
+    [[host.chromophore.fluorescence]]
+    uv = { lw = "inert", sw = "inert" }
+
+
+[[host]]
 id = "topaz"
 name = "Topaz"
 formula = "Al2SiO4(F,OH)2"

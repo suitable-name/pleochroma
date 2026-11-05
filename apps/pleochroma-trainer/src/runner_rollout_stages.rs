@@ -12,7 +12,7 @@ use crate::runner::progress::{TaskGuard, TrainingProgress};
 
 // A fixed payload bound independent of episode count and CPU width. A probe owns at most two
 // optical requests; the native optical channel has its own capacity and admission control.
-const MAX_PENDING_WORK: usize = 128;
+pub(in super::super) const MAX_PENDING_WORK: usize = 128;
 
 pub(super) struct PassContext<'a> {
     pub pending: &'a [PendingStep],
@@ -21,6 +21,8 @@ pub(super) struct PassContext<'a> {
     pub cached_labels: &'a [Option<TeacherLabel>],
     pub scales: &'a [f64],
     pub progress: &'a TrainingProgress,
+    pub slot_offset: usize,
+    pub announce_phase: bool,
 }
 
 struct PassStages<'a> {
@@ -35,12 +37,44 @@ struct ProbeWork {
     task: TaskGuard,
 }
 
+/// The finish of one slot: the teacher search of a fresh label and the policy search run side
+/// by side. Neither reads the other: both only read the unchanged pre-step state (the policy
+/// search moves by the sampled action, never by the label), and the environment changes only
+/// when the step commits, after the label is complete and cached for that state.
 struct SlotWork {
+    /// The teacher search, until its label is complete.
     teacher: Option<TeacherLabelWork>,
+    /// The policy search; taken when the step commits.
     step: Option<StepWork>,
+    /// Whether the policy search has its result and only waits for the teacher.
+    step_done: bool,
     label: Option<TeacherLabel>,
     fresh_label: bool,
     task: TaskGuard,
+}
+
+impl SlotWork {
+    const fn wait_detail(&self) -> &'static str {
+        match (self.teacher.is_some(), self.step_done) {
+            (true, false) => "teacher and policy optics wait",
+            (true, true) => "teacher optics wait",
+            (false, _) => "policy optics wait",
+        }
+    }
+}
+
+/// Runs `a` then `b`, or both at once on the pool when it has spare capacity. Each closure
+/// returns the same value either way, so only the timing depends on the choice.
+fn both<A: Send, B: Send>(
+    parallel: bool,
+    a: impl FnOnce() -> A + Send,
+    b: impl FnOnce() -> B + Send,
+) -> (A, B) {
+    if parallel {
+        rayon::join(a, b)
+    } else {
+        (a(), b())
+    }
 }
 
 /// The longest-first estimate remains free tiers × (1 + labelled) × design tiers.
@@ -50,6 +84,23 @@ fn step_cost(slot: &Slot, labelled: bool) -> u64 {
 }
 
 pub(super) fn step_pass(slots: &mut [Slot], context: PassContext<'_>) -> (Vec<SlotOutcome>, f32) {
+    let threads = pool::pool_threads();
+    step_pass_with_limits(
+        slots,
+        context,
+        pool::StagedLimits {
+            threads,
+            pending: MAX_PENDING_WORK,
+            shared: None,
+        },
+    )
+}
+
+pub(super) fn step_pass_with_limits(
+    slots: &mut [Slot],
+    context: PassContext<'_>,
+    limits: pool::StagedLimits,
+) -> (Vec<SlotOutcome>, f32) {
     let plans: Vec<_> = slots
         .iter()
         .zip(context.fresh_labels)
@@ -64,28 +115,68 @@ pub(super) fn step_pass(slots: &mut [Slot], context: PassContext<'_>) -> (Vec<Sl
         })
         .collect();
     let probes = plans.iter().map(|plan| plan.probes.len()).sum();
-    context
-        .progress
-        .phase("probes, oracle-and-steps", probes + slots.len());
+    if context.announce_phase {
+        context
+            .progress
+            .phase("probes, oracle-and-steps", probes + slots.len());
+    }
     let stages = PassStages {
         context,
         started: Instant::now(),
         remaining_probes: AtomicUsize::new(probes),
         probe_micros: AtomicU64::new(0),
     };
-    let outcomes = pool::run_staged_items_ranked(
-        slots,
-        &plans,
-        pool::StagedLimits {
-            threads: pool::pool_threads(),
-            pending: MAX_PENDING_WORK,
-        },
-        &stages,
-    );
+    let outcomes = pool::run_staged_items_ranked(slots, &plans, limits, &stages);
     (
         outcomes,
         stages.probe_micros.load(Ordering::Relaxed) as f32 / 1_000_000.0,
     )
+}
+
+pub(in super::super) fn step_slot(
+    slot: &mut Slot,
+    pending: &PendingStep,
+    cfg: &super::RunConfig,
+    progress: &TrainingProgress,
+    slot_index: usize,
+    limits: pool::StagedLimits,
+) -> (SlotOutcome, f32) {
+    let probe_size = cfg.label_h_deg.unwrap_or_else(|| slot.env.max_step_deg());
+    let cached_label = pending
+        .labelled
+        .then(|| {
+            slot.label_cache
+                .get(slot.env.current_design(), probe_size, &cfg.line_search)
+        })
+        .flatten();
+    let fresh_label = pending.labelled && cached_label.is_none();
+    let pending = [PendingStep {
+        free: pending.free.clone(),
+        raw: pending.raw.clone(),
+        log_prob: pending.log_prob,
+        value: pending.value,
+        action: pending.action.clone(),
+        state: pending.state.clone(),
+        labelled: pending.labelled,
+    }];
+    let fresh_labels = [fresh_label];
+    let probe_sizes = [probe_size];
+    let cached_labels = [cached_label];
+    let (mut outcomes, seconds) = step_pass_with_limits(
+        std::slice::from_mut(slot),
+        PassContext {
+            pending: &pending,
+            fresh_labels: &fresh_labels,
+            probe_sizes: &probe_sizes,
+            cached_labels: &cached_labels,
+            scales: &cfg.line_search,
+            progress,
+            slot_offset: slot_index,
+            announce_phase: false,
+        },
+        limits,
+    );
+    (outcomes.remove(0), seconds)
 }
 
 impl pool::ItemStages<Slot> for &PassStages<'_> {
@@ -95,15 +186,16 @@ impl pool::ItemStages<Slot> for &PassStages<'_> {
     type Output = SlotOutcome;
 
     fn prepare_probe(&self, w: usize, slot: &Slot, tier: usize, tail: &pool::Tail) -> ProbeWork {
+        let slot_index = w + self.context.slot_offset;
         let task = self.context.progress.task(format!(
-            "probe preparation slot {w} entry {} tier {tier}",
+            "probe preparation slot {slot_index} entry {} tier {tier}",
             slot.entry
         ));
         let inner =
             slot.env
                 .prepare_tier_probe_with(tier, self.context.probe_sizes[w], tail.is_active());
         task.update_detail(format!(
-            "probe optics wait slot {w} entry {} tier {tier}",
+            "probe optics wait slot {slot_index} entry {} tier {tier}",
             slot.entry
         ));
         ProbeWork { inner, task }
@@ -114,8 +206,9 @@ impl pool::ItemStages<Slot> for &PassStages<'_> {
     }
 
     fn complete_probe(&self, w: usize, slot: &Slot, tier: usize, work: ProbeWork) -> TierProbe {
+        let slot_index = w + self.context.slot_offset;
         work.task.update_detail(format!(
-            "probe completion slot {w} entry {} tier {tier}",
+            "probe completion slot {slot_index} entry {} tier {tier}",
             slot.entry
         ));
         let result = slot.env.complete_tier_probe(work.inner);
@@ -133,58 +226,63 @@ impl pool::ItemStages<Slot> for &PassStages<'_> {
         probes: Vec<(usize, TierProbe)>,
         tail: &pool::Tail,
     ) -> SlotWork {
-        let task = self
-            .context
-            .progress
-            .task(format!("oracle/step slot {w} entry {}", slot.entry));
+        let slot_index = w + self.context.slot_offset;
+        let task = self.context.progress.task(format!(
+            "oracle/step slot {slot_index} entry {}",
+            slot.entry
+        ));
         let fresh = self.context.fresh_labels[w];
         let label = self.context.cached_labels[w].clone();
-        let mut work = SlotWork {
-            teacher: None,
-            step: None,
-            label,
-            fresh_label: fresh,
-            task,
-        };
-        if fresh {
-            work.task
-                .update_detail(format!("teacher preparation slot {w} entry {}", slot.entry));
+        if !fresh {
+            self.context
+                .progress
+                .labels(0, usize::from(label.is_some()));
+        }
+        let parallel = || tail.is_active();
+        let env = &slot.env;
+        let action = &self.context.pending[w].action;
+        let scales = self.context.scales;
+        let prepare_step = || env.prepare_step_scaled_adaptive(action, scales, &parallel);
+        let (teacher, step) = if fresh {
+            task.update_detail(format!(
+                "teacher and policy preparation slot {slot_index} entry {}",
+                slot.entry
+            ));
             let mut set = vec![TierProbe::default(); slot.obs.tiers.len()];
             for (tier, probe) in probes {
                 set[tier] = probe;
             }
-            work.teacher = Some(slot.env.prepare_teacher_label_adaptive(
-                self.context.probe_sizes[w],
-                &set,
-                self.context.scales,
-                &|| tail.is_active(),
-            ));
-            work.task
-                .update_detail(format!("teacher optics wait slot {w} entry {}", slot.entry));
+            let h_deg = self.context.probe_sizes[w];
+            let (teacher, step) = both(
+                tail.is_active(),
+                || env.prepare_teacher_label_adaptive(h_deg, &set, scales, &parallel),
+                prepare_step,
+            );
+            (Some(teacher), step)
         } else {
-            self.context
-                .progress
-                .labels(0, usize::from(work.label.is_some()));
-            work.step = Some(slot.env.prepare_step_scaled_adaptive(
-                &self.context.pending[w].action,
-                self.context.scales,
-                &|| tail.is_active(),
-            ));
-            work.task
-                .update_detail(format!("policy optics wait slot {w} entry {}", slot.entry));
-        }
+            (None, prepare_step())
+        };
+        let work = SlotWork {
+            teacher,
+            step: Some(step),
+            step_done: false,
+            label,
+            fresh_label: fresh,
+            task,
+        };
+        work.task.update_detail(format!(
+            "{} slot {slot_index} entry {}",
+            work.wait_detail(),
+            slot.entry
+        ));
         work
     }
 
     fn poll_finish(&self, work: &mut SlotWork) -> bool {
-        if let Some(teacher) = &mut work.teacher {
-            teacher.poll()
-        } else {
-            work.step
-                .as_mut()
-                .expect("slot has a search continuation")
-                .poll()
-        }
+        // Poll both, so each retries its own bounded submission.
+        let teacher = work.teacher.as_mut().is_some_and(TeacherLabelWork::poll);
+        let step = !work.step_done && work.step.as_mut().is_some_and(StepWork::poll);
+        teacher || step
     }
 
     fn advance_finish(
@@ -194,20 +292,37 @@ impl pool::ItemStages<Slot> for &PassStages<'_> {
         work: &mut SlotWork,
         tail: &pool::Tail,
     ) -> Option<SlotOutcome> {
-        if let Some(teacher) = &mut work.teacher {
-            work.task
-                .update_detail(format!("teacher advance slot {w} entry {}", slot.entry));
-            if !slot
-                .env
-                .advance_teacher_label_adaptive(teacher, &|| tail.is_active())
-            {
-                work.task
-                    .update_detail(format!("teacher optics wait slot {w} entry {}", slot.entry));
-                return None;
-            }
-            let label = slot
-                .env
-                .complete_teacher_label(work.teacher.take().expect("teacher complete"));
+        let slot_index = w + self.context.slot_offset;
+        work.task.update_detail(format!(
+            "oracle/step advance slot {slot_index} entry {}",
+            slot.entry
+        ));
+        let teacher_ready = work.teacher.as_mut().is_some_and(TeacherLabelWork::poll);
+        let step_ready = !work.step_done && work.step.as_mut().is_some_and(StepWork::poll);
+        let step_was_done = work.step_done;
+        let parallel = || tail.is_active();
+        let env = &slot.env;
+        let SlotWork { teacher, step, .. } = &mut *work;
+        // A search that is not ready returns false at once, without changing its work.
+        let (teacher_done, step_done) = both(
+            teacher_ready && step_ready && tail.is_active(),
+            || {
+                teacher
+                    .as_mut()
+                    .is_none_or(|teacher| env.advance_teacher_label_adaptive(teacher, &parallel))
+            },
+            || {
+                step_was_done
+                    || env.advance_step_adaptive(
+                        step.as_mut().expect("policy search prepared"),
+                        &parallel,
+                    )
+            },
+        );
+        work.step_done = step_done;
+        if teacher_done && let Some(teacher) = work.teacher.take() {
+            // Cached for the pre-step state, before the step below changes the environment.
+            let label = slot.env.complete_teacher_label(teacher);
             slot.label_cache.put(
                 slot.env.current_design(),
                 self.context.probe_sizes[w],
@@ -216,23 +331,13 @@ impl pool::ItemStages<Slot> for &PassStages<'_> {
             );
             work.label = Some(label);
             self.context.progress.labels(1, 0);
-            work.task
-                .update_detail(format!("policy preparation slot {w} entry {}", slot.entry));
-            work.step = Some(slot.env.prepare_step_scaled_adaptive(
-                &self.context.pending[w].action,
-                self.context.scales,
-                &|| tail.is_active(),
-            ));
-            work.task
-                .update_detail(format!("policy optics wait slot {w} entry {}", slot.entry));
-            return None;
         }
-        let step = work.step.as_mut().expect("policy search prepared");
-        work.task
-            .update_detail(format!("policy advance slot {w} entry {}", slot.entry));
-        if !slot.env.advance_step_adaptive(step, &|| tail.is_active()) {
-            work.task
-                .update_detail(format!("policy optics wait slot {w} entry {}", slot.entry));
+        if work.teacher.is_some() || !work.step_done {
+            work.task.update_detail(format!(
+                "{} slot {slot_index} entry {}",
+                work.wait_detail(),
+                slot.entry
+            ));
             return None;
         }
         Some(SlotOutcome {

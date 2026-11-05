@@ -1,0 +1,50 @@
+# sample: Caltech titanite (Titanite1478), yellow-green, cleavage face of a 4 cm crystal, (Lac Alaotra?) Madagascar, 3.91 mm; two polarizations as labelled in the figure (E||b, E||c)
+# host: titanite (CaTiSiO5), monoclinic, biaxial positive. E||b is taken as Y (n_beta). E||c mixes Z and X (the optic plane is (010); Z ^ c = 51 deg in Dana's setting, so E||c carries about 0.4 Z and 0.6 X); no pure X or Z spectrum is published
+# composition: none published (Rossman notes weak sharp REE lines, mostly Nd 700-800 nm, and Yb at 972 nm)
+# units: lambda_nm; A = decadic absorbance read off the figure (T = 10^-A); DERIVED: digitised from the GIF, not raw data; reflection loss and baseline NOT removed (the plot's flat level near 900 nm is about 0.125 in both rays); empty where the curve is above the plot (A > 1)
+# path_cm: 0.391
+# source: Caltech Mineral Spectroscopy Server (G. R. Rossman), http://minerals.gps.caltech.edu/FILES/Visible/titanite/Titanite1478.gif (no numeric file is linked; .txt and .csv return 404); digitised 2026-11-03, 10 nm steps (the digitising script is not part of this repository)
+# license: Caltech Mineral Spectroscopy Server, CC BY-NC 4.0 (home page https://minerals.gps.caltech.edu/, DOI 10.7907/jywr-qq57); attribution: G. R. Rossman, Caltech
+# note: estimated error +-0.005 A and +-2 nm, +-0.03 A on the steep edge above A 0.8. Used by the Titanite (Sphene) built-in (titanite.rs)
+lambda_nm,A_Eb,A_Ec
+380,,
+390,,
+400,,
+410,,
+420,,
+430,0.964,
+440,0.768,
+450,0.602,
+460,0.498,0.894
+470,0.417,0.761
+480,0.359,0.651
+490,0.314,0.560
+500,0.281,0.479
+510,0.257,0.417
+520,0.240,0.369
+530,0.225,0.327
+540,0.219,0.306
+550,0.218,0.291
+560,0.222,0.286
+570,0.234,0.286
+580,0.248,0.293
+590,0.260,0.292
+600,0.263,0.286
+610,0.265,0.280
+620,0.254,0.269
+630,0.240,0.258
+640,0.220,0.243
+650,0.199,0.229
+660,0.181,0.216
+670,0.166,0.205
+680,0.155,0.194
+690,0.145,0.187
+700,0.139,0.180
+710,0.133,0.171
+720,0.130,0.167
+730,0.133,0.161
+740,0.130,0.161
+750,0.134,0.160
+760,0.125,0.157
+770,0.124,0.149
+780,0.125,0.146

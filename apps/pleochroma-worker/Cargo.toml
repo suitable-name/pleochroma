@@ -99,7 +99,7 @@ zeroize = "1.9.1"
 # measures variants production never sends (unshuffled LZ4/zstd, zstd level 3).
 [dev-dependencies]
 lz4_flex = "0.14.0"
-zstd = "0.14.2"
+zstd = "0.14.3"
 
 # Renders real FRAME payloads with the production render core (needs `worker`; add
 # `gpu` to trace on the adapter).

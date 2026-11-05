@@ -71,8 +71,18 @@ impl CliError {
 pub struct OutFile {
     /// Where to write it.
     pub path: PathBuf,
-    /// Its whole text.
+    /// Its whole text; empty for a binary file.
     pub text: String,
+    /// The bytes of a binary file (a PDF), written instead of [`Self::text`] when set.
+    pub bytes: Option<Vec<u8>>,
+}
+
+impl OutFile {
+    /// The bytes written to [`Self::path`]: the binary contents when set, else the text.
+    #[must_use]
+    pub fn contents(&self) -> &[u8] {
+        self.bytes.as_deref().unwrap_or(self.text.as_bytes())
+    }
 }
 
 /// The result of one command.
@@ -112,7 +122,22 @@ impl Outcome {
     /// Adds a file to write.
     #[must_use]
     pub fn with_file(mut self, path: PathBuf, text: String) -> Self {
-        self.files.push(OutFile { path, text });
+        self.files.push(OutFile {
+            path,
+            text,
+            bytes: None,
+        });
+        self
+    }
+
+    /// Adds a binary file to write (a PDF).
+    #[must_use]
+    pub fn with_binary_file(mut self, path: PathBuf, bytes: Vec<u8>) -> Self {
+        self.files.push(OutFile {
+            path,
+            text: String::new(),
+            bytes: Some(bytes),
+        });
         self
     }
 

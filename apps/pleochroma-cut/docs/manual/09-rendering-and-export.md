@@ -21,9 +21,12 @@ Fire in place of the Path-Traced sample count. Local CPU, supported GPU and prot
 remote computation honor that choice; the engine and options are frozen in queued jobs.
 Changing engines starts a new accumulation, so spectral samples never mix with AA taps.
 
-Ray-Traced approximates color and frost, omits polarization, birefringent doubling,
+Ray-Traced approximates frost, omits polarization, birefringent doubling,
 inclusion haze, zoning, edge rounding, oriented inclusions, surface finish, abraded edges and play-of-color, and drops paths beyond the bounce
-cap. A colored stone may change hue with depth differently from Path-Traced. Optical metrics, tilt curves and diagnostics
+cap. Its body color follows the material's absorption spectrum in 10 nm bands over each
+light path's full length inside the stone, so a colored stone deepens with depth as it
+does in Path-Traced; the ordinary and extraordinary rays share the light evenly instead of
+being traced as two polarized rays. Optical metrics, tilt curves and diagnostics
 keep their own analytic model; choosing Ray-Traced does not change their calculation.
 The sampling, convergence and denoise descriptions below refer to Path-Traced.
 
@@ -39,10 +42,11 @@ Render**. The dialog has these sections.
 
 **Remembered settings.** The dialog opens with the settings of your last export: the
 output size, sample count, bounces, color space, compute choice and transfer. Starting
-an export (or adding it to the queue) remembers the values it used, so the next dialog
-starts there. These are the *output defaults* of the Parameters dock's **Render &
+an export, adding it to the queue or just closing the dialog remembers the values, so the
+next dialog starts there, also after the program was closed. These are the *output defaults* of the Parameters dock's **Render &
 Output** tab, which lists them (Chapter 2); the dialog's own controls are per-export
-overrides on top of them. The Tilt Video export keeps its own set the same way.
+overrides on top of them. The Tilt Video export keeps its own set the same way, including
+the angles, step, frame rate, axes and its other switches (Chapter 14).
 
 **Which material.** A line near the top of the dialog names the material the export
 will use. It is the design's material, unless you are previewing another one (Chapter 6,

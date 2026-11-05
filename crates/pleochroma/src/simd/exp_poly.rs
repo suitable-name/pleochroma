@@ -32,7 +32,7 @@ fn clamp_like_avx2(x: f32) -> f32 {
 /// NaN and infinite inputs (see [`clamp_like_avx2`]).
 #[expect(
     clippy::redundant_pub_crate,
-    reason = "re-exported as `pub(crate)` from `simd` for renderer::whitted; `pub(super)` cannot be re-exported wider"
+    reason = "re-exported as `pub(crate)` from `simd` for the GPU Ray-Traced twin tests; `pub(super)` cannot be re-exported wider"
 )]
 pub(crate) fn exp_lane(x: f32) -> f32 {
     let x = clamp_like_avx2(x);

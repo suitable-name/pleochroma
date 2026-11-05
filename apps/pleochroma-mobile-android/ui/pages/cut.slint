@@ -125,10 +125,11 @@ export component CutPage inherits Rectangle {
     VerticalLayout {
         TopBar {
             title: "Cut";
-            // The menu also holds "Delete All Cutting Progress", which needs no solved design.
+            // The menu holds "Share Cutting Sheet (PDF)" and "Share Diagram", and also "Delete
+            // All Cutting Progress", which needs no solved design.
             show-overflow: true;
             actions: [
-                { icon: Icons.share, label: "Share Cutting Sheet", enabled: root.ready },
+                { icon: Icons.share, label: "Share Cutting Sheet (HTML)", enabled: root.ready },
                 { icon: CutIcons.print, label: "Print Cutting Sheet", enabled: root.ready }
             ];
             action-clicked(index) => {
@@ -194,6 +195,17 @@ export component CutPage inherits Rectangle {
             TouchArea { }
 
             menu-rows := VerticalLayout {
+                // The other format of the top bar's Share: the standard template alone.
+                ListRow {
+                    title: "Share Cutting Sheet (PDF)";
+                    supporting: "The standard template, ready to print";
+                    enabled: root.ready;
+                    clicked => {
+                        root.menu-open = false;
+                        CutModel.share-sheet-pdf();
+                    }
+                }
+
                 ListRow {
                     title: "Share Diagram";
                     enabled: root.ready;

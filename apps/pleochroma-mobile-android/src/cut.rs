@@ -1,8 +1,8 @@
 //! The Cut destination's Rust side: the instruction list and its progress card, sharing
-//! and printing the cutting sheet, sharing the diagram, resetting the done marks of the open
-//! design or deleting those of every design, and the hand-over to Cutting Mode. The logic
-//! lives in `pleochroma_mobile_core::cutting`; this module ties it to the `CutModel` global
-//! and the platform.
+//! the cutting sheet (HTML or PDF) and printing it, sharing the diagram, resetting the done
+//! marks of the open design or deleting those of every design, and the hand-over to Cutting
+//! Mode. The logic lives in `pleochroma_mobile_core::cutting`; this module ties it to the
+//! `CutModel` global and the platform.
 //!
 //! | Submodule | Job |
 //! |---|---|
@@ -63,6 +63,9 @@ pub fn wire(window: &AppWindow, state: &Shared) {
     model.on_solve(action(state, &weak, design::solve::request_solve));
     model.on_share_sheet(action(state, &weak, |window, state| {
         export::start(window, state, export::Kind::Sheet);
+    }));
+    model.on_share_sheet_pdf(action(state, &weak, |window, state| {
+        export::start(window, state, export::Kind::SheetPdf);
     }));
     model.on_print_sheet(action(state, &weak, |window, state| {
         export::start(window, state, export::Kind::Print);

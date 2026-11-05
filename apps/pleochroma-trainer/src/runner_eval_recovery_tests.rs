@@ -128,3 +128,140 @@ fn restoring_a_complete_cuda_journal_does_not_initialize_or_call_a_gpu() {
     assert_eq!(report.designs, 1);
     assert_eq!(report.cases[0].final_score, Some(0.123_456_79));
 }
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct PartialEpisode {
+    step: usize,
+    measurements: Vec<f64>,
+    completed_probes: Vec<Option<bool>>,
+}
+
+#[test]
+fn fragments_round_trip_and_replace_without_changing_legacy_cases() {
+    let directory = tempfile::tempdir().unwrap();
+    let journal = Journal::open_identity(directory.path(), b"version-three job").unwrap();
+    let completed = completed();
+    journal.save(0, 9, None, &completed).unwrap();
+    let identity_before = fs::read(directory.path().join("identity.mpk")).unwrap();
+    let case_before = fs::read(journal.path(0)).unwrap();
+    let parts = journal.case(0, 9, None);
+    assert!(
+        parts
+            .load::<PartialEpisode>("oracle-step")
+            .unwrap()
+            .is_none()
+    );
+    let mut state = PartialEpisode {
+        step: 1,
+        measurements: vec![0.123_456_789_012_345_66, -0.0],
+        completed_probes: vec![Some(false), None, Some(true)],
+    };
+    parts.save("oracle-step", &state).unwrap();
+    state.step = 2;
+    state.completed_probes[1] = Some(false);
+    parts.save("oracle-step", &state).unwrap();
+    fs::write(directory.path().join("pending-partial-probe"), b"partial").unwrap();
+    let reopened = Journal::open_identity(directory.path(), b"version-three job").unwrap();
+    let restored = reopened
+        .case(0, 9, None)
+        .load::<PartialEpisode>("oracle-step")
+        .unwrap()
+        .unwrap();
+    assert_eq!(restored, state);
+    assert_eq!(restored.measurements[1].to_bits(), (-0.0f64).to_bits());
+    assert_eq!(
+        fs::read(directory.path().join("identity.mpk")).unwrap(),
+        identity_before
+    );
+    assert_eq!(fs::read(journal.path(0)).unwrap(), case_before);
+    assert_eq!(
+        encode(&reopened.load(0, 9, None).unwrap().unwrap()).unwrap(),
+        encode(&completed).unwrap()
+    );
+}
+
+#[test]
+fn fragments_reject_invalid_names_and_wrong_case_or_part_binding() {
+    let directory = tempfile::tempdir().unwrap();
+    let journal = Journal::open_identity(directory.path(), b"job").unwrap();
+    let parts = journal.case(0, 9, None);
+    for name in [
+        "",
+        ".",
+        "..",
+        "../outside",
+        "a/b",
+        "a\\b",
+        "C:outside",
+        "a\0b",
+    ] {
+        assert!(parts.save(name, &7usize).is_err());
+        assert!(parts.load::<usize>(name).is_err());
+    }
+    assert!(parts.save(&"x".repeat(97), &7usize).is_err());
+    parts.save("model", &7usize).unwrap();
+    assert!(journal.case(0, 8, None).load::<usize>("model").is_err());
+    assert!(
+        journal
+            .case(1, 9, None)
+            .load::<usize>("model")
+            .unwrap()
+            .is_none()
+    );
+    let bytes = fs::read(parts.path("model").unwrap()).unwrap();
+    fs::write(parts.path("sampled").unwrap(), bytes).unwrap();
+    assert!(parts.load::<usize>("sampled").is_err());
+}
+
+#[test]
+fn corrupt_fragment_versions_payloads_and_trailing_bytes_are_refused() {
+    let directory = tempfile::tempdir().unwrap();
+    let journal = Journal::open_identity(directory.path(), b"job").unwrap();
+    let parts = journal.case(0, 9, None);
+    for mutation in 0..3 {
+        parts.save("oracle", &7usize).unwrap();
+        let path = parts.path("oracle").unwrap();
+        let mut record: PartRecord = decode(&fs::read(&path).unwrap()).unwrap();
+        if mutation == 0 {
+            record.version += 1;
+        } else {
+            record.payload[0] ^= 1;
+        }
+        let mut bytes = encode(&record).unwrap();
+        if mutation == 2 {
+            bytes.push(0);
+        }
+        fs::write(path, bytes).unwrap();
+        assert!(parts.load::<usize>("oracle").is_err());
+    }
+}
+
+#[test]
+fn continuation_write_failures_are_not_hidden() {
+    let directory = tempfile::tempdir().unwrap();
+    let journal = Journal::open_identity(directory.path(), b"job").unwrap();
+    let parts = journal.case(0, 9, None);
+    fs::create_dir(parts.path("oracle").unwrap()).unwrap();
+    assert!(parts.save("oracle", &1usize).is_err());
+    assert!(parts.load::<usize>("oracle").is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn journal_directory_and_payload_symlinks_are_refused() {
+    use std::os::unix::fs::symlink;
+    let directory = tempfile::tempdir().unwrap();
+    let actual = directory.path().join("actual");
+    fs::create_dir(&actual).unwrap();
+    let linked = directory.path().join("linked");
+    symlink(&actual, &linked).unwrap();
+    assert!(Journal::open_identity(&linked.join("nested"), b"job").is_err());
+    let journal = Journal::open_identity(&actual, b"job").unwrap();
+    let parts = journal.case(0, 9, None);
+    let outside = directory.path().join("untouched");
+    fs::write(&outside, b"keep").unwrap();
+    symlink(&outside, parts.path("oracle").unwrap()).unwrap();
+    assert!(parts.save("oracle", &1usize).is_err());
+    assert!(parts.load::<usize>("oracle").is_err());
+    assert_eq!(fs::read(outside).unwrap(), b"keep");
+}

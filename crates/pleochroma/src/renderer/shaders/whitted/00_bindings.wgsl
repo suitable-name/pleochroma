@@ -8,13 +8,14 @@ struct WtCamera {
 }
 struct GpuWhittedParams {
     counts: vec4<u32>, range: vec4<u32>, modes: vec4<u32>,
-    values: vec4<f32>, indices: vec4<f32>,
-    alpha_o: vec4<f32>, alpha_e: vec4<f32>, axis: vec4<f32>,
+    values: vec4<f32>, indices: vec4<f32>, axis: vec4<f32>,
     masks: array<vec4<f32>, 3>, rgb_to_xyz: array<vec4<f32>, 3>,
     white_balance: vec4<f32>, env_rgb: vec4<f32>,
     key_dir: vec4<f32>, fill_dir: vec4<f32>, studio: vec4<f32>,
     shadow: vec4<f32>, tent: vec4<f32>, extra: vec4<f32>,
     aa: array<vec4<f32>, 16>, ring_dirs: array<vec4<f32>, 16>,
+    depth_p: array<vec4<f32>, 30>, depth_q: array<vec4<f32>, 30>,
+    bin_weights: array<vec4<f32>, 40>,
 }
 @group(0) @binding(0) var<uniform> wt_camera: WtCamera;
 @group(0) @binding(1) var<uniform> wt: GpuWhittedParams;
@@ -54,10 +55,30 @@ fn wt_fresnel(ci_in: f32, eta: f32) -> f32 {
     let rp = (ci - ect) / (ci + ect);
     return clamp(0.5 * fma(rs, rs, rp * rp), 0.0, 1.0);
 }
-fn wt_alpha(dir: vec3<f32>) -> vec3<f32> {
-    if (wt.modes.x == 0u) { return wt.alpha_o.xyz; }
+// BinnedAbsorption::axial twin: the optic-axis share of a segment, cos^2 times its length.
+fn wt_axial(dir: vec3<f32>, length: f32) -> f32 {
     let cosine = dot(dir, wt.axis.xyz);
-    return (wt.alpha_o.xyz + wt.alpha_e.xyz + (wt.alpha_o.xyz - wt.alpha_e.xyz) * (cosine * cosine)) * 0.5;
+    return (cosine * cosine) * length;
+}
+// BinnedAbsorption::transmission twin: the RGB transmission of a whole path inside, averaged
+// over modes.x absorption modes of forty 10 nm bins each, unclamped (out-of-gamut colors keep
+// their negative channel). Four bins per vec4 slot, read whole, in the CPU's bin order.
+fn wt_transmission(length: f32, axial: f32) -> vec3<f32> {
+    let modes = wt.modes.x;
+    if (modes == 0u) { return vec3<f32>(1.0); }
+    var sum = vec3<f32>(0.0);
+    for (var mode = 0u; mode < modes; mode = mode + 1u) {
+        for (var group = 0u; group < 10u; group = group + 1u) {
+            let slot = mode * 10u + group;
+            let depth = fma(wt.depth_p[slot], vec4<f32>(length), wt.depth_q[slot] * axial);
+            let bin = group * 4u;
+            sum = fma(wt.bin_weights[bin].xyz, vec3<f32>(exp_poly(-depth.x)), sum);
+            sum = fma(wt.bin_weights[bin + 1u].xyz, vec3<f32>(exp_poly(-depth.y)), sum);
+            sum = fma(wt.bin_weights[bin + 2u].xyz, vec3<f32>(exp_poly(-depth.z)), sum);
+            sum = fma(wt.bin_weights[bin + 3u].xyz, vec3<f32>(exp_poly(-depth.w)), sum);
+        }
+    }
+    return sum * (1.0 / f32(modes));
 }
 fn wt_max_weight(weight: vec3<f32>) -> f32 { return max(max(weight.x, weight.y), weight.z); }
 fn wt_keeps(weight: vec3<f32>, depth: u32) -> bool {

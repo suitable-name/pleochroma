@@ -94,9 +94,8 @@ fn describe_labels(config: &RunConfig, step_limit_deg: f64) -> String {
     match config.algo {
         Algorithm::Imitation => {
             format!(
-                "{rule}, newest {} rows within {} MiB",
-                config.label_capacity,
-                crate::runner::config::MAX_LABEL_BYTES / (1024 * 1024)
+                "{rule}, up to {} compact rows within {} MiB host replay budget (actual capacity depends on tier counts)",
+                config.label_capacity, config.label_memory_mib
             )
         }
         Algorithm::Ppo => format!("{rule} (telemetry only, the PPO loss ignores them)"),
@@ -233,7 +232,7 @@ fn print_tuning(runner: &TrainingRunner, args: &CliArgs) {
     }
     if config.mode == TrainingMode::Retarget {
         println!(
-            "  same material {:.0} % target the episode's source (native sources stay authored)",
+            "  same material {:.0} % target the episode's source (authored sources are preserved)",
             config.same_material_frac * 100.0
         );
     }
@@ -249,9 +248,10 @@ fn print_tuning(runner: &TrainingRunner, args: &CliArgs) {
 fn print_learning(config: &RunConfig) {
     match config.algo {
         Algorithm::Imitation => println!(
-            "  learning     rate {:e}, {}; cosine coeff {}, action coeff {}, gain coeff {}",
+            "  learning     rate {:e}, {}; gradient-norm clip {}; cosine coeff {}, action coeff {}, gain coeff {}",
             config.imitation.learning_rate,
             describe_schedule(config.imitation.lr_schedule),
+            config.imitation.max_grad_norm,
             config.imitation.cosine_coeff,
             config.imitation.action_coeff,
             config.imitation.gain_coeff
@@ -458,7 +458,7 @@ pub fn completed_metrics(point: &IterationMetricPoint, imitation: bool) -> Vec<S
     } else {
         format!("completed PPO update: {}", learning_figures(point, false))
     };
-    vec![
+    let mut lines = vec![
         learning,
         format!(
             "last rollout: accepted {:.1}% | {:.2} steps/s | {} evals/s",
@@ -469,7 +469,21 @@ pub fn completed_metrics(point: &IterationMetricPoint, imitation: bool) -> Vec<S
                 .map_or_else(|| "-".to_owned(), |rate| format!("{rate:.1}"))
         ),
         proposal_figures(point),
-    ]
+    ];
+    if imitation
+        && let (Some(rows), Some(bytes), Some(budget)) = (
+            point.replay_rows,
+            point.replay_bytes,
+            point.replay_budget_bytes,
+        )
+    {
+        lines.push(format!(
+            "replay retained {rows} rows | {:.1} / {:.1} MiB host budget",
+            bytes as f64 / 1_048_576.0,
+            budget as f64 / 1_048_576.0
+        ));
+    }
+    lines
 }
 
 /// Mean rollout, label and update seconds per iteration over `history`; `None` for an empty one.

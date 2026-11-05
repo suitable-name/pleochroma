@@ -9,12 +9,16 @@ use serde_json::{Value, json};
 
 pub(super) fn initial(args: &Args) -> Value {
     json!({
-        "schema_version": 1, "program": "pleochroma-throughput-probe",
+        "schema_version": 2, "program": "pleochroma-throughput-probe",
         "package_version": env!("CARGO_PKG_VERSION"),
-        "build_revision": option_env!("PLEOCHROMA_BUILD_REVISION"),
+        "build_revision": option_env!("PLEOCHROMA_BUILD_REVISION").unwrap_or("unknown"),
+        "build_dirty": option_env!("PLEOCHROMA_BUILD_DIRTY").unwrap_or("unknown"),
+        "build_provenance_note": "build-script snapshot watches trainer/AI source inputs and resolved Git HEAD/ref/index; dirty is repository-wide status at that build, not a source-content fingerprint; runtime checkout does not identify binary contents",
+        "runtime_source_checkout": runtime_source_checkout(),
         "cuda_feature": cfg!(feature = "cuda"), "started_utc": crate::stats::rfc3339_utc_now(),
         "args": args, "run_config": config(&args.config()), "validation_enabled": false,
         "learning_rate_horizon_iterations": 300,
+        "imitation_objective_revision": pleochroma_ai::training::imitation::IMITATION_OBJECTIVE_REVISION,
         "phase_snapshots": "sampled every 2 seconds; short phases may be absent; rollout forward and update durations come from production counters",
         "checkpoint_writes": false, "database_access": "read_only",
         "host": {"os": std::env::consts::OS, "arch": std::env::consts::ARCH,
@@ -24,10 +28,38 @@ pub(super) fn initial(args: &Args) -> Value {
         "timing": {"units": "host wall seconds unless field suffix says milliseconds",
             "gpu_utilization_measured": false, "heartbeat_interval_secs": 2,
             "update_schedule": "production overlap; optional explicit per-iteration sync measured separately",
+            "update_attribution": "explicit-sync rows use the same iteration's completed update; production_reported_update retains the original lagged report; unsynchronized rows retain production attribution",
+            "stage_timings": "host wall only; asynchronous execution and first-use compilation can spill into existing readbacks; compiler and GPU-kernel time are not isolated",
+            "shape_policy": "power-of-two tier and row buckets, bounded by input layout and prepared-window budget; dummy rows have zero tier and target masks; real row order is preserved",
             "warmup_boundary": "explicit update drain before the first measured iteration",
             "measurement_window": "measured iterations plus final update drain and intervening logging",
             "soft_deadline": "checked between operations; cannot interrupt initialization or projection"}
     })
+}
+
+/// Do not serialize Git output containing paths, remote URLs, identities, or status entries.
+/// A relocated standalone binary may have no source checkout; that is explicit rather than
+/// borrowing a revision from an unrelated current working directory.
+fn runtime_source_checkout() -> Value {
+    let git = |args: &[&str]| {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .env("GIT_OPTIONAL_LOCKS", "0")
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .ok()?;
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    };
+    let revision = git(&["rev-parse", "HEAD"]).filter(|revision| {
+        matches!(revision.len(), 40 | 64) && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+    });
+    let dirty = revision.as_ref().and_then(|_| {
+        git(&["status", "--porcelain", "--untracked-files=normal"]).map(|status| !status.is_empty())
+    });
+    json!({"available": revision.is_some(), "revision": revision, "dirty": dirty})
 }
 
 fn cpu_model() -> Option<String> {
@@ -56,7 +88,7 @@ fn config(cfg: &RunConfig) -> Value {
         "full_fidelity_frac": cfg.full_fidelity_frac, "validation_fidelity": format!("{:?}", cfg.validation_fidelity),
         "objective_sweep": cfg.objective_sweep, "classical_budget": cfg.classical_budget,
         "algo": cfg.algo, "imitation": cfg.imitation, "label_every": cfg.label_every,
-        "label_h_deg": cfg.label_h_deg, "label_capacity": cfg.label_capacity,
+        "label_h_deg": cfg.label_h_deg, "label_capacity": cfg.label_capacity, "label_memory_mib": cfg.label_memory_mib,
         "explore_std": cfg.explore_std, "max_rejected_steps": cfg.max_rejected_steps,
         "line_search": cfg.line_search, "objectives": cfg.objectives,
         "same_material_frac": cfg.same_material_frac,

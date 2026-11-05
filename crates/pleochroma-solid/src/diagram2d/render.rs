@@ -118,7 +118,9 @@ pub fn render_diagram_end_view(
 
 /// `mesh` rotated a quarter turn about world `+Y`, so that world `-X` becomes `+Z`
 /// (`(x, y, z)` becomes `(z, y, -x)`, a proper rotation).
-fn turned_quarter(mesh: &SolidMesh) -> SolidMesh {
+///
+/// Shared with the line-drawing end view (`vector.rs`), so both end views see the same stone.
+pub fn turned_quarter(mesh: &SolidMesh) -> SolidMesh {
     let turn = |p: DVec3| DVec3::new(p.z, p.y, -p.x);
     SolidMesh {
         positions: mesh.positions.iter().map(|&p| turn(p)).collect(),

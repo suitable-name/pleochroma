@@ -126,7 +126,7 @@ with Space or Enter, and the **?** in the corner opens this section:
 - **Open Recent** shows your four most-recently-used design files -- the top
   of the list File > Open Recent keeps, which holds up to ten.
 - **Import a Folder** opens the folder picker straight away: choose a folder
-  and every `.asc`, `.gem` and `.gcs` file directly inside it is imported into
+  and every `.psdd`, `.asc`, `.gem` and `.gcs` file directly inside it is imported into
   your library, with the same progress and summary as an import started from the
   Import button in the top toolbar (see "Bringing Your Own Designs In" below).
   Subfolders are not included from this card; use the Import button's panel and
@@ -200,9 +200,13 @@ tell at a glance.
 Click **Import** in the top toolbar to open the import panel. From there you
 can:
 
-- Click **Choose File...** to import one `.asc`, `.gem` or `.gcs` file, or
-- Click **Choose Folder...** to import every `.asc`, `.gem` and `.gcs` file in
-  a folder.
+- Click **Choose File...** to import one `.psdd`, `.asc`, `.gem` or `.gcs`
+  file, or
+- Click **Choose Folder...** to import every `.psdd`, `.asc`, `.gem` and `.gcs`
+  file in a folder.
+
+A `.psdd` design file with a `.asc`, `.gem` or `.gcs` of the same name beside
+it is attached to that design instead of becoming a design of its own.
 
 **GemCAD `.gem` files.** A `.gem` is GemCAD's own binary save file. Import
 decodes its facet geometry (every facet plane, tier, name and cutting note,

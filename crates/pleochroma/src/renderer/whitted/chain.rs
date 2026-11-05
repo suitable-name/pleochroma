@@ -6,7 +6,7 @@ use crate::{
     geometry::tool::ToolPrimitive,
     optics::raytracer::{FacetFinish, HitRecord, Ray, intersect_stone::intersect_stone_soa_side},
     renderer::frame_scene::FrameScene,
-    simd::{PlanesSoA32, exp_lane},
+    simd::PlanesSoA32,
 };
 
 use super::{
@@ -19,10 +19,49 @@ const RESTART: f32 = 1.0e-4;
 #[derive(Clone, Copy)]
 struct Branch {
     ray: Ray,
+    /// The product of every Fresnel factor on the way here.
+    fresnel: f32,
+    /// Model units travelled inside the stone so far, and the axis-weighted share of them
+    /// (see [`super::tint::BinnedAbsorption`]): absorption is a function of the whole path,
+    /// not a product of per-segment RGB factors.
+    length: f32,
+    axial: f32,
+    /// What the branch contributes per unit of radiance: `fresnel` times the path's
+    /// transmission. The cutoff prunes on it.
     weight: Vec3,
     inside: bool,
     depth: u32,
     primary: bool,
+}
+
+impl Branch {
+    /// The camera ray: nothing travelled, nothing reflected.
+    const fn camera(ray: Ray) -> Self {
+        Self {
+            ray,
+            fresnel: 1.0,
+            length: 0.0,
+            axial: 0.0,
+            weight: Vec3::ONE,
+            inside: false,
+            depth: 0,
+            primary: true,
+        }
+    }
+
+    /// A branch continuing this one's path along `ray`, scaled by the Fresnel `factor`.
+    fn child(&self, ray: Ray, factor: f32, inside: bool, depth: u32) -> Self {
+        Self {
+            ray,
+            fresnel: self.fresnel * factor,
+            length: self.length,
+            axial: self.axial,
+            weight: self.weight * factor,
+            inside,
+            depth,
+            primary: false,
+        }
+    }
 }
 
 struct Worklist {
@@ -67,33 +106,18 @@ fn restarted(point: Vec3, dir: Vec3) -> Ray {
 /// Reserve the last stack slot for the internal continuation. Outside leaves
 /// resolve directly for convex stones; on cavity overflow only that leaf falls
 /// back to the environment. The continuation is never silently overwritten.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "flat scalar chain state mirrors the WGSL twin's parameter list"
-)]
 fn emit_outside(
     work: &mut Worklist,
     sum: &mut Vec3,
     prep: &WhittedPrep<'_>,
     tools: &[ToolPrimitive],
-    ray: Ray,
-    weight: Vec3,
+    leaf: Branch,
     observer: Vec3,
-    depth: u32,
 ) {
     if tools.is_empty() || work.len >= WORKLIST_CAPACITY - 1 {
-        *sum += weight * prep.env.leaf(ray.dir, observer);
+        *sum += leaf.weight * prep.env.leaf(leaf.ray.dir, observer);
     } else {
-        work.push(
-            Branch {
-                ray,
-                weight,
-                inside: false,
-                depth,
-                primary: false,
-            },
-            prep.max_depth,
-        );
+        work.push(leaf, prep.max_depth);
     }
 }
 
@@ -121,48 +145,30 @@ fn split_at_surface(
 
     if branch.inside {
         if let Some(transmitted) = refract(branch.ray.dir, normal, eta) {
-            emit_outside(
-                work,
-                sum,
-                prep,
-                tools,
+            let leaf = branch.child(
                 restarted(point, transmitted),
-                branch.weight * (1.0 - reflectance),
-                observer,
+                1.0 - reflectance,
+                false,
                 depth,
             );
+            emit_outside(work, sum, prep, tools, leaf, observer);
         }
         work.push(
-            Branch {
-                ray: reflection,
-                weight: branch.weight * reflectance,
-                inside: true,
-                depth,
-                primary: false,
-            },
+            branch.child(reflection, reflectance, true, depth),
             prep.max_depth,
         );
     } else {
         let glare = if branch.primary { prep.glare } else { 1.0 };
-        emit_outside(
-            work,
-            sum,
-            prep,
-            tools,
-            reflection,
-            branch.weight * (reflectance * glare),
-            observer,
-            depth,
-        );
+        let leaf = branch.child(reflection, reflectance * glare, false, depth);
+        emit_outside(work, sum, prep, tools, leaf, observer);
         if let Some(transmitted) = refract(branch.ray.dir, normal, eta) {
             work.push(
-                Branch {
-                    ray: restarted(point, transmitted),
-                    weight: branch.weight * (1.0 - reflectance),
-                    inside: true,
+                branch.child(
+                    restarted(point, transmitted),
+                    1.0 - reflectance,
+                    true,
                     depth,
-                    primary: false,
-                },
+                ),
                 prep.max_depth,
             );
         }
@@ -284,16 +290,7 @@ pub(super) fn trace_chain_with_cutoff(
     }
     let mut sum = Vec3::ZERO;
     let mut work = Worklist::new(cutoff);
-    work.push(
-        Branch {
-            ray: camera_ray,
-            weight: Vec3::ONE,
-            inside: false,
-            depth: 0,
-            primary: true,
-        },
-        prep.max_depth,
-    );
+    work.push(Branch::camera(camera_ray), prep.max_depth);
 
     while let Some(mut branch) = work.pop() {
         // A caller-supplied result replaces only the camera ray's intersection; every
@@ -324,12 +321,10 @@ pub(super) fn trace_chain_with_cutoff(
             branch.inside = !entering;
         }
         if branch.inside {
-            let attenuation = -prep.alpha.at(branch.ray.dir) * hit.t;
-            branch.weight *= Vec3::new(
-                exp_lane(attenuation.x),
-                exp_lane(attenuation.y),
-                exp_lane(attenuation.z),
-            );
+            branch.length += hit.t;
+            branch.axial += prep.absorption.axial(branch.ray.dir, hit.t);
+            branch.weight =
+                prep.absorption.transmission(branch.length, branch.axial) * branch.fresnel;
         }
         if matches!(
             scene.facet_finishes.get(hit.facet_idx),
@@ -363,11 +358,10 @@ mod tests {
             dir: Vec3::Z,
         };
         let branch = Branch {
-            ray,
-            weight: Vec3::ONE,
             inside: true,
             depth: 1,
             primary: false,
+            ..Branch::camera(ray)
         };
         let mut work = Worklist::new(CUTOFF);
         for _ in 0..WORKLIST_CAPACITY - 1 {
@@ -375,16 +369,8 @@ mod tests {
         }
         let tools = [ToolPrimitive::ball(Vec3::ZERO, 0.2)];
         let mut sum = Vec3::ZERO;
-        emit_outside(
-            &mut work,
-            &mut sum,
-            &prep,
-            &tools,
-            ray,
-            Vec3::splat(0.25),
-            Vec3::NEG_Z,
-            2,
-        );
+        let leaf = branch.child(ray, 0.25, false, 2);
+        emit_outside(&mut work, &mut sum, &prep, &tools, leaf, Vec3::NEG_Z);
         assert_eq!(work.len, WORKLIST_CAPACITY - 1);
         assert!((sum - Vec3::new(0.3, 0.7, 0.9) * 0.25).abs().max_element() < 1e-7);
         work.push(branch, prep.max_depth);

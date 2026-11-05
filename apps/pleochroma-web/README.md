@@ -184,9 +184,13 @@ what it renders with.
   continues); closing or reloading the tab with unsaved changes asks the browser's own
   leave-the-page question.
 - **Saving (browser downloads).** Save Design (`.psdd`, Ctrl+S), Save .asc, Export .gcs
-  (Experimental), Download Cutting Sheet (HTML), Download Diagram PNG and Export PNG. Each one uses the desktop's own
+  (Experimental), Download Cutting Sheet (HTML), Download Cutting Sheet (PDF), Download Diagram PNG
+  and Export PNG. Each one uses the desktop's own
   function, so the bytes match what the desktop would write. File names follow the
-  desktop's naming.
+  desktop's naming. The two cutting sheets are also buttons in the inspector's Schedule tab:
+  the HTML page is the standard cutting-instructions template followed by renderings and
+  further details, the PDF the standard template alone, ready to print. A design that does not
+  close to a solid gets no PDF, since its drawings would be empty.
 - **Design metadata and attachments.** The `.psdd` file carries descriptive
   metadata in a `[meta]` table (title, designer, source, notes, tags, licence, dates and
   an id) and the files that cannot be recomputed from the design in `[[attachments]]`

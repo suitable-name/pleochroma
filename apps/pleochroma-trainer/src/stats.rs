@@ -11,6 +11,58 @@ use std::{
 /// Version written into every stats file; a file whose major version differs is refused.
 pub const STATS_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Wall-clock scheduling and host inference measurements for one streamed rollout.
+/// Device work can complete during readback, so these are not GPU utilization figures.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RolloutSchedulingDiagnostics {
+    /// Number of batched inference calls.
+    pub forward_batches: usize,
+    /// Sum of real observation rows across inference calls.
+    pub real_rows: usize,
+    /// Sum of device row counts, including dummy rows, across inference calls.
+    pub padded_rows: usize,
+    /// Sum of padded tier widths across calls, not a count of tier tokens.
+    pub padded_tiers: usize,
+    /// Host milliseconds spent validating inference inputs.
+    pub validation_ms: f64,
+    /// Host milliseconds spent obtaining the inference model view.
+    pub inference_view_ms: f64,
+    /// Host milliseconds spent packing inference inputs.
+    pub packing_ms: f64,
+    /// Host milliseconds spent submitting forward operations.
+    pub forward_submit_ms: f64,
+    /// Host milliseconds spent reading the forward outputs, including any device wait.
+    pub readback_ms: f64,
+    /// Host milliseconds spent unpacking the forward outputs.
+    pub unpacking_ms: f64,
+    /// Tail starts when slots with quota remaining fall to the CPU pool width.
+    pub tail_slot_threshold: usize,
+    /// Slots with quota remaining when the tail began.
+    pub tail_start_slots: usize,
+    /// Steps still required when the tail began.
+    pub tail_start_steps_remaining: usize,
+    /// Steps completed after the tail began.
+    pub tail_completed_steps: usize,
+    /// Wall time from that point through draining all work, including respawns.
+    pub tail_secs: f64,
+    /// Coordinator-observed time and completions by prior count of slots with
+    /// quota remaining (including queued work); zero includes final respawn/drain.
+    pub tail_by_remaining_slots: Vec<RolloutTailBucket>,
+}
+
+/// Coordinator-observed tail time and completions at one remaining-slot count.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RolloutTailBucket {
+    /// Slots whose rollout quota had not yet been completed.
+    pub slots_with_steps_remaining: usize,
+    /// Wall seconds observed at this count.
+    pub wall_secs: f64,
+    /// Steps completed while this count was last observed.
+    pub completed_steps: usize,
+}
+
 /// One fixed-cohort validation or test evaluation saved alongside run telemetry.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[allow(
@@ -21,6 +73,16 @@ pub struct EvaluationSnapshot {
     pub iteration: usize,
     pub kind: String,
     pub fidelity: String,
+    #[serde(default)]
+    pub evaluation_revision: u32,
+    #[serde(default)]
+    pub distinct_entries: usize,
+    #[serde(default)]
+    pub distinct_families: usize,
+    #[serde(default)]
+    pub noise_drop: Option<f32>,
+    #[serde(default)]
+    pub noise_cached: bool,
     pub cases: Vec<crate::runner::EvalCase>,
 }
 
@@ -71,6 +133,15 @@ pub struct IterationMetricPoint {
     /// Collection diagnostics for this rollout (zero in older files).
     #[serde(default)]
     pub diagnostics: TrainingDiagnostics,
+    /// Current replay occupancy; absent in telemetry recorded before these fields existed.
+    #[serde(default)]
+    pub replay_rows: Option<usize>,
+    /// Conservatively accounted retained replay host bytes.
+    #[serde(default)]
+    pub replay_bytes: Option<usize>,
+    /// Configured retained replay host byte budget.
+    #[serde(default)]
+    pub replay_budget_bytes: Option<usize>,
     /// Completed episode counter.
     pub episode: usize,
     /// Cumulative transition steps collected.
@@ -186,6 +257,9 @@ pub struct IterationMetricPoint {
     /// predate the field).
     #[serde(default)]
     pub imitation_loss: f32,
+    /// Loss definition used by this update; absent in historical files and PPO runs.
+    #[serde(default)]
+    pub imitation_objective_revision: Option<String>,
     /// Mean squared error of the predicted component sensitivities over the labelled entries
     /// of this iteration's update, lower is better (0 in PPO runs and in older files).
     #[serde(default)]
@@ -206,6 +280,10 @@ pub struct IterationMetricPoint {
     /// and in older files).
     #[serde(default)]
     pub gain_loss: f32,
+    /// Mini-batches of this iteration's update skipped for a non-finite loss or gradient (no
+    /// optimizer step was taken for them). 0 in PPO runs and in older files.
+    #[serde(default)]
+    pub skipped_minibatches: usize,
     /// Labelled states in the aggregate the update trained on (0 in PPO runs and in older
     /// files).
     #[serde(default)]
@@ -252,6 +330,8 @@ pub struct IterationMetricPoint {
     /// Host milliseconds in batched rollout forwards (not device utilization).
     #[serde(default)]
     pub rollout_forward_ms: f32,
+    #[serde(default)]
+    pub rollout_scheduling: RolloutSchedulingDiagnostics,
     /// Wall seconds the main thread waited for the update thread (0 in files that predate the
     /// field; see [`Self::main_thread_secs`]).
     #[serde(default)]

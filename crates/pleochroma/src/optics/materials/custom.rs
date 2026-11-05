@@ -236,7 +236,11 @@ impl GemMaterial {
             // (chromite + stress-fracture) inclusions.
             "Quartz" | "Peridot" => Some((0.15, 0.3)),
             // Elbaite tourmaline commonly carries visible needle/fingerprint inclusions.
-            "Tourmaline" => Some((0.25, 0.4)),
+            // Labradorite shares the tier: translucent with an olive-grey body, a light haze (a
+            // denser one scattered the light before it reached the lamellae and the schiller
+            // vanished). Choosing it switches the haze on (`MaterialLook`) with the default
+            // asymmetry 0.4, so `g` is that here too.
+            "Tourmaline" | "Labradorite" => Some((0.25, 0.4)),
             // Faceted gem-quality diamond is typically eye-clean; a small isotropic
             // haze (cloud inclusions) rather than a strong directional character.
             "Diamond" => Some((0.02, 0.0)),
@@ -257,8 +261,7 @@ impl GemMaterial {
             | "Spessartine Garnet"
             | "Color-Change Garnet (Pyrope-Spessartine)"
             | "Benitoite"
-            | "Andalusite"
-            | "Labradorite" => Some((0.02, 0.2)),
+            | "Andalusite" => Some((0.02, 0.2)),
             // Lab-grown, essentially inclusion-free by construction. "Synthetic
             // Moissanite" -- see this function's own doc comment -- is
             // [`Self::all_materials`]'s actual built-in name; matching the bare
@@ -280,7 +283,13 @@ impl GemMaterial {
             // species (see e.g. Ruby/Sapphire's "silk" comment above), but as a species
             // in its own right it is typically faceted from clean synthetic boules.
             // Black opal and moonstone sit in it too (see the precious opal comment below).
-            "Morganite" | "Rutile" | "Precious Opal (Black)" | "Moonstone" => Some((0.05, 0.2)),
+            // Titanite (Sphene) joins them: faceted sphene is mostly eye-clean, with the odd
+            // fingerprint.
+            "Morganite"
+            | "Rutile"
+            | "Precious Opal (Black)"
+            | "Moonstone"
+            | "Titanite (Sphene)" => Some((0.05, 0.2)),
             // Almandine commonly carries needle/rutile inclusions.
             "Almandine Garnet" => Some((0.15, 0.4)),
             // Tsavorite is frequently included (fine growth-tube inclusions,
@@ -296,13 +305,14 @@ impl GemMaterial {
             // play-of-color -- see this entry's own comment in
             // `built_in_materials_andalusite_through_glass`.
             "Opal" => Some((0.1, 0.2)),
-            // Precious opal: the milky potch of white opal is a visible haze beside its
-            // play-of-color; black opal's dark body hides most of it. Labradorite and moonstone
-            // are eye-clean apart from their schiller (the light tier, a touch more for the
-            // adularescent moonstone). Aesthetic starting points like the rest of this table.
-            // (Labradorite joins the 0.02 tier and Precious Opal (Black) and Moonstone the
-            // 0.05 tier above.)
-            "Precious Opal (White)" => Some((0.15, 0.2)),
+            // Precious opal: white opal's body is milky and translucent, a dense haze beside its
+            // play-of-color (0.15 of earlier versions was barely visible; 1.2 matched the photos
+            // of white opals, 2026-11-04); black opal's dark body hides most of it. Moonstone is
+            // eye-clean apart from its adularescence. Choosing the white opal switches the haze on
+            // (`MaterialLook`), with the default asymmetry 0.4, so `g` is that here too. Aesthetic
+            // starting points like the rest of this table. (Precious Opal (Black) and Moonstone
+            // join the 0.05 tier above; Labradorite shares Tourmaline's.)
+            "Precious Opal (White)" => Some((1.2, 0.4)),
             _ => None,
         }
     }

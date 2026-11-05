@@ -27,6 +27,16 @@ start-up restore question is on screen: answer that first.
 The palette opens in the middle of the window with the cursor already in its search
 box, so you can start typing at once.
 
+**It lists what belongs to the page you are on.** In the Edit view you get the designing
+commands: tiers, Solve, Optimize, Undo, the view modes and the inspector tabs. On the
+Live Render you get its display modes and the lighting and render settings, but no tier,
+solve or edit command, since none of them does anything there. The Cutting Instructions
+tab offers its instructions commands (Edit as Text, Cutting Mode, the cutting sheet and
+diagram exports). File, Help, the library and interface commands are there on every page.
+A command that takes you to the page already on screen is left out, and Abandon Solve,
+Cancel Deep Solve and Cancel Optimize appear on every page, but only while that work runs.
+To reach a designing command from another page, run **Show Edit Tab** first.
+
 ## Searching
 
 Type a few letters of the action's name. The list narrows as you type and the best
@@ -133,7 +143,8 @@ of the row.
 - **File:** New Design..., Open..., Save, Save As..., Save as Variant... (Chapter 18),
   Load Selected Library Design,
   Export Edited .asc, Export as Gem Cut Studio (.gcs)..., Export Cutting Sheet
-  (HTML)..., Export Diagram (PNG)..., Show Last Saved File in Folder.
+  (HTML)..., Export Cutting Sheet (PDF)..., Export Diagram (PNG)..., Show Last Saved File in
+  Folder.
 - **Edit:** Undo, Redo, Keep as Trial (**Ctrl+Shift+K**, Chapter 18), Edit Instructions as Text... (Chapter 11), Preferences..., Use the
   Simple Interface, Use the Advanced Interface.
 - **View:** Go to 3D Spectral Preview, Go to Cutting Instructions, Go to Files &

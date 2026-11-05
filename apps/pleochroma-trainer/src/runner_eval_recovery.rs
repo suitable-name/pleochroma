@@ -1,8 +1,9 @@
-//! Durable completed validation cases, tied to the exact evaluation job.
+//! Durable validation cases and finer-grained continuation records.
 //!
 //! The caller owns the directory exclusively. A case is published only after its payload is
-//! synced; temporary files left by interruption are never read as completed cases. An unfinished
-//! episode is rerun, while completed model/reference comparisons retain their original values.
+//! synced; temporary files left by interruption are never read as completed work. The original
+//! version-3 whole-case records remain readable. Separate versioned fragments preserve passes,
+//! episode steps and teacher searches without rewriting training replay or model weights.
 
 use std::{
     fs,
@@ -14,14 +15,30 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use super::{DesignResult, EvalJob, ObjectiveWeights, RunnerError};
 
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 /// Changing policy execution changes episode decisions even with identical checkpoint weights.
 const POLICY_MATH: &str = "selected-backend-batched-forward-v1";
 
+const PART_VERSION: u32 = 1;
+
+#[path = "runner_eval_reference_journal.rs"]
+mod references;
+
 pub(super) struct Journal {
     directory: PathBuf,
     identity_stamp: u64,
+    reference_directory: Option<PathBuf>,
+}
+
+/// One exact evaluation case, with small independently committed continuation payloads.
+#[derive(Clone)]
+pub(super) struct CaseJournal {
+    directory: PathBuf,
+    identity_stamp: u64,
+    index: usize,
+    entry: usize,
+    weights: String,
 }
 
 #[derive(Serialize)]
@@ -41,6 +58,7 @@ struct Identity<'a> {
     seed: u64,
     sampled: bool,
     oracle: bool,
+    noise: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -51,6 +69,19 @@ struct CaseRecord {
     index: usize,
     entry: usize,
     weights: String,
+    payload: Vec<u8>,
+    payload_stamp: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PartRecord {
+    version: u32,
+    identity_stamp: u64,
+    index: usize,
+    entry: usize,
+    weights: String,
+    part: String,
     payload: Vec<u8>,
     payload_stamp: u64,
 }
@@ -78,7 +109,7 @@ impl Journal {
             },
             network: job.net,
             config: format!("{config:?}"),
-            corpus: format!("{:?}", job.split),
+            corpus: job.split.recovery_identity(),
             entries,
             tasks: tasks
                 .iter()
@@ -88,18 +119,17 @@ impl Journal {
             seed: job.seed,
             sampled: job.passes.sampled,
             oracle: job.passes.oracle,
+            noise: job.passes.noise,
         };
-        Self::open_identity(directory, &encode(&identity)?)
+        let mut journal = Self::open_identity(directory, &encode(&identity)?)?;
+        // Compare the complete corpus once per validation job, rather than copying it into
+        // every step/probe fragment or serializing thousands of designs once per case.
+        journal.reference_directory = Some(references::open_corpus(directory, &identity.corpus)?);
+        Ok(journal)
     }
 
     fn open_identity(directory: &Path, identity: &[u8]) -> Result<Self, RunnerError> {
-        fs::create_dir_all(directory).map_err(|e| failure("create directory", e))?;
-        if !fs::symlink_metadata(directory)
-            .map_err(|e| failure("inspect directory", e))?
-            .is_dir()
-        {
-            return Err(failure("open", "journal is not a regular directory"));
-        }
+        ensure_directory(directory)?;
         let path = directory.join("identity.mpk");
         match regular_bytes(&path)? {
             Some(saved) if saved == identity => {}
@@ -129,7 +159,42 @@ impl Journal {
         Ok(Self {
             directory: directory.to_owned(),
             identity_stamp: stamp(identity),
+            reference_directory: None,
         })
+    }
+
+    pub(super) fn case(
+        &self,
+        index: usize,
+        entry: usize,
+        weights: Option<ObjectiveWeights>,
+    ) -> CaseJournal {
+        CaseJournal {
+            directory: self.directory.clone(),
+            identity_stamp: self.identity_stamp,
+            index,
+            entry,
+            weights: format!("{weights:?}"),
+        }
+    }
+
+    /// An exact model-independent case shared by validation iterations of this run.
+    pub(super) fn reference_case(
+        &self,
+        job: EvalJob<'_>,
+        entry: usize,
+        weights: Option<ObjectiveWeights>,
+    ) -> Result<CaseJournal, RunnerError> {
+        let root = match &self.reference_directory {
+            Some(directory) => directory.clone(),
+            None => references::open_corpus(&self.directory, &job.split.recovery_identity())?,
+        };
+        let identity = references::identity(job, entry, weights)?;
+        let directory = root.join(format!("case-{:016x}", stamp(&identity)));
+        // The hash is only a path discriminator. Exact identity bytes guard collisions.
+        let salted = job.seed ^ (entry as u64).wrapping_mul(0x9E37_79B9);
+        let resolved = weights.unwrap_or_else(|| super::draw_weights(job.cfg.objectives, salted));
+        Ok(Self::open_identity(&directory, &identity)?.case(0, entry, Some(resolved)))
     }
 
     pub(super) fn load(
@@ -182,6 +247,97 @@ impl Journal {
     }
 }
 
+impl CaseJournal {
+    pub(super) fn load<T: DeserializeOwned>(&self, part: &str) -> Result<Option<T>, RunnerError> {
+        let path = self.path(part)?;
+        let Some(bytes) = regular_bytes(&path)? else {
+            return Ok(None);
+        };
+        let record: PartRecord = decode(&bytes)?;
+        if record.version != PART_VERSION
+            || record.identity_stamp != self.identity_stamp
+            || record.index != self.index
+            || record.entry != self.entry
+            || record.weights != self.weights
+            || record.part != part
+            || record.payload_stamp != stamp(&record.payload)
+        {
+            return Err(failure(
+                "load continuation",
+                format!("case {} part {part} is incompatible or corrupt", self.index),
+            ));
+        }
+        decode(&record.payload).map(Some)
+    }
+
+    pub(super) fn save<T: Serialize>(&self, part: &str, value: &T) -> Result<(), RunnerError> {
+        let path = self.path(part)?;
+        let payload = encode(value)?;
+        let record = PartRecord {
+            version: PART_VERSION,
+            identity_stamp: self.identity_stamp,
+            index: self.index,
+            entry: self.entry,
+            weights: self.weights.clone(),
+            part: part.to_owned(),
+            payload_stamp: stamp(&payload),
+            payload,
+        };
+        atomic_bytes(&path, &encode(&record)?)
+    }
+
+    fn path(&self, part: &str) -> Result<PathBuf, RunnerError> {
+        if part.is_empty()
+            || part.len() > 96
+            || !part
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        {
+            return Err(failure(
+                "continuation path",
+                "invalid continuation part name",
+            ));
+        }
+        Ok(self
+            .directory
+            .join(format!("case-{:06}.part-{part}.mpk", self.index)))
+    }
+}
+
+/// Create directories without traversing an existing symlink/reparse point.
+fn ensure_directory(path: &Path) -> Result<(), RunnerError> {
+    if path.as_os_str().is_empty() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        ensure_directory(parent)?;
+    }
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => Ok(()),
+        Ok(_) => Err(failure("open", "journal path is not a regular directory")),
+        Err(error) if error.kind() == ErrorKind::NotFound => match fs::create_dir(path) {
+            Ok(()) => {
+                #[cfg(unix)]
+                if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                    sync_directory(parent)?;
+                }
+                Ok(())
+            }
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                let metadata = fs::symlink_metadata(path)
+                    .map_err(|e| failure("inspect created directory", e))?;
+                if metadata.is_dir() && !metadata.file_type().is_symlink() {
+                    Ok(())
+                } else {
+                    Err(failure("open", "journal path is not a regular directory"))
+                }
+            }
+            Err(error) => Err(failure("create directory", error)),
+        },
+        Err(error) => Err(failure("inspect directory", error)),
+    }
+}
+
 fn encode(value: &impl Serialize) -> Result<Vec<u8>, RunnerError> {
     let mut bytes = Vec::new();
     value
@@ -218,6 +374,13 @@ fn atomic_bytes(path: &Path, bytes: &[u8]) -> Result<(), RunnerError> {
     let parent = path
         .parent()
         .ok_or_else(|| failure("save", "missing parent directory"))?;
+    ensure_directory(parent)?;
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() => {}
+        Ok(_) => return Err(failure("save", "journal payload is not a regular file")),
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => return Err(failure("inspect destination", error)),
+    }
     let mut temporary = tempfile::Builder::new()
         .prefix("pending-")
         .tempfile_in(parent)

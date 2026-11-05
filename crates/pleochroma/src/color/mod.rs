@@ -23,4 +23,6 @@ pub use body_color::{
     BodyColor, BodyColors, Illuminant, body_color, body_colors, color_change_delta_e, delta_e_2000,
     srgb_to_lab, xyz_to_lab,
 };
-pub use space::{ColorSpace, ToneMap, TransferFunction};
+pub use space::{
+    ColorSpace, HighlightRule, ToneMap, TransferFunction, highlight_rule, set_highlight_rule,
+};

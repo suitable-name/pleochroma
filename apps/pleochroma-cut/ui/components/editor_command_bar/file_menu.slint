@@ -308,13 +308,24 @@ export component FileMenu inherits HorizontalLayout {
                     activated => { anchor.close_menu(); EditorModel.export_asc(); }
                     dismissed => { anchor.close_menu(); }
                 }
+                // The cutting instructions in both formats, side by side: the HTML page is the
+                // standard template plus renderings and details, the PDF the template alone.
                 FileMenuItem {
                     label: "Export Cutting Sheet (HTML)...";
-                    description: "A printable page with every facet in cutting order.";
+                    description: "A printable web page in the standard template, with renderings and more details added after it.";
                     enabled: GuideModel.allows_file_ops();
                     locked: !GuideModel.allows_file_ops();
                     highlighted: GuideModel.highlight_target == "export_menu";
                     activated => { anchor.close_menu(); EditorModel.export_cutting_sheet(); }
+                    dismissed => { anchor.close_menu(); }
+                }
+                FileMenuItem {
+                    label: "Export Cutting Sheet (PDF)...";
+                    description: "The standard one-page cutting instructions, ready to print.";
+                    enabled: GuideModel.allows_file_ops();
+                    locked: !GuideModel.allows_file_ops();
+                    highlighted: GuideModel.highlight_target == "export_menu";
+                    activated => { anchor.close_menu(); EditorModel.export_cutting_sheet_pdf(); }
                     dismissed => { anchor.close_menu(); }
                 }
                 FileMenuItem {

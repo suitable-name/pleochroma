@@ -227,8 +227,11 @@ fn non_biaxial_materials_render_is_pinned_to_current_post_chapter_04_values() {
         // (owner decision; bits from the owner's Windows run). Sapphire, Ruby and Synthetic
         // Moissanite re-pinned on 2026-10-22 when they took their measured
         // extraordinary-index curves (n_e(lambda) instead of n_o + constant delta).
-        ("Sapphire", 0x3B8A_6BAC, 0x3B51_797B, 0x3C90_76AA),
-        ("Ruby", 0x3BD8_5E97, 0x3B2A_B81C, 0x3A1F_F919),
+        // Re-pinned on 2026-11-04 (owner's Windows run 2026-11-04_154834): the 2026-11-03
+        // dealer-photo round made Royal Blue the Sapphire default and refitted Ruby to the
+        // clean photo.
+        ("Sapphire", 0x3B2C_0086, 0x3AD9_1B56, 0x3C4B_AB9A),
+        ("Ruby", 0x3BDF_D294, 0x3B51_50EE, 0x38F5_3A78),
         (
             "Synthetic Moissanite",
             0x3E8D_87E6,

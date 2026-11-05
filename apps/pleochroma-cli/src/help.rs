@@ -23,7 +23,7 @@ Commands:
   optimize  Search for better facet angles and optionally save the best result.
   retarget  Adapt the angles to another material with the dialog's validity gate.
   sweep     Score one tier over a range of angles.
-  export    Write .asc, .psdd, .gcs or the cutting sheet (.html).
+  export    Write .asc, .psdd, .gcs or the cutting sheet (.html or .pdf).
   census    Measure the meet-preserving gate over templates, files and a library (read-only).
   render      Render a still picture from a render job file (*.job.json).
   tilt-video  Render a tilt video from a render job file; resumes from its frames.
@@ -246,11 +246,11 @@ JSON keeps the stored signed ones (a pavilion angle is negative).
 ";
 
 const EXPORT: &str = "\
-Usage: pleochroma-cli export <design>... --format asc|psdd|gcs|html (--out FILE | --out-dir DIR)
-                             [--db FILE] [--date TEXT]
+Usage: pleochroma-cli export <design>... --format asc|psdd|gcs|html|pdf
+                             (--out FILE | --out-dir DIR) [--db FILE] [--date TEXT]
 
 Writes the solved design in another form. The format may be left out when FILE ends in
-.asc, .psdd, .gcs or .html. The design must solve and close; nothing is written
+.asc, .psdd, .gcs, .html or .pdf. The design must solve and close; nothing is written
 otherwise.
 
   --format asc         GemCAD cutting instructions, the file the editor's Export writes
@@ -261,15 +261,18 @@ otherwise.
                        Gem Cut Studio 1.1 file description and read back by this program, but
                        not yet opened in Gem Cut Studio itself; check a design whose facet
                        positions are not mirrored about index 0 before relying on it).
-  --format html        The cutting instructions as a web page, headed by the design's
-                       title, designer and notes.
+  --format html        The cutting instructions as a web page in the standard template,
+                       headed by the design's title, designer and notes, followed by
+                       shaded renderings, the masts and the carat estimate.
+  --format pdf         The same cutting instructions as a PDF: the standard template on
+                       US Letter pages, the views as line drawings.
   --out FILE           Where to write it.
   --out-dir DIR        With several designs: write each as DIR/<name>.<extension of the format>.
                        --format is then required.
   --db FILE            A design library, for custom materials.
-  --date TEXT          The date the html page prints under its title, for example
-                       'October 2026'. Without it no date is printed, so the page is the
-                       same every time.
+  --date TEXT          The date the html or pdf sheet prints beside the designer, for
+                       example 'October 2026'. Without it no date is printed, so the sheet
+                       is the same every time.
 ";
 
 const CENSUS: &str = "Usage: pleochroma-cli census [DESIGN...] [--templates] [--fixtures]
@@ -315,15 +318,37 @@ const RENDER: &str = "\
 Usage: pleochroma-cli render JOB.job.json [--out FILE.png] [--local cpu|gpu|cpu+gpu]
                              [--remote HOST:PORT --cert-dir FOLDER]
                              [--compute local|remote|both] [--transfer full|final]
-                             [--contribute-local] [--quiet]
+                             [--contribute-local] [--quiet] [--material NAME]
+                             [--color-pattern NAME] [--color-variant KEY] [--highlights whiten|keep-color] [--meter]
 
 Renders the still picture a render job file describes. The file is written by the desktop
 app's render queue (File > Render Jobs...), which also exports scripts that call this command.
 It renders with the app's own engine, so the picture is the one the app would have made.
 
   --out FILE.png          Write the picture here instead of where the job says.
+  --material NAME         Render the job's stone in another built-in material (any letter
+                          case), sized for the job's stone width as the app sizes it. An
+                          unknown name is refused with the list of materials.
+  --color-variant KEY     Render the job's material in one of its built-in color variants,
+                          at the job's stone width: the full key (ruby.thai) or the part after
+                          the dot (thai). An unknown key is refused with the material's keys.
+  --color-pattern NAME    Render the stone in one of its material's typical color patterns
+                          (Hexagonal Banding, Watermelon, ...; any letter case, spaces or
+                          dashes), built on the material's own color as the Color Pattern
+                          window builds it. A Watermelon or Reverse Watermelon also turns the
+                          Crystal Axis through the table, as the app does. Not with
+                          --color-variant.
+  --highlights RULE       How colors too bright for the screen are shown: keep-color (default,
+                          they keep their hue and saturation and are dimmed; only light
+                          brighter than white turns white) or whiten (they keep their
+                          brightness and turn paler). With a remote worker, whiten needs
+                          --transfer full.
+  --meter                 Read the job's exposure as a correction on top of the lighting's
+                          light meter, as the app meters its live view (white paper shows the
+                          same under every lighting). For a job written before the meter or by
+                          hand; a job lit by an HDR map keeps its exposure.
   --engine path|ray      Replace the job renderer: spectral Path Traced or deterministic Ray Traced.
-                          Ray uses the job AA tap count and its approximate RGB base glass.
+                          Ray uses the job AA tap count; its tint follows the absorption spectrum.
   --local ENGINES         The engines of this computer: cpu, gpu or cpu+gpu (default cpu+gpu).
                           gpu needs a build with the gpu feature; without it everything renders
                           on the processor and a note says so.
@@ -351,7 +376,8 @@ const TILT_VIDEO: &str = "\
 Usage: pleochroma-cli tilt-video JOB.job.json [--out-dir FOLDER] [--restart]
                                   [--local cpu|gpu|cpu+gpu] [--remote HOST:PORT --cert-dir FOLDER]
                                   [--compute local|remote|both] [--transfer full|final]
-                                  [--contribute-local] [--quiet]
+                                  [--contribute-local] [--quiet] [--material NAME]
+                                  [--color-pattern NAME] [--color-variant KEY] [--highlights whiten|keep-color] [--meter]
 
 Renders the tilt performance video a render job file describes: every frame as a picture,
 then the video. The file is written by the desktop app's render queue (File > Render Jobs...),
@@ -364,8 +390,30 @@ frames first and starts at frame one. A folder that holds another job's frames i
 
   --out-dir FOLDER        The frame folder, instead of the one the job names.
   --restart               Start again from the first frame.
+  --material NAME         Render the job's stone in another built-in material (any letter
+                          case), sized for the job's stone width as the app sizes it. An
+                          unknown name is refused with the list of materials.
+  --color-variant KEY     Render the job's material in one of its built-in color variants,
+                          at the job's stone width: the full key (ruby.thai) or the part after
+                          the dot (thai). An unknown key is refused with the material's keys.
+  --color-pattern NAME    Render the stone in one of its material's typical color patterns
+                          (Hexagonal Banding, Watermelon, ...; any letter case, spaces or
+                          dashes), built on the material's own color as the Color Pattern
+                          window builds it. A Watermelon or Reverse Watermelon also turns the
+                          Crystal Axis through the table, as the app does. Not with
+                          --color-variant.
+  --highlights RULE       How colors too bright for the screen are shown: keep-color (default,
+                          they keep their hue and saturation and are dimmed; only light
+                          brighter than white turns white) or whiten (they keep their
+                          brightness and turn paler). With a remote worker, whiten needs
+                          --transfer full.
+  --meter                 Read the job's exposure as a correction on top of the lighting's
+                          light meter, as the app meters its live view. A job lit by an HDR map
+                          keeps its exposure.
+                          Each of these three options makes a different video: give it its own
+                          --out-dir (the folder of the plain run is refused as another job's).
   --engine path|ray      Replace the job renderer: spectral Path Traced or deterministic Ray Traced.
-                          Ray uses the job AA tap count and its approximate RGB base glass.
+                          Ray uses the job AA tap count; its tint follows the absorption spectrum.
   --local ENGINES         The engines of this computer: cpu, gpu or cpu+gpu (default cpu+gpu).
                           gpu needs a build with the gpu feature; without it everything renders
                           on the processor and a note says so.
@@ -576,6 +624,12 @@ mod tests {
             "--transfer",
             "--contribute-local",
             "--quiet",
+            "--material",
+            "--color-pattern",
+            "--color-variant",
+            "--highlights",
+            "keep-color",
+            "--meter",
         ];
         for (topic, own) in [
             (Topic::Render, "--out"),

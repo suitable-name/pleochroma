@@ -56,7 +56,11 @@ export global CutModel {
     // Highlights a step's tier in the diagram without opening Cutting Mode.
     callback select-step(int);
     callback solve();
+    // The cutting sheet as the HTML page (the standard template, then renderings and further
+    // details), shared or printed.
     callback share-sheet();
+    // The cutting sheet as a PDF (the standard template alone), shared.
+    callback share-sheet-pdf();
     callback print-sheet();
     callback share-diagram();
     // Asks for confirmation, then clears every done mark.

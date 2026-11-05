@@ -43,9 +43,9 @@ The built-in materials for this chapter are:
 
 | Material | Optical character | What it shows |
 |---|---|---|
-| **Precious Opal (White)** | Isotropic, index 1.45 | A pale body and a milky veil, with the play-of-color of its patches. |
+| **Precious Opal (White)** | Isotropic, index 1.45 | A milky, translucent cream-white body, with the play-of-color of its patches. |
 | **Precious Opal (Black)** | Isotropic, index 1.45 | A dark neutral body, which makes the colors stand out as on a black opal. |
-| **Labradorite** | Biaxial (+), indices about 1.559, 1.5625 and 1.567 | The schiller, fixed in the crystal. |
+| **Labradorite** | Biaxial (+), indices about 1.559, 1.5625 and 1.567 | A translucent olive-grey body and the schiller, fixed in the crystal. Its lamellae lie parallel to the table until you turn the Crystal Axis, as a labradorite is cut to flash face-up. |
 | **Moonstone** | Biaxial (−), indices about 1.518, 1.523 and 1.526 | Adularescence from the Inclusions group. |
 
 The older **Opal** is unchanged: a plain colorless body opal with no play-of-color. Choose it when you want the plain stone.
@@ -54,11 +54,11 @@ The dispersion of Labradorite is a placeholder of the right size taken from moon
 
 ## In the Stone Tab
 
-For a material that has a structure, the Stone tab shows a **Play-of-Color** group (opal) or a **Schiller** group (labradorite) under the Inclusions group. Switch on **Show Play-of-Color** (or **Show Schiller**). The first time you do, the settings start from the material's own values. Each choice below is saved in the design as one undoable step.
+For a material that has a structure, the Stone tab shows a **Play-of-Color** group (opal) or a **Schiller** group (labradorite) under the Inclusions group. Choosing **Precious Opal (White)**, **Precious Opal (Black)** or **Labradorite** in the material list switches it on with the material's own values, in the same undoable step as the material, so the stone looks like the gem straight away; the white opal also gets its milky body as Inclusion Haze and the labradorite its translucent one (less of it, since a dense haze hides the schiller), and a **Moonstone** gets its **Adularescence** preset in the Inclusions group (Chapter 27). Whatever the design already had stays, and a switch you turn off afterwards stays off. For any other material, switch on **Show Play-of-Color** (or **Show Schiller**) yourself: the settings start from the material's own values. Each choice below is saved in the design as one undoable step. On the command line, `--material` does the same for a render job.
 
 - **Pattern**: how big the patches are. **Pinfire** is many tiny points of color, **Harlequin** medium patches, **Broad Flash** a few large flashes. An opal starts as Harlequin, a labradorite as Broad Flash.
 - **Set Patch Size** and **Size**: set the width of one patch yourself (in model units, where the stone is about 1 across) instead of the pattern's own.
-- **Color Range, Low End** and **High End**: the shortest and the longest wavelength the patches reflect when seen straight on, in nanometres. Around 450 is blue, 550 green, 650 red. An opal starts at 440 to 680, a labradorite at 470 to 740. The low end is never above the high end.
+- **Color Range, Low End** and **High End**: the shortest and the longest wavelength the patches reflect when seen straight on, in nanometres. Around 450 is blue, 550 green, 650 red. An opal starts at 440 to 680, a labradorite at 400 to 560. Most patches take a color near the middle of the range and few one near its ends, so the range of a labradorite centres on blue (about 480) with some green, as real labradorites flash most often. The low end is never above the high end.
 - **Purity**: how pure each flash is. A small number is the purer, narrower color; a large one a broad, washed color. The slider runs from 0.01 to 0.3.
 - **Coverage**: the share of the stone that flashes, from 0 to 100 percent. An opal starts at 80 percent, a labradorite at 90.
 - **Reseed**: draws a new arrangement of the patches with the same settings. The **Seed** number beside it is saved with the design, so a design always shows the same patches. One step you can undo.
@@ -68,7 +68,7 @@ With the view on **Ray-Traced** the group adds "Ray-Traced ignores Play-of-Color
 ### What to Expect
 
 - Tilt the stone with the tilt tools or a tilt video (Chapter 14) and the colors of an opal shift toward blue; the patches of a labradorite flash and go dark.
-- A labradorite shows its flash only within a cone around the lamella direction. Turn the Crystal Axis and the cone moves.
+- A labradorite shows its flash only within a cone around the lamella direction. A new labradorite has the lamellae parallel to the table, so the flash faces up; turn the Crystal Axis and the cone moves.
 - The play-of-color needs light to enter the stone. A black body makes the colors stand out, a white body adds a milky veil.
 
 ## A Custom Material With a Structure
@@ -107,7 +107,7 @@ A design's choice is saved in an optional `[render_effects.structure]` table: `p
 | Symptom | Cause | What to do |
 |---|---|---|
 | The Stone tab has no **Play-of-Color** or **Schiller** group | The material has no structure. | Pick **Precious Opal (White)**, **Precious Opal (Black)** or **Labradorite**, or a custom material that imitates one. |
-| The group is there but the stone looks plain | **Show Play-of-Color** is off, or the view is Ray-Traced. | Switch it on; use Path-Traced. |
+| The group is there but the stone looks plain | **Show Play-of-Color** is off (a design that had the material before this version, or you switched it off), or the view is Ray-Traced. | Switch it on; use Path-Traced. |
 | The colors are washed out | **Purity** is high, or **Coverage** is low. | Lower the Purity number, raise the Coverage. |
 | The patches are too small or too large | The pattern does not suit the stone. | Try another **Pattern**, or **Set Patch Size**. |
 | A labradorite is dark from the front | The face-up direction is outside the flash cone. | Turn the Crystal Axis (Chapter 25), or tilt the stone. |

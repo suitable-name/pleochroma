@@ -146,12 +146,12 @@ fn without_zoning_field(dump: &str) -> std::borrow::Cow<'_, str> {
 
 /// The hashes of [`material_dump_hashes`] (through [`without_zoning_field`]).
 const MATERIAL_DUMP_HASHES: [u64; 6] = [
-    13_049_985_679_120_865_014,
-    11_575_449_901_402_516_878,
-    2_951_040_454_685_933_178,
-    12_399_276_284_270_091_646,
-    9_376_709_567_068_427_923,
-    1_008_369_690_435_516_343,
+    5_776_311_791_265_058_926,
+    6_367_608_035_700_484_422,
+    5_269_632_470_224_686_854,
+    7_820_186_651_992_677_182,
+    12_208_074_281_725_387_783,
+    18_344_240_373_520_520_199,
 ];
 
 #[test]
@@ -176,6 +176,10 @@ fn resolved_material_dumps_are_pinned() {
     // measured K = 2.83, so every `ModelUnit` material's `absorption_path_scale = (W / 7) / K`
     // (printed in each `Debug` dump) changed and all six combos move. The Windows run confirms
     // the same values next.
+    //
+    // Re-pinned 2026-11-04 (owner's run): the 2026-11-03 dealer-photo round made Royal Blue the
+    // Sapphire default, and Sapphire is in every combo twice (by name and as the forced
+    // editor override), so all six move.
     assert_eq!(material_dump_hashes(), MATERIAL_DUMP_HASHES);
 }
 
@@ -189,14 +193,15 @@ fn icc_profile_bytes_are_pinned() {
         })
         .collect();
     // The profile's copyright text names the crate (`pleochroma::color::space`), so a crate
-    // rename changes these bytes and needs a re-pin.
+    // rename changes these bytes and needs a re-pin. Re-pinned 2026-11-02 for the
+    // `pleochroma` crate name.
     assert_eq!(
         got,
         [
-            (2576, 15_151_355_189_953_627_717),
-            (2584, 3_399_358_691_760_220_469),
-            (2580, 9_952_526_404_351_897_998),
-            (2580, 4_523_072_377_019_198_032),
+            (2580, 6_563_937_239_482_988_125),
+            (2588, 4_153_491_096_910_666_361),
+            (2584, 1_159_254_923_716_320_874),
+            (2584, 12_113_861_983_055_148_996),
         ]
     );
 }
@@ -225,12 +230,12 @@ fn save_png_bytes_are_pinned() {
     assert_eq!(
         got,
         [
-            // Re-pinned 2026-10-29 with the ICC profiles above (the crate's new name in the
+            // Re-pinned 2026-11-02 with the ICC profiles above (the crate's name in the
             // embedded profile's copyright text; the sRGB file embeds none and keeps its bytes).
             (213, 10_826_987_011_992_901_810),
-            (2597, 4_883_349_284_706_428_323),
-            (2611, 12_790_413_013_770_100_845),
-            (2613, 14_413_600_939_343_022_441),
+            (2598, 6_763_436_604_264_667_206),
+            (2613, 6_256_208_830_315_254_101),
+            (2617, 12_985_920_966_433_960_175),
         ]
     );
 }

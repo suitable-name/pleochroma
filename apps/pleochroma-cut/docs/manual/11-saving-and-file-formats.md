@@ -440,9 +440,13 @@ file exactly where it is; it is only ever cleared by a later successful
 save, not by declining the offer. Choosing **Delete** instead removes
 exactly that one offered autosave file immediately, without opening it.
 (With no leftover autosave, the same dialog instead offers to reopen your
-most recently used design file, headed **"Reopen Last Design?"** with only
-**Reopen** / **Not Now** — no Delete, since that file is your own real
-save, not a recovery snapshot.)
+most recently used design file that is still on disk, headed **"Reopen
+Last Design?"** with **Reopen** / **Not Now** / **Discard**. **Not Now**
+asks again at the next start. **Discard** removes that design from
+**File > Open Recent**, so it is not offered again; there is no Delete,
+since that file is your own real save, not a recovery snapshot, and it
+stays where it is. A recent design that is no longer on disk, such as one
+opened from an archive's temporary folder, is skipped.)
 
 A recovered autosave is never a place Save writes back to: the first Save
 asks for a file name and suggests the design's own. An autosave is
@@ -464,39 +468,56 @@ same new local row — the original remote entry is never touched.
 
 ![The cutting instructions of a design as the app shows and exports them.](../../../../assets/cutting_instructions.png)
 
-Two further exports live in the **File** menu rather than the command
-bar:
+Three further exports live in the command bar's **File** menu. The
+cutting instructions come in two formats, one menu item each:
 
-- **Export Cutting Sheet (HTML)...** writes a single, self-contained HTML
-  file laid out like a printed cutting-instructions page: a header, the
-  facet counts, the size ratios, the design data, four small facet drawings
-  (the same drawing the Edit tab's Diagram view mode makes — Chapter 13),
-  your comments, and then two tables of every tier in cutting order, one for
-  the pavilion and one for the crown. The next section describes each block.
-  It is meant to be opened in a browser and printed from there. It always
-  re-solves the design fresh rather than reusing a cached solve, since the
-  masts it prints are what you would actually set a mast gauge to.
+- **Export Cutting Sheet (HTML)...** writes a single, self-contained web
+  page: the standard cutting-instructions template, then additional
+  information the template has no room for. The page prints on US Letter
+  paper exactly like the PDF, and after the template it adds an
+  "Additional information" part on its own page: the four views as shaded
+  renderings at print resolution, the Orientation block of the crystal
+  axis, a table of the masts and the carat estimate (the weight). The save
+  dialog proposes `<name>_cutting_sheet.html`.
+- **Export Cutting Sheet (PDF)...** writes the standard template only, as
+  a PDF ready to print: one US Letter page for a typical design (the
+  pavilion and crown lines continue on a further page when they do not
+  fit on the first). The save dialog proposes `<name>_cutting_sheet.pdf`.
+  A PDF is not written for a design that does not close to a solid, since
+  its drawings would be empty.
 - **Export Diagram (PNG)...** writes the crown/pavilion/profile drawing as
   its own standalone, print-quality image (about 1800×720 pixels, roughly
   150 DPI at A4 landscape width). It is one wide picture with the three
   panels side by side, not the four views of the sheet, and the layout
   change of the sheet does not touch it.
 
-Both show "Cannot build a cutting sheet: ..." / "Cannot draw this design:
-..." if the design does not currently solve, and a success toast naming
-the file's path otherwise. Neither is affected by the not-closed-solid
+Both cutting sheets follow the template: a header, the facet counts, the
+size ratios and the design data on the left, four line drawings of the
+stone beside them, your comments, and then the pavilion and crown lines of
+every tier in cutting order. The next section describes each block. Each
+save dialog offers its own file type, and the name you give still decides
+the format: a name ending in `.pdf` typed in the HTML dialog writes a PDF,
+and a name without `.pdf` in the PDF dialog gets it added. The exports
+always re-solve the design fresh rather than reusing a cached solve.
+
+All three show "Cannot build a cutting sheet: ..." / "Cannot draw this
+design: ..." if the design does not currently solve, and a success toast
+naming the file's path otherwise. None is affected by the not-closed-solid
 confirmation above — a design that does not solve at all has nothing to
 draw, rather than something to stamp a warning header onto.
 
 ### How the Cutting Sheet Is Laid Out
 
-The sheet follows the layout of a printed fantasy-cut page. From top to
-bottom it has these blocks. A line or block with nothing to print is left out
-rather than filled with a guess.
+The sheet follows the standard cutting-instructions template, in the HTML
+page and in the PDF alike. The header and the three data blocks form a
+column on the left, with the four drawings in a two-by-two grid beside it;
+the comments and the pavilion and crown lines run across the page below. A
+value with nothing to print reads "-" rather than a guess.
 
-- **Header.** The design's title is the heading. If the design has no title
-  the heading reads "Cutting instructions". Under it come a subtitle (when
-  one is given), "by" and the designer, and the date. The title comes from
+- **Header.** The design's title is the heading, over a heavy rule. If the
+  design has no title the heading reads "Cutting instructions". Under it
+  come the subtitle (when one is given), then the designer and the date
+  side by side; an empty one leaves its place blank. The title comes from
   the design's file details, the title, designer, shape and notes stored in
   its `.psdd` file (as they were when the design was opened or last
   saved, so save after you change them in the library). When a file
@@ -506,9 +527,10 @@ rather than filled with a guess.
   `.asc` file has only those header lines. The date is the month and year of
   the export, such as "October 2026", taken from your computer's clock when
   you export. Nothing else on the sheet depends on the clock.
-- **Facet Data.** How many tiers and how many facets the stone has in the
-  pavilion, the girdle and the crown, and the totals. A tier with no index
-  list is one facet; any other tier counts one facet for each index. A
+- **Facet Data.** How many facets (left) and how many tiers (right) the
+  stone has in the pavilion, the girdle and the crown, and the totals. A
+  tier with no index list is one facet; any other tier counts one facet for
+  each index. A
   concave tier counts one facet for each place the tool is used, on the side
   of the stone it belongs to. The culet counts as a pavilion facet. When the
   design has a table, the crown reads "32+1": the crown facets, plus the
@@ -519,27 +541,38 @@ rather than filled with a guess.
   P/C is the pavilion depth over the crown height. A dash means the design
   does not measure (it does not close, or it has no girdle to take the crown
   and pavilion from).
-- **Design Data.** The refractive index with its material, for example
-  "1.540 (Quartz?)" — a question mark means the material is a guess from the
-  index, not a name you set. When the design gives a refractive-index range
-  it is printed as "RI range" instead, followed by the size range in
-  millimetres when one is given. Then the symmetry ("8-fold, mirror" or
-  "8-fold"), the index gear ("96 index") and the shape. The girdle diameter
-  and the carat estimate follow, when you have set a girdle diameter.
-- **Views.** Four drawings in two rows, each labelled with the direction you
-  look from: "down +Z" is the crown seen from above, "down -Z" is the
-  pavilion seen from below, "down +X" is the side (the profile), and "down -Y"
-  is the end, the side view turned a quarter turn. The labels use the stone's
-  own axes, with Z along the axis of the stone.
-- **Comments.** Your comment lines, one under the other: the design's notes
-  and its `.asc` footnotes. The block is left out when there are none.
-- **Pavilion and Crown.** Two tables with the same columns: the step number,
-  the label (the tier's code), the angle, the index list, the instruction,
-  then the mast, the mast in millimetres and the cheater offset when the
-  sheet carries them. The girdle rows are in the Pavilion table. The Crown
-  table ends with the table facet. The step numbers run on from the Pavilion
-  table into the Crown table, so they are the order you cut in. A concave
-  tier keeps its tool line under its facet line.
+- **Design Data.** Five rows. "RI range" gives the design's refractive-index
+  range ("1.43 to 2.62") when one is given, else the design's own index with
+  its material, for example "1.540 (Quartz?)" — a question mark means the
+  material is a guess from the index, not a name you set. "Size range" gives
+  the size range in millimetres when one is given, else the girdle diameter
+  you set, else "-". Then the symmetry ("8-fold, mirror" or "8-fold"), the
+  index gear ("96 Index") and the shape.
+- **Views.** Four line drawings in a two-by-two grid: crisp facet outlines
+  with each facet's code, and the index wheel around the crown and the
+  pavilion. Top left is "down +Z", the crown seen from above; top right
+  "down +X", the side (the profile); bottom left "down -Y", the end, the side
+  view turned a quarter turn; bottom right "down -Z", the pavilion seen from
+  below. The labels use the stone's own axes, with Z along the axis of the
+  stone. A facet too small to hold its code is drawn without it.
+- **Comments.** Your comment lines, centred across the page: the design's
+  notes and its `.asc` footnotes. The block is left out when there are none.
+- **Pavilion and Crown.** One line per tier in cutting order, on alternating
+  grey bands: the tier's code, its angle ("40.00°"), its index list and its
+  instruction ("Meet P1, P2, G1"). The girdle lines are in the Pavilion
+  section, and the Crown section ends with the table ("T", "Table"). A
+  concave tier keeps its tool line ("CYL", "+10.00°", the displacement, the
+  tool's size) under its facet line on the same band. When the lines do not
+  fit on the first page of the PDF they continue on the next, under the
+  section's name and "(continued)".
+
+Index lists print index 0 as the gear's tooth count, as the template does:
+"96-24-48-72" on a 96-tooth gear. Other positions keep two digits ("08").
+
+The HTML page's "Additional information" part lists each tier's code, name
+and mast (in millimetres too when a girdle diameter is set, with the
+cheater offset when a tier has one, and a concave tier's tool in
+millimetres), then the girdle diameter and the carat estimate.
 
 The plain-text version of the sheet has the same blocks in the same order
 under plain headings, without the four drawings.
@@ -573,6 +606,19 @@ follow it. The plain-text version of the sheet follows the same rules.
   A tier that meets named facets prints the codes of those facets, in the order
   its Meets box lists them. A note recorded in an imported `.asc` file is
   printed exactly as the designer wrote it.
+- **A tier placed at a depth.** A tier with no meets of its own (set to a
+  depth, as every tier of an imported `.asc` file is) gets its instruction
+  from the finished stone, in the official template's words:
+  - the first girdle tier says "Set stone size.";
+  - pavilion mains that end in one point say "Cut to centerpoint.";
+  - the first crown tier, where it reaches the girdle, says
+    "Set girdle width.";
+  - every other tier lists the tiers cut before it that it touches
+    ("Meet P1, P2, G1");
+  - a tier nothing earlier touches prints its depth
+    ("Cut to depth 2.18 mm.").
+
+  A `.asc` export writes "Set stone size." on the same girdle tier.
 - **Index lists.** Positions are written with dashes and two digits each:
   96-08-16-24. A position between two teeth keeps two decimals (03.50), and a
   tier with no index list shows a single dash.

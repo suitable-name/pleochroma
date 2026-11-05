@@ -124,9 +124,8 @@ pub(in crate::gui::editor) fn setup_apply_design_material_callback(
                             clear_colour_fields(&mut material);
                         }
                     }
-                    match st.apply(Edit::SetMaterial {
-                        material: Box::new(material),
-                    }) {
+                    let edit = material_pick_edit(&st.design, material);
+                    match st.apply(edit) {
                         Ok(()) => {
                             // A material change never moves a tier's own mast.
                             refresh_editor_panel_stale(&ui, &render_ctx, &st, &BTreeSet::new());
@@ -160,6 +159,29 @@ pub(in crate::gui::editor) fn setup_apply_design_material_callback(
             }
         },
     );
+}
+
+/// The edit a pick in the material combo makes: the material and, when the pick changes the
+/// material to one whose look is a design effect (precious opal's play-of-color, labradorite's
+/// schiller, moonstone's adularescence, white opal's milky body), that effect switched on in the
+/// same undo step (`StoneRenderEffects::with_material_look`). The refresh after the edit pushes
+/// the effects to the Stone tab's controls and the render context.
+fn material_pick_edit(design: &Design, material: MaterialSelection) -> Edit {
+    let look = if material.name == design.material.name {
+        None
+    } else {
+        material
+            .name
+            .as_deref()
+            .and_then(|name| design.render_effects.with_material_look(name))
+    };
+    let set = Edit::SetMaterial {
+        material: Box::new(material),
+    };
+    match look {
+        Some(effects) => Edit::Batch(vec![set, Edit::SetRenderEffects { effects }]),
+        None => set,
+    }
 }
 
 /// The selection `current` becomes when the material called `name` is chosen by an explicit
@@ -564,7 +586,7 @@ pub(in crate::gui::editor) fn setup_apply_symmetry_callback(
 
 #[cfg(test)]
 mod tests {
-    use super::{named_material, symmetry_order_from_text};
+    use super::{material_pick_edit, named_material, symmetry_order_from_text};
     use crate::gui::editor::{body_color_combo::material_for_apply, state::EditorState};
     use pleochroma_cut_core::{
         Edit, MaterialSelection,
@@ -661,6 +683,49 @@ mod tests {
         assert_eq!(next.absorption_path_scale_override, None);
         // The outgoing material's RI is never pinned onto the incoming one.
         assert_eq!(next.refractive_index_override, None);
+    }
+
+    /// Picking precious opal (or labradorite, moonstone) switches its look on in the same undo
+    /// step as the material; picking it again, or a material without a look, is the plain edit.
+    #[test]
+    fn a_pick_of_a_material_whose_look_is_an_effect_switches_it_on_in_one_undo_step() {
+        let mut state = EditorState::fresh();
+        let original_effects = state.design.render_effects;
+        let mut opal = state.design.material.clone();
+        opal.name = Some("Precious Opal (White)".to_string());
+        let edit = material_pick_edit(&state.design, opal.clone());
+        assert!(matches!(edit, Edit::Batch(ref steps) if steps.len() == 2));
+        state.apply(edit).expect("the pick applies");
+        assert_eq!(
+            state.design.material.name.as_deref(),
+            Some("Precious Opal (White)")
+        );
+        assert!(
+            state.design.render_effects.structure.is_some(),
+            "play-of-color on"
+        );
+        assert!(state.undo().expect("undoes"));
+        assert_eq!(
+            state.design.render_effects, original_effects,
+            "one undo puts both back"
+        );
+
+        let mut sapphire = state.design.material.clone();
+        sapphire.name = Some("Sapphire".to_string());
+        assert!(matches!(
+            material_pick_edit(&state.design, sapphire),
+            Edit::SetMaterial { .. }
+        ));
+        state
+            .apply(material_pick_edit(&state.design, opal.clone()))
+            .expect("the pick applies");
+        assert!(
+            matches!(
+                material_pick_edit(&state.design, opal),
+                Edit::SetMaterial { .. }
+            ),
+            "the same material again switches nothing on"
+        );
     }
 
     /// Picking a zoned material from the combo drops the colour combo's override (the same

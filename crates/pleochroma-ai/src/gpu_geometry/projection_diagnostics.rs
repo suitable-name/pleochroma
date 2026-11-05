@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 pub(crate) enum GatePhase {
     Seed,
     LineTrial,
+    /// A non-improving line trial certified after its search stalled.
+    DeferredTrial,
     FinalIterate,
     ExplicitCertification,
 }
@@ -15,6 +17,7 @@ impl GatePhase {
         match self {
             Self::Seed => "seed",
             Self::LineTrial => "line_trial",
+            Self::DeferredTrial => "deferred_trial",
             Self::FinalIterate => "final_iterate",
             Self::ExplicitCertification => "explicit_certification",
         }
@@ -78,7 +81,7 @@ pub(crate) enum ProjectionMissReason {
 }
 
 impl ProjectionMissReason {
-    pub(super) fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::UnsupportedNetwork => "unsupported_network",
             Self::InvalidSeed => "invalid_seed",

@@ -594,6 +594,10 @@ fn cutting_sheet() -> GuideOverlay {
                     DOWNLOADED,
                 ),
         )
+        .step(StepOverlay::of("Open and print").line(
+            "For the standard template alone, as a PDF ready to print, choose Export Cutting Sheet (PDF)... in the same File menu.",
+            "For the standard template alone, as a PDF ready to print, click Cutting Sheet (PDF) in the Schedule tab (or choose File > Download Cutting Sheet (PDF)).",
+        ))
 }
 
 fn diagram_png() -> GuideOverlay {

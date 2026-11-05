@@ -9,7 +9,7 @@
 //! | `progress` | [`ProgressStore`]: done marks per design and per step signature, in `<files>/cut_progress/<key>.json` |
 //! | `key` | which file a design's marks live in (its id, else a SHA-256 of its text) |
 //! | `rows` | [`instruction_rows`] and [`summary`]: the Cut page's list and progress card |
-//! | `sheet` | [`SheetJob`], [`cutting_sheet_html`], [`diagram_png`]: the sheet and the picture |
+//! | `sheet` | [`SheetJob`], [`cutting_sheet_html`], [`cutting_sheet_pdf`], [`diagram_png`]: the sheet (HTML or PDF) and the picture |
 //! | `diagram` | [`DiagramJob`]: the three-panel diagram with one tier highlighted |
 //! | `mode` | Cutting Mode's step state (its own lane) |
 //!
@@ -47,7 +47,8 @@ pub use diagram::{DiagramJob, diagram_job, render_highlighted};
 pub use progress::ProgressStore;
 pub use rows::{CutRow, CutSummary, angle_text, index_text, instruction_rows, summary};
 pub use sheet::{
-    SheetJob, cutting_sheet_html, date_text_for, date_text_now, diagram_png, file_name, sheet_job,
+    SheetJob, cutting_sheet_html, cutting_sheet_pdf, date_text_for, date_text_now, diagram_png,
+    file_name, sheet_job,
 };
 
 use crate::{app_state::AppState, design_props::material_default_orientation, document};

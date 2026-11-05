@@ -47,7 +47,7 @@ For the materials where the color depends strongly on the direction, the program
 |---|---|
 | Tanzanite | **Best Blue Face-Up** and **Violet Face-Up** |
 | Alexandrite | **Strongest Color Change** (the direction that changes most between daylight and a warm lamp) |
-| Andalusite | **Best Green Face-Up**, offered only when one direction of the stone is green (a green hue with some saturation); the built-in color of the material shows none, so it offers no color-named preset until a variant with a green direction is chosen |
+| Andalusite | **Best Green Face-Up**, offered only when one direction of the stone is green (a green hue with some saturation); the built-in color has one: looking along its red-brown direction, the other two show a pale yellow-green |
 | Peridot | none: its three colors are close, yellow-green to green |
 
 A custom material has none of these. Presets of the other kind (Through the Table, In the Table Plane, Along the Width) work for every material that has a Crystal Axis.

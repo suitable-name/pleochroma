@@ -30,14 +30,10 @@ const TABLE_SECTION: usize = 2;
 const SECTION_COUNT: usize = 3;
 
 /// Where a flat tier is cut.
-#[expect(
-    clippy::float_cmp,
-    reason = "a girdle is authored as exactly +-90 degrees; the exact value is the rule"
-)]
 const fn section_of(tier: &ConstraintTier) -> usize {
     if tier.is_table() {
         TABLE_SECTION
-    } else if !tier_is_crown_side(tier.angle_deg) || tier.angle_deg.abs() == 90.0 {
+    } else if !tier_is_crown_side(tier.angle_deg) || tier.is_girdle() {
         // A flat tier with `|angle| == 90` is a girdle and is cut with the pavilion
         // even though `+90` reads as crown-side.
         PAVILION_SECTION
@@ -220,6 +216,36 @@ impl Design {
         order.extend(concave(true));
         order.extend(flat(table));
         order
+    }
+
+    /// The tier whose depth sets the stone's size: the one row of the cutting instructions,
+    /// and the one `.asc` line, that says "Set stone size.".
+    ///
+    /// The fantasy-cut template's convention: the first girdle tier
+    /// ([`ConstraintTier::is_girdle`]) in cutting order that is pinned to an explicit depth
+    /// ([`MeetConstraint::ScaleReference`]). A pavilion cut before it to the centerpoint only
+    /// fixes the angles, so the girdle is where the size is set (`P1 Cut to centerpoint.`,
+    /// `G1 Set stone size.`). A design with no such girdle tier falls back to the first
+    /// explicit-depth tier in cutting order. `None` when no tier has an explicit depth.
+    ///
+    /// No meet resolver is needed. [`flat_cutting_sections`] only ever moves a
+    /// [`MeetConstraint::MeetNamed`] tier, so among the explicit-depth tiers the cutting order is
+    /// the section order (pavilion and girdle, crown, table), then the stored order. That keeps
+    /// this cheap enough for every `.asc` schedule build.
+    #[must_use]
+    pub fn sizing_tier(&self) -> Option<usize> {
+        let pinned =
+            |tier: &ConstraintTier| matches!(tier.constraint, MeetConstraint::ScaleReference(_));
+        self.tiers
+            .iter()
+            .position(|tier| pinned(tier) && tier.is_girdle())
+            .or_else(|| {
+                (0..SECTION_COUNT).find_map(|section| {
+                    self.tiers
+                        .iter()
+                        .position(|tier| pinned(tier) && section_of(tier) == section)
+                })
+            })
     }
 }
 

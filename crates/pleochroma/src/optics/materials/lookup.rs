@@ -3,6 +3,12 @@
 
 use super::GemMaterial;
 
+/// Second names of built-in materials, lower case, each with the entry it stands for.
+const NAME_ALIASES: &[(&str, &str)] = &[
+    ("sphene", "Titanite (Sphene)"),
+    ("titanite", "Titanite (Sphene)"),
+];
+
 impl GemMaterial {
     /// Looks a material up by name, tolerating extra surrounding words in the query
     /// (e.g. a diagram title like "Fine Blue Sapphire").
@@ -18,9 +24,30 @@ impl GemMaterial {
             return Some(m.clone());
         }
         let needle = name.to_lowercase();
-        all.into_iter()
+        let found = all
+            .iter()
             .filter(|m| needle.contains(&m.name.to_lowercase()))
             .max_by_key(|m| m.name.len())
+            .cloned();
+        // A material known under a second name finds its entry by either name alone ("Sphene
+        // Oval" is Titanite (Sphene)), when no full material name matched.
+        found.or_else(|| {
+            NAME_ALIASES
+                .iter()
+                .find(|(alias, _)| needle.contains(alias))
+                .and_then(|(_, material)| all.into_iter().find(|m| m.name == *material))
+        })
+    }
+
+    /// The built-in material a second name stands for, matched as a whole name in any letter
+    /// case: `"Sphene"` and `"titanite"` are `"Titanite (Sphene)"`. `None` for any other name.
+    #[must_use]
+    pub fn alias_target(name: &str) -> Option<&'static str> {
+        let lower = name.trim().to_lowercase();
+        NAME_ALIASES
+            .iter()
+            .find(|(alias, _)| *alias == lower)
+            .map(|(_, material)| *material)
     }
 
     /// Convenience accessor for the built-in Diamond material.

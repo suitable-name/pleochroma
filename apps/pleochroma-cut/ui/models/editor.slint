@@ -87,6 +87,10 @@ export global EditorModel {
     // never offered for an ordinary recent file (only a leftover autosave is
     // ever safe to delete outright; see `startup_restore_is_autosave`).
     callback startup_restore_delete();
+    // Removes the offered RECENT file from the recent-files list (File > Open Recent) and
+    // dismisses the prompt, so it is not offered again -- the file itself stays on disk. The
+    // ordinary recent file's counterpart of `startup_restore_delete`.
+    callback startup_restore_forget();
 
     in property <[EditorTierItem]> tiers: [];
 
@@ -323,8 +327,12 @@ export global EditorModel {
     // The same edited schedule as an experimental Gem Cut Studio `.gcs` file
     // (`gui::editor::native_io::export::setup_export_asc_callback`).
     callback export_gcs();
-    // Printable cutting sequence as self-contained HTML with embedded diagram.
+    // "Export Cutting Sheet (HTML)...": the standard template as a self-contained web page,
+    // followed by the renderings and further details.
     callback export_cutting_sheet();
+    // "Export Cutting Sheet (PDF)...": the standard template alone, as a PDF ready to print
+    // (`gui::editor::native_io::export::setup_export_cutting_sheet_callback`).
+    callback export_cutting_sheet_pdf();
     // 2D diagram alone as PNG, sharing the cut sheet's rendering path.
     callback export_diagram();
     // Explicit "Save As" action; distinct from `save_native` (the File > Save

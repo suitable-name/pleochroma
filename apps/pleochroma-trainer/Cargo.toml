@@ -11,7 +11,8 @@ description = "Desktop reinforcement learning trainer GUI for Pleochroma: live t
 [workspace]
 
 [features]
-default = []
+default = ["gui"]
+gui = ["dep:slint", "dep:rfd", "dep:arboard", "dep:slint-build"]
 cuda = ["pleochroma-ai/cuda"]
 
 # Same lint set as the root `[workspace.lints.clippy]` (this crate is standalone).
@@ -23,6 +24,7 @@ cast_precision_loss = { level = "allow" }
 [[bin]]
 name = "pleochroma-trainer"
 path = "src/main.rs"
+required-features = ["gui"]
 
 [[bin]]
 name = "pleochroma-trainer-cli"
@@ -43,17 +45,20 @@ serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
 rmp-serde = "1.3.1"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 # Native file dialog of the GUI's "Load Weights" (same version as the workspace).
-rfd = "0.17.2"
+rfd = { version = "0.17.2", optional = true }
 # Clipboard copy of the GUI console (already in the lockfile through Slint's winit backend).
-arboard = { version = "3.7.0", default-features = false }
+arboard = { version = "3.7.0", default-features = false, optional = true }
 # Console width of the CLI progress line (a line that wraps cannot be redrawn in place).
 terminal_size = "0.4.4"
 rayon = "1.12.0"
 tempfile = "3.27.0"
-slint = { version = "1.18.1", default-features = false, features = ["std", "compat-1-18", "backend-default", "renderer-femtovg", "renderer-software", "accessibility"] }
+# Clean CLI stop on SIGINT/SIGTERM (Ctrl-C): a flag on the first signal, an exit on the second.
+# Already in the lockfile (crossterm's dependency), so no new crate is downloaded.
+signal-hook = { version = "0.3.18", default-features = false }
+slint = { version = "1.18.1", optional = true, default-features = false, features = ["std", "compat-1-18", "backend-default", "renderer-femtovg", "renderer-software", "accessibility"] }
 
 [build-dependencies]
-slint-build = "1.18.1"
+slint-build = { version = "1.18.1", optional = true }
 
 # Same override as the root workspace's `Cargo.toml` (this crate is standalone, so it does not
 # inherit it), extended to the environment crate: the trainer's tests play environment

@@ -566,14 +566,14 @@ export component HeaderToolbar inherits Rectangle {
                 }
             }
 
-            // Import your own `.asc`/`.gem`/`.gcs` file(s) into the local library.
+            // Import your own `.psdd`/`.asc`/`.gem`/`.gcs` file(s) into the local library.
             Rectangle {
                 width: import_btn.preferred-width;
                 height: 28px;
-                Tooltip { text: @markdown("Add your own design files to the library: one .asc, .gem or .gcs file, or a whole folder of them."); }
+                Tooltip { text: @markdown("Add your own design files to the library: one .psdd, .asc, .gem or .gcs file, or a whole folder of them."); }
                 import_btn := Button {
                     text: "Import";
-                    accessible-description: "Add your own design files to the library: one .asc, .gem or .gcs file, or a whole folder of them.";
+                    accessible-description: "Add your own design files to the library: one .psdd, .asc, .gem or .gcs file, or a whole folder of them.";
                     icon: @image-url("../icons/folder.svg");
                     colorize-icon: true;
                     height: 28px;

@@ -4,8 +4,9 @@
 //! Jacobian inconsistent away from the solution. Solve its least-squares problem
 //! instead of rejecting such a linearization as an impossible authored design.
 
-/// Damped QR in physical trust-region units, without forming J^T J. Derivatives
-/// are never normalized by their own magnitude: doing so amplifies rounding-only
+/// Damped QR in physical trust-region units, without forming J^T J.
+///
+/// Derivatives are never normalized by their own magnitude: doing so amplifies rounding-only
 /// directions. Final geometry validation remains the caller's responsibility.
 pub(super) fn correction(
     columns: &[Vec<f64>],
@@ -116,8 +117,80 @@ pub(super) fn bound_correction(
     Some(())
 }
 
-/// A one-sided finite difference inside the *actual* legal interval. Use the
-/// represented f64 displacement as the divisor, including at narrow boundaries.
+/// Computes a damped-QR step in the subspace allowed by active bounds.
+///
+/// Zeroes Jacobian columns whose step components point outside an active boundary
+/// (room <= 1e-12), re-solving
+/// the coupled least-squares system on the remaining free variables, and then scaling
+/// the resulting feasible direction to the trust-region box.
+///
+/// Returns `Ok(step)` on success, `Err(false)` for an invalid correction, and
+/// `Err(true)` when no feasible direction remains.
+pub(super) fn bounded_qr_correction(
+    columns: &[Vec<f64>],
+    residual: &[f64],
+    current: &[f64],
+    origin: &[f64],
+    limits: &[f64],
+    bounds: &[(f64, f64)],
+) -> Result<Vec<f64>, bool> {
+    let n = columns.len();
+    if [current.len(), origin.len(), limits.len(), bounds.len()]
+        .into_iter()
+        .any(|len| len != n)
+    {
+        return Err(false);
+    }
+    let mut active_columns = columns.to_vec();
+    let mut pinned = vec![false; n];
+    // Every nonterminal pass pins at least one additional coordinate, so at
+    // most n pinning passes and one final free-subspace solve are needed.
+    for _pass in 0..=n {
+        let Some(mut step) = correction(&active_columns, residual, limits) else {
+            return Err(false);
+        };
+        for j in 0..n {
+            if pinned[j] {
+                step[j] = 0.0;
+            }
+        }
+        let mut newly_pinned = false;
+        for j in 0..n {
+            let delta = step[j];
+            if delta == 0.0 || pinned[j] {
+                continue;
+            }
+            let value = current[j];
+            let start = origin[j];
+            let limit = limits[j];
+            let (lo, hi) = bounds[j];
+            let room = if delta > 0.0 {
+                (start + limit).min(hi) - value
+            } else {
+                value - (start - limit).max(lo)
+            };
+            if room <= 1e-12 {
+                pinned[j] = true;
+                active_columns[j].fill(0.0);
+                newly_pinned = true;
+            }
+        }
+        if !newly_pinned {
+            if bound_correction(&mut step, current, origin, limits, bounds).is_some() {
+                return Ok(step);
+            }
+            return Err(true);
+        }
+        if pinned.iter().all(|&p| p) {
+            return Err(true);
+        }
+    }
+    Err(true)
+}
+
+/// A one-sided finite difference inside the *actual* legal interval.
+///
+/// Use the represented f64 displacement as the divisor, including at narrow boundaries.
 /// Keep the usual production-plane-sized step whenever the interval permits it;
 /// clipping is preferable to silently turning a movable variable into a zero column.
 pub(super) fn difference_step(value: f64, nominal: f64, bounds: (f64, f64)) -> Option<f64> {
@@ -151,7 +224,9 @@ pub(super) fn difference_step(value: f64, nominal: f64, bounds: (f64, f64)) -> O
     .then_some(delta)
 }
 
-/// Ordered dyadic backtracking. Additional small fractions are used only after
+/// Ordered dyadic backtracking.
+///
+/// Additional small fractions are used only after
 /// the existing four candidates fail; bounded work and represented-state checks
 /// prevent an endless search below production-plane/f64 resolution.
 pub(super) const BACKTRACK_STEPS: usize = 24;
@@ -162,7 +237,10 @@ pub(super) fn backtrack_factor(index: usize) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{BACKTRACK_STEPS, backtrack_factor, bound_correction, correction, difference_step};
+    use super::{
+        BACKTRACK_STEPS, backtrack_factor, bound_correction, bounded_qr_correction, correction,
+        difference_step,
+    };
 
     #[test]
     fn dependent_contacts_with_rounding_disagreement_still_have_a_correction() {
@@ -277,8 +355,8 @@ mod tests {
         assert!(
             bound_correction(&mut step, &[1.0, 0.0], &[0.0, 0.0], &[5.0, 5.0], &bounds).is_none()
         );
-        // This documents the existing limitation, rather than changing the search:
-        // the second coordinate still admits a valid bounded descent direction.
+        // Uniform clipping alone cannot recover this direction. The active-set
+        // solver below must retain the second coordinate's bounded descent.
         let mut feasible = [0.0, -1.0];
         assert!(
             bound_correction(
@@ -290,5 +368,96 @@ mod tests {
             )
             .is_some()
         );
+    }
+
+    #[test]
+    fn bounded_qr_correction_pins_active_bound_and_descends_on_free_variable() {
+        let columns = [vec![1.0, 0.0], vec![0.0, 1.0]];
+        let residual = [-1.0, 1.0];
+        let current = [1.0, 0.0];
+        let origin = [0.0, 0.0];
+        let limits = [5.0, 5.0];
+        let bounds = [(0.0, 1.0), (-5.0, 5.0)];
+        let step = bounded_qr_correction(&columns, &residual, &current, &origin, &limits, &bounds)
+            .expect("feasible direction on unpinned coordinate");
+        assert_eq!(step[0], 0.0);
+        assert!(step[1] < 0.0);
+    }
+
+    #[test]
+    fn bounded_correction_preserves_descent_with_many_blocked_coordinates() {
+        let n = 9;
+        let columns: Vec<Vec<f64>> = (0..n)
+            .map(|i| {
+                let mut column = vec![0.0; n];
+                column[i] = 1.0;
+                column
+            })
+            .collect();
+        let residual = vec![-1.0; n];
+        let current = vec![0.0; n];
+        let limits = vec![1.0; n];
+        let mut bounds = vec![(-1.0, 0.0); n];
+        bounds[n - 1] = (-1.0, 1.0);
+        let step = bounded_qr_correction(&columns, &residual, &current, &current, &limits, &bounds)
+            .unwrap();
+        assert!(step[..n - 1].iter().all(|&value| value == 0.0));
+        assert!(step[n - 1] > 0.0);
+        bounds[n - 1] = (-1.0, 0.0);
+        assert_eq!(
+            bounded_qr_correction(&columns, &residual, &current, &current, &limits, &bounds),
+            Err(true)
+        );
+    }
+
+    #[test]
+    fn bounded_correction_resolves_more_than_six_sequential_bounds() {
+        // A^T A = I + 11^T. Pinning a negative component shifts every free
+        // component down by the same amount. Place each successive component
+        // between the previous and next shift, so only one crosses zero at a
+        // time. The final coordinate remains free and has to be re-solved.
+        let n = 9;
+        let mut target = vec![0.0; n];
+        target[0] = -1.0;
+        let mut pinned_sum = 1.0;
+        let mut previous_shift = 0.0;
+        let mut shift = 1.0 / n as f64;
+        for (i, value) in target.iter_mut().enumerate().take(n - 1).skip(1) {
+            *value = (previous_shift + shift) / 2.0;
+            pinned_sum -= *value;
+            previous_shift = shift;
+            shift = pinned_sum / (n - i) as f64;
+        }
+        target[n - 1] = 1.0;
+        let columns: Vec<_> = (0..n)
+            .map(|i| {
+                let mut column = vec![0.0; n + 1];
+                column[i] = 1.0;
+                column[n] = 1.0;
+                column
+            })
+            .collect();
+        let mut residual: Vec<_> = target.iter().map(|value| -value).collect();
+        residual.push(-target.iter().sum::<f64>());
+        let limits = vec![10_000.0; n];
+        let mut active = columns.clone();
+        for pin in 0..n - 1 {
+            let step = correction(&active, &residual, &limits).unwrap();
+            let outward: Vec<_> = (0..n - 1)
+                .filter(|&i| !active[i].iter().all(|&value| value == 0.0) && step[i] < 0.0)
+                .collect();
+            assert_eq!(outward, vec![pin], "pinning pass {pin}");
+            active[pin].fill(0.0);
+        }
+        let free_solution = correction(&active, &residual, &limits).unwrap();
+        let current = vec![0.0; n];
+        let mut bounds = vec![(0.0, 10_000.0); n];
+        bounds[n - 1] = (-10_000.0, 10_000.0);
+        let actual =
+            bounded_qr_correction(&columns, &residual, &current, &current, &limits, &bounds)
+                .unwrap();
+        assert!(actual[..n - 1].iter().all(|&value| value == 0.0));
+        assert_eq!(actual[n - 1], free_solution[n - 1]);
+        assert!(actual[n - 1] > 0.0);
     }
 }

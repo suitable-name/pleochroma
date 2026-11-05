@@ -20,6 +20,11 @@
 //! Long commands (tier switch, environment rebuilds, device switch, checkpoint and telemetry
 //! files, validation) are bracketed by [`WorkerEvent::Busy`] events.
 //!
+//! A failed iteration (a device error, an update without a single finite mini-batch) pauses
+//! training. The GUI keeps no recovery bundle, so the next start or single step first
+//! re-synchronises the run (`TrainingRunner::resync_after_failure`: fresh environments, both
+//! trainers reloaded from the installed weights); Reset and Load Weights do the same.
+//!
 //! Lifecycle: the thread ends on [`TrainerCommand::Shutdown`] (clean) or when the UI drops its
 //! command sender; an error or panic is caught and reported as [`WorkerEvent::Died`]. To make a
 //! shutdown prompt the UI should clear the `is_active` flag before sending `Shutdown`: the
@@ -501,6 +506,13 @@ impl Worker<'_> {
             Ok(None) => self.send_snapshot(),
             Err(error) => {
                 self.report_error("Training iteration failed, training paused", &error);
+                if self.runner.needs_resync() {
+                    self.log(
+                        "INFO",
+                        "Start or Step rebuilds the environments and continues from the last \
+                         installed weights",
+                    );
+                }
                 self.send_snapshot();
             }
         }

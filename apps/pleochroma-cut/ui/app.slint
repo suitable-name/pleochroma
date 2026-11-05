@@ -45,7 +45,7 @@ import { ParametersDockMetrics } from "components/parameters_panel/parameters_do
 import { ParametersPanel } from "components/parameters_panel/parameters_panel.slint";
 import { RemoteWorkerModel, RemoteAvailabilityItem } from "models/remote_worker.slint";
 import { BatchModel } from "models/batch.slint";
-import { TiltModel, TiltVideoExportModel } from "models/tilt.slint";
+import { TiltModel, TiltVideoExportModel, TiltPosePreview } from "models/tilt.slint";
 import { LibraryModel } from "models/library.slint";
 import { EditorModel } from "models/editor.slint";
 import { GuideModel, GuideStepData, GuideAllow } from "models/guide.slint";
@@ -103,7 +103,7 @@ export {
     ParametersModel,
     // The one remote-availability value (configured / reachable and render-capable).
     RemoteAvailabilityItem,
-    RemoteWorkerModel, BatchModel, TiltModel, TiltVideoExportModel, LibraryModel, EditorModel, UndoRedoLabels,
+    RemoteWorkerModel, BatchModel, TiltModel, TiltVideoExportModel, TiltPosePreview, LibraryModel, EditorModel, UndoRedoLabels,
     // ActivityModel: the app's background-activity/status model -- see ui/models/activity.slint.
     ActivityModel, ActivityItem,
     // Guidance globals: guide, keyboard shortcuts overlay, template gallery -- see each global's doc comment.
@@ -344,8 +344,8 @@ export component MainWindow inherits Window {
                 title: "Render Jobs...";
                 activated => { RenderJobsModel.panel_open = true; }
             }
-            // "Export Cutting Sheet (HTML)..."/"Export Diagram (PNG)..." live on the command bar's own
-            // File menu (`editor_command_bar/file_menu.slint`).
+            // "Export Cutting Sheet (HTML)..."/"Export Cutting Sheet (PDF)..."/"Export Diagram (PNG)..."
+            // live on the command bar's own File menu (`editor_command_bar/file_menu.slint`).
         }
         Menu {
             title: "Edit";
@@ -485,6 +485,11 @@ export component MainWindow inherits Window {
                     title: "Build This Design";
                     enabled: !BuildDesignModel.busy;
                     activated => { BuildDesignModel.start(LibraryModel.selected_entry_id); }
+                }
+                MenuItem {
+                    title: "Delete...";
+                    enabled: !RemoteWorkerModel.library_is_remote;
+                    activated => { LibraryModel.delete_entry(LibraryModel.selected_entry_id, LibraryModel.current_detail.title); }
                 }
             }
         }

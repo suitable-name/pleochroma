@@ -56,22 +56,29 @@ impl GemMaterial {
                 // low end of R4's "Deep Siberian" range 2.5-3.5 x); stored as per mm x
                 // 2.47 x 9.905 mm, the face-up path of a 7 mm stone (3.5 mm per model unit
                 // x `MODEL_UNIT_FACE_UP_PATH` 2.83), because the unit stays `ModelUnit`.
-                // Swatch (7 mm, D65): with c along the view the stone shows the o-ray,
-                // L*50 C*41 h 329 (the measured slab at 2.47 x: 50 / 40 / 329); the
-                // unpolarised mean is L*54 C*35 h 331 and the e-ray L*61 C*27 h 336,
-                // against the old tuned stand-in L*59 C*66 h 321.
+                // 2026-11-04 (owner: "Fix the remaining gaps"): the main band's centre moved from
+                // the Anahi slab's 537.1 to 549 nm, inside the 540-550 nm the literature gives for
+                // the amethyst centre, widths and strengths unchanged. Dealer photos of amethyst
+                // have a median colored hue of 316; the Anahi centre rendered h 333 at every
+                // strength (Light Tent), 545 nm h 322, 555 nm h 309. The Anahi type stays in the
+                // Ametrine (it comes from that mine; its photos' purple reads h 337) and in the
+                // Deep Siberian variant (red flashes).
+                // Swatch (7 mm, D65, the Python replica of the app's colorimetry, not a run):
+                // with c along the view the stone shows the o-ray, L*49 C*43 h 314; the
+                // unpolarised mean is L*53 C*36 h 315 and the e-ray L*60 C*27 h 317 (with the
+                // 537.1 nm centre 50 / 41 / 329, 54 / 35 / 331 and 61 / 27 / 336).
                 // Calibration record: docs/chromophores/calibration-records.md#amethyst
                 absorption: AbsorptionTensor::uniaxial(
                     vec![
                         AbsorptionBand::energy(364.3, 4_508.9, 3.65),
                         AbsorptionBand::energy(416.1, 2_911.3, 0.971),
-                        AbsorptionBand::energy(537.1, 5_174.7, 2.14),
+                        AbsorptionBand::energy(549.0, 5_174.7, 2.14),
                         AbsorptionBand::energy(953.8, 3_072.8, 0.474),
                     ],
                     vec![
                         AbsorptionBand::energy(364.3, 4_508.9, 3.65),
                         AbsorptionBand::energy(416.1, 2_911.3, 0.971),
-                        AbsorptionBand::energy(537.1, 5_174.7, 1.5),
+                        AbsorptionBand::energy(549.0, 5_174.7, 1.5),
                         AbsorptionBand::energy(953.8, 3_072.8, 0.237),
                     ],
                 ),
@@ -126,6 +133,13 @@ impl GemMaterial {
                 // so the swatch stays the old one: (7 mm, D65) L*92 C*51 h 94 against
                 // the old L*93 C*49 h 91 (dE2000 2.0).
                 // Calibration record: docs/chromophores/calibration-records.md#citrine
+                // 2026-11-04 (owner: "The render seems to err toward saturated"; citrine was the
+                // other way): x 2 (1.06 x the table). Colored-pixel saturation s_uv: the faceted
+                // dealer photos 0.79, the Commons photos 0.95-1.13, the x 1 render 0.57 (a pale
+                // lemon against golden stones), x 2 renders 0.80 at h 83. Swatch L*85 C*77 h 87.
+                // The Ametrine's citrine half (11 ppma iron) stays: L* 91 h 94, within the 7 L* and
+                // 10 deg its test allows.
+                // Calibration record: docs/chromophores/calibration-records.md#saturation-round-2026-11-04
                 absorption: AbsorptionTensor::uniaxial(
                     vec![
                         AbsorptionBand::energy(330.0, 8_477.0, 8.69),
@@ -137,7 +151,8 @@ impl GemMaterial {
                         AbsorptionBand::energy(410.0, 7_064.0, 0.714),
                         AbsorptionBand::energy(500.0, 5_181.0, 0.121),
                     ],
-                ),
+                )
+                .scaled(2.0),
                 c_axis: Vec3::Y,
                 biaxial_delta_beta_alpha: None,
                 alpha_axis: None,

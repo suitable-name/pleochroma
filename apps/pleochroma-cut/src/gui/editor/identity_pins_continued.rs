@@ -14,11 +14,14 @@ fn form_parsing_is_pinned() {
     // alphabetical lists; the THIRD (`material_search_dump`, RI -> nearest built-in) moved with
     // the 2026-10-26 color-review data refits (Peridot n_D 1.651_549, RI override also clearing
     // the axis dispersions). The search itself still ranks nearest first.
+    // Re-pinned from the owner's Windows run 2026-11-04_154834: the SECOND hash moved because
+    // Titanite (Sphene) joined the alphabetical built-in list on 2026-11-03 (every later index
+    // names another material).
     assert_eq!(
         got,
         (
             1_545_794_316_997_941_305,
-            8_131_557_972_048_406_621,
+            3_954_546_335_237_923_982,
             12_801_622_518_707_986_904
         )
     );
@@ -121,10 +124,10 @@ fn scripted_edit_sequence_is_pinned() {
         ),
         (
             // The pinned text is the `.psdd` design file text (`design_to_string`); re-pinned
-            // 2026-10-29 for the rename: its header says `format = "pleochroma-design"`, one
-            // letter shorter than the old `"indicatrix-design"`.
-            7_518_731_412_245_220_151,
-            944,
+            // 2026-11-02 for the rename: its header says `format = "pleochroma-design"` (files
+            // tagged `"indicatrix-design"` still read).
+            10_873_386_827_430_338_000,
+            945,
             6_969_999_423_672_735_711,
             "add Ok(())\nadd Ok(())\nadd Ok(())\nnudge Ok(())\nnudge Ok(())\nnudge Ok(())\n\
              undo Ok(true)\nredo Ok(true)\nmirror Ok(())\norbit -0 Ok(())\n\
@@ -205,14 +208,40 @@ fn cutting_sheet_and_diagram_bytes_are_pinned() {
     // Both hashes still differ from Linux's, so the Windows pictures are not byte-identical to
     // the Linux ones for this frame (presumably the platform math library in the layout, as for
     // the facet planes; not bisected). Fixtures 1 and 2 match the Linux pins.
+    //
+    // The three sheets re-pinned 2026-11-05 from the lead's Windows run (quick-release). Cause:
+    // the cutting-instructions campaign of 2026-11-04 (lanes VP and M). The sheet's main part
+    // is now the official fantasy-cut template: four inline SVG line drawings
+    // (`pleochroma_solid::diagram2d::view_to_svg`), index 0 printed as the gear's tooth count,
+    // and computed meets in the instruction column (`meet_instruction`). An "Additional
+    // information" section follows, with the four shaded renderings at 1600x1257 (were 560x440),
+    // the masts and the carat estimate. Those renderings draw their facet labels at the
+    // frame's text scale (`DiagramStyle::label_scale`, 2 at 1257 px), like the tooth numbers.
+    // The sheets grew from about 179 KB to about 600 KB. The standalone diagram PNGs did not
+    // move (the raster diagram keeps `label_scale` 1), nor did the facet planes. The
+    // `cfg(not(windows))` fixture-0 sheet entry was re-pinned from the owner's Linux run the
+    // same day: 603_737 bytes, 16 fewer than Windows (the platform split above); fixtures 1
+    // and 2 match Windows byte for byte.
+    //
+    // Re-pinned 2026-11-05 again from the owner's Linux run (the three sheets; the diagram
+    // PNGs did not move). Two causes, both in the sheet's text:
+    // - the HTML's screen presentation and extended additional information (lane Y: a
+    //   screen-only bar, paper sheets on grey, a Stone summary, restyled masts and
+    //   orientation; `cut_sheet/summary.rs`);
+    // - the template convention in the instruction column (`Design::sizing_tier`,
+    //   "Set girdle width.").
+    // The template part's print layout is unchanged. The `cfg(windows)` fixture-0 sheet entry
+    // is from the owner's Windows run the same day (`owner_runs/windows/2026-11-05_094501`):
+    // 606_562 bytes, 16 more than Linux as before; that run gave the same fixture-1 and
+    // fixture-2 sheets and the same tier-row hashes as Linux.
     #[cfg(windows)]
     let fixture_0: [(usize, u64); 2] = [
-        (179_454, 478_035_084_354_739_378),
+        (606_562, 11_736_902_947_696_155_507),
         (141_288, 11_413_831_736_985_919_569),
     ];
     #[cfg(not(windows))]
     let fixture_0: [(usize, u64); 2] = [
-        (179_454, 18_072_107_520_601_363_907),
+        (606_546, 588_139_891_447_678_699),
         (141_286, 2_017_440_248_910_210_068),
     ];
     assert_eq!(
@@ -220,9 +249,9 @@ fn cutting_sheet_and_diagram_bytes_are_pinned() {
         [
             fixture_0[0],
             fixture_0[1],
-            (178_693, 14_378_194_224_418_707_309),
+            (600_894, 8_452_203_179_921_548_134),
             (139_660, 9_075_363_107_119_437_507),
-            (175_524, 16_431_005_880_757_175_085),
+            (595_830, 11_078_173_895_711_783_295),
             (141_463, 343_495_985_279_007_824),
         ]
     );

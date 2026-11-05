@@ -115,3 +115,46 @@ pub fn tray_radiance(albedo: f32, preset: LightingPreset, light_yaw: f32, light_
         0.0
     }
 }
+
+/// The radiance [`metered_exposure`] exposes white paper to.
+///
+/// It is what the grading dome gives it (irradiance over pi of 1), just under the shoulder of
+/// the ACES curve. A white tray shows as an off-white sheet (about 0.89 in sRGB), the stone
+/// keeps its whole tonal range, and the grading tray, the scoring light, looks as it always did.
+pub const METERED_PAPER_RADIANCE: f32 = TRAY_ALBEDO_WHITE;
+
+/// The exposure an incident-light meter sets for `preset` at the light pose.
+///
+/// The yaw and pitch are in radians. `exposure` is the compensation on top of the reading
+/// (`1.0` = as metered): the result shows white paper (albedo [`TRAY_ALBEDO_WHITE`]) lit by the
+/// rig at [`METERED_PAPER_RADIANCE`].
+///
+/// The rigs differ in total light by more than five stops: the daylight sky lights a tray at
+/// about a fifth of the grading dome, a studio key with its ring sparks at four to eight times
+/// the dome. One fixed exposure therefore left the sky and window rigs dark and blew the studio
+/// rigs out on a white tray. The meter reads the light, not the picture, so black velvet stays
+/// black and a grey card grey. No score reads it: the metrics classify light relative to the
+/// rig's own ambient, whatever the exposure.
+///
+/// The UV lamps keep `exposure` unchanged: their light is meant to be invisible, so there is no
+/// visible irradiance to meter.
+#[must_use]
+pub fn metered_exposure(
+    exposure: f32,
+    preset: LightingPreset,
+    light_yaw: f32,
+    light_pitch: f32,
+) -> f32 {
+    if matches!(
+        preset,
+        LightingPreset::UvLamp365 | LightingPreset::UvLamp395
+    ) {
+        return exposure;
+    }
+    let paper = TRAY_ALBEDO_WHITE * rig_irradiance_over_pi(preset, light_yaw, light_pitch);
+    if paper.is_finite() && paper > 1e-4 {
+        exposure * (METERED_PAPER_RADIANCE / paper)
+    } else {
+        exposure
+    }
+}

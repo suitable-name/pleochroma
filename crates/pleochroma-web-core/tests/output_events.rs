@@ -6,8 +6,8 @@
 //! pins WHERE, for the events of the files and the cutting steps: each is raised by the function
 //! in which the action has succeeded (after the download was handed to the browser, after the
 //! design was installed, after the mark was stored), never on a click and never when the action
-//! was refused. The Schedule tab's two buttons are the outline stand-ins for the menu items that
-//! cannot be outlined, so they must draw the two web-only targets.
+//! was refused. The Schedule tab's download buttons are the outline stand-ins for the menu items
+//! that cannot be outlined, so they must draw the two web-only targets.
 //!
 //! It only reads the sources as text, like `guide_targets.rs`; a copy of the crate without the web
 //! app next to it skips the checks.
@@ -73,6 +73,7 @@ fn each_download_raises_its_event_after_the_browser_took_the_file() {
         ("pub fn save_asc(", "ASC_EXPORTED"),
         ("pub fn save_gcs(", "GCS_EXPORTED"),
         ("pub fn download_cutting_sheet(", "SHEET_EXPORTED"),
+        ("pub fn download_cutting_sheet_pdf(", "SHEET_EXPORTED"),
         ("pub fn download_diagram(", "DIAGRAM_EXPORTED"),
     ] {
         let body = function(&save, signature);

@@ -229,6 +229,8 @@ pub fn join_once(target: &JoinTarget, setup: &WorkerSetup) -> Result<Session, Jo
         loopback: serve::is_loopback_peer(tls.sock.tcp.peer_addr().ok()),
     }
     .open(&PayloadEncoding::default_accept_list());
+    // The color zones the coordinator sends ahead of a chunk belong to this connection only.
+    let _zoning_guard = crate::serve::zoning::ConnectionGuard::new();
     let ended = serve::serve_requests(
         &mut tls,
         &RequestContext {

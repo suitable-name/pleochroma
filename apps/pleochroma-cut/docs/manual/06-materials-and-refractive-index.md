@@ -82,8 +82,9 @@ cutting) -- are:
 | Precious Opal (Black) | 1.450 | — | Isotropic | Yes (dark body) |
 | Labradorite | 1.5625 | +0.0080 | Biaxial (+) | No |
 | Moonstone | 1.523 | −0.0080 | Biaxial (−) | No |
+| Titanite (Sphene) | 1.894 | +0.1226 | Biaxial (+) | Yes |
 
-The last four are the stones whose look comes from the inside: Precious Opal (White), Precious Opal (Black), Labradorite and Moonstone. Their play-of-color, schiller and adularescence are not part of the material but a choice of the design (Chapters 27 and 28). The older **Opal** is the plain body-color opal and stays as it was. Chrysoberyl (Yellow) shows +0.0076 where older versions showed +0.0090: it now takes the published wavelength-dependent curves of the mineral, whose total birefringence is that smaller figure (see "Curves for the Extraordinary Ray" below).
+The last four are the stones whose look comes from the inside: Precious Opal (White), Precious Opal (Black), Labradorite and Moonstone. Their play-of-color, schiller and adularescence are not part of the material but a choice of the design (Chapters 27 and 28); choosing one of these materials switches its effect on. The older **Opal** is the plain body-color opal and stays as it was. **Titanite (Sphene)**, last in the list, has more fire than diamond (B–G dispersion 0.057 against 0.044) and a birefringence of 0.12, so the back facets show doubled through the table; it is yellow-green, with its strongly colored ray lying in the table. Its indices are measured values from 1887 at three wavelengths; its color follows a measured spectrum of a Madagascar crystal. Typing "Sphene" or "Titanite" finds it. Chrysoberyl (Yellow) shows +0.0076 where older versions showed +0.0090: it now takes the published wavelength-dependent curves of the mineral, whose total birefringence is that smaller figure (see "Curves for the Extraordinary Ray" below).
 
 Several of these colors are not invented: Tanzanite, Aquamarine, Spessartine,
 Tsavorite, Demantoid and Peridot are fitted to measured absorption spectra, and

@@ -33,7 +33,8 @@ macro_rules! continuations {
                 self.prepare_teacher_label_adaptive(h_deg, probes, scales, &|| false)
             }
 
-            /// Prepare teacher candidates, sharing spare capacity in the installed Rayon pool.
+            /// Prepare teacher candidates. On a Rayon pool worker the phase's candidates always
+            /// fan out; off a pool they do only while `parallel` reports spare capacity.
             pub fn prepare_teacher_label_adaptive(
                 &self,
                 h_deg: f64,
@@ -81,7 +82,8 @@ macro_rules! continuations {
                 self.prepare_step_scaled_adaptive(action, scales, &|| false)
             }
 
-            /// Prepare a step, optionally sharing spare CPU capacity for remaining scales.
+            /// Prepare a step. Scales run strictly in order (a smaller one only after a
+            /// rejection); `parallel` is kept for the staged API and never consulted.
             pub fn prepare_step_scaled_adaptive(
                 &self,
                 action: &ContinuousTierAction,
@@ -99,7 +101,7 @@ macro_rules! continuations {
                 self.advance_step_adaptive(work, &|| false)
             }
 
-            /// Advance a ready step and recheck spare capacity before unstarted scales.
+            /// Advance a ready step; the next scale is prepared only after a rejection.
             pub fn advance_step_adaptive(
                 &self,
                 work: &mut StepWork,

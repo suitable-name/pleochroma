@@ -76,7 +76,10 @@ export global AppModel {
     // Downloads the edited schedule as an experimental Gem Cut Studio `.gcs` file.
     callback save-gcs();
     callback save-design();
+    // The cutting sheet as the HTML page (the standard template, then renderings and further
+    // details) or as the PDF (the standard template alone).
     callback download-cutting-sheet();
+    callback download-cutting-sheet-pdf();
     callback download-diagram();
     // Opens the PNG export dialog (`src/render/export.rs`).
     callback export-png();

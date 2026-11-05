@@ -11,8 +11,8 @@ render-job format 2; historical format-1 jobs remain Path-Traced. Remote peers m
 all use protocol 29 to carry this choice. See the
 [rendering manual](manual/09-rendering-and-export.md) for the approximation's limits.
 
-**Import**: the Import Designs panel has **Choose File...** (one `.asc`, `.gem` or
-`.gcs` file) and **Choose Folder...** (every `.asc`, `.gem` and `.gcs` file in it,
+**Import**: the Import Designs panel has **Choose File...** (one `.psdd`, `.asc`,
+`.gem` or `.gcs` file) and **Choose Folder...** (every `.asc`, `.gem` and `.gcs` file in it,
 and any stand-alone `.psdd` design file; the extension is
 compared case-insensitively). The **Include Subfolders (Set This First)** switch
 makes a folder import descend into the folders inside it; set it before pressing

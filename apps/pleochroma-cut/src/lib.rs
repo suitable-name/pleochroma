@@ -33,6 +33,23 @@ pub use bridge::render_thread::benchmark;
 pub mod gui;
 #[cfg(feature = "ui-harness")]
 pub mod harness_support;
+
+/// Whether the UI harness's seams answer in place of the real thing: file dialogs, the
+/// clipboard, the OS opener, the library in the working directory and the RADV restart. Only in
+/// a `ui-harness` build, and only while the harness drives it: the binary's `main` switches them
+/// off (`harness_support::disarm_seams`), so such a build started as the app behaves like
+/// any other.
+#[must_use]
+pub(crate) fn harness_seams_active() -> bool {
+    #[cfg(feature = "ui-harness")]
+    {
+        harness_support::seams_armed()
+    }
+    #[cfg(not(feature = "ui-harness"))]
+    {
+        false
+    }
+}
 mod locate_io;
 mod mesh_io;
 mod plan_limit;

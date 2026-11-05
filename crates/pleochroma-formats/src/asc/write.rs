@@ -210,7 +210,15 @@ pub fn to_asc_string(schedule: &AscSchedule) -> Result<String, AscWriteError> {
     let eol = schedule.line_ending.as_str();
     let mut out = String::new();
 
-    let _ = write!(out, "GemCad {}{eol}", schedule.gemcad_version);
+    // The parser stores only what follows the `GemCad` keyword ("5.0"); a version that still
+    // carries the keyword (a schedule built by hand, an older design file) would come out
+    // doubled, "GemCad GemCad 5.0".
+    let version = schedule.gemcad_version.trim();
+    let version = ["GemCad ", "GemCAD ", "Gemcad "]
+        .iter()
+        .find_map(|keyword| version.strip_prefix(keyword))
+        .unwrap_or(version);
+    let _ = write!(out, "GemCad {version}{eol}");
     let _ = write!(
         out,
         "g {} {}{eol}",

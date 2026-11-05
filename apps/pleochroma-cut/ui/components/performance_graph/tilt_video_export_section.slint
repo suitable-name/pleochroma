@@ -40,6 +40,36 @@ export component TiltVideoExportSection inherits Rectangle {
     // there), passed straight through to `TiltVideoExportModel.start_video_export`.
     in property <int> selected_axis_index: 0;
     in property <string> selected_axis_label: "";
+    // The dialog's four axis labels, for the axis chips and the Start/End pictures.
+    in property <[string]> axis_labels: [];
+
+    // The video's axes in the order it plays them: the chosen chips
+    // (`TiltVideoExportModel.video_axes`, a list of chart axis indices), or the chart's axis
+    // alone while none is chosen.
+    property <bool> any_axis_chosen: TiltVideoExportModel.video_axes.length > 0;
+    property <int> axis_count: root.any_axis_chosen ? TiltVideoExportModel.video_axes.length : 1;
+    property <int> first_axis: root.any_axis_chosen ? TiltVideoExportModel.video_axes[0] : root.selected_axis_index;
+
+    // Where a clicked axis plays in the video, 1 for the first clicked, or 0 when it is not
+    // clicked. No chip is clicked at first: the video then follows the chart's axis, which no
+    // chip claims. The list holds each of the four chart axes at most once.
+    pure function axis_rank(index: int) -> int {
+        let n = TiltVideoExportModel.video_axes.length;
+        return n > 0 && TiltVideoExportModel.video_axes[0] == index ? 1
+            : n > 1 && TiltVideoExportModel.video_axes[1] == index ? 2
+            : n > 2 && TiltVideoExportModel.video_axes[2] == index ? 3
+            : n > 3 && TiltVideoExportModel.video_axes[3] == index ? 4 : 0;
+    }
+
+    pure function axis_on(index: int) -> bool {
+        return root.axis_rank(index) > 0;
+    }
+
+    // Clicks one axis: on, it plays after the ones already clicked; off, the ones after it
+    // move up.
+    function toggle_axis(index: int) {
+        TiltVideoExportModel.toggle_video_axis(index);
+    }
 
     // The three frame-rate pills' actual fps values, by index -- shared by this
     // section's clip-length/estimate readout and its fps pill row.
@@ -119,7 +149,9 @@ export component TiltVideoExportSection inherits Rectangle {
                 }
 
                 Text {
-                    text: "Axis: " + root.selected_axis_label;
+                    text: root.axis_count > 1
+                        ? root.axis_count + " Axes"
+                        : "Axis: " + (root.any_axis_chosen ? root.axis_labels[root.first_axis] : root.selected_axis_label);
                     font-size: 11px;
                     color: Theme.text-muted;
                     vertical-alignment: center;
@@ -138,12 +170,64 @@ export component TiltVideoExportSection inherits Rectangle {
             // re-deriving the floor/epsilon math in Slint, so this number
             // can never disagree with how many frames the export actually
             // renders.
-            property <int> computed_frame_count: TiltVideoExportModel.frame_count(TiltVideoExportModel.start_angle_deg, TiltVideoExportModel.end_angle_deg, TiltVideoExportModel.step_deg);
-            property <float> estimated_seconds: video_content.computed_frame_count * TiltVideoExportModel.last_frame_seconds;
+            property <int> computed_frame_count: TiltVideoExportModel.frame_count(TiltVideoExportModel.start_angle_deg, TiltVideoExportModel.end_angle_deg, TiltVideoExportModel.step_deg, TiltVideoExportModel.video_axes);
+            property <int> computed_render_count: TiltVideoExportModel.rendered_frame_count(TiltVideoExportModel.start_angle_deg, TiltVideoExportModel.end_angle_deg, TiltVideoExportModel.step_deg, TiltVideoExportModel.video_axes);
+
+            // The Start and End pictures follow the axes and their order, the angles and the
+            // picture shape.
+            property <string> pose_key: TiltVideoExportModel.start_angle_deg + "|" + TiltVideoExportModel.end_angle_deg
+                + "|" + (TiltVideoExportModel.quarter_turn ? "q" : "-")
+                + "|" + root.axis_rank(0) + root.axis_rank(1) + root.axis_rank(2) + root.axis_rank(3)
+                + "|" + root.selected_axis_index
+                + "|" + TiltVideoExportModel.resolution_preset + "|" + TiltVideoExportModel.custom_width
+                + "x" + TiltVideoExportModel.custom_height;
+            changed pose_key => { TiltVideoExportModel.request_pose_previews(root.selected_axis_index); }
+            init => { TiltVideoExportModel.request_pose_previews(root.selected_axis_index); }
+            property <float> estimated_seconds: video_content.computed_render_count * TiltVideoExportModel.last_frame_seconds;
             property <bool> needs_confirmation: video_content.computed_frame_count > 2000 && !root.confirmed_large_run;
 
             // The material the video will use (read-only; the Stone tab changes it).
             MaterialLine {}
+
+            // Axes -- one or several of the chart's four, in the order they are clicked (the
+            // number on each chip). Several rock through face-up in turn, so the stone tilts one
+            // way, comes back table-up, then tilts the next way.
+            VerticalLayout {
+                spacing: 6px;
+                Text { text: "Axes"; font-size: 11px; font-weight: 600; color: Theme.text-secondary; }
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    for label[idx] in root.axis_labels: ChipToggle {
+                        text: (root.axis_on(idx) ? root.axis_rank(idx) + " · " : "") + label;
+                        hint: root.axis_on(idx)
+                            ? "This axis plays " + root.axis_rank(idx) + " of " + root.axis_count + " in the video. Click to take it out; the ones after it move up."
+                            : "Add this axis to the video. It plays after the axes already clicked: the first one clicked plays first.";
+                        height: 22px;
+                        active: root.axis_on(idx);
+                        toggled => { root.toggle_axis(idx); }
+                    }
+                }
+                Text {
+                    text: !root.any_axis_chosen
+                        ? "No axis clicked: the video follows the chart's axis, " + root.selected_axis_label + ", Start → End. Click axes in the order the video should show them."
+                        : root.axis_count > 1
+                        ? "Each axis plays 0° → End → Start → 0°, in the order you clicked them (the numbers): every change of axis happens table-up, so the video has no cut."
+                        : "The video plays Start → End about this axis.";
+                    font-size: 10px;
+                    color: Theme.text-muted;
+                    wrap: word-wrap;
+                }
+                ToggleRow {
+                    text: "Turn Stone 90°";
+                    hint: "Turn every frame a quarter turn, so a long stone lies upright instead of across the picture, or the other way. The Start and End pictures show it.";
+                    label_color: Theme.text-secondary;
+                    checked: TiltVideoExportModel.quarter_turn;
+                    toggled => { TiltVideoExportModel.quarter_turn = !TiltVideoExportModel.quarter_turn; }
+                }
+            }
+
+            Rectangle { height: 1px; background: Theme.surface-raised; }
 
             // Sweep
             VerticalLayout {
@@ -208,6 +292,9 @@ export component TiltVideoExportSection inherits Rectangle {
                 }
                 Text {
                     text: "Frames: " + video_content.computed_frame_count
+                        + (video_content.computed_render_count < video_content.computed_frame_count
+                            ? " (" + video_content.computed_render_count + " rendered, the way back reuses them)"
+                            : "")
                         + "  ·  Clip: " + Math.round((video_content.computed_frame_count / Math.max(1, root.video_fps_choices[TiltVideoExportModel.fps_index])) * 10.0) / 10.0
                         + "s @ " + root.video_fps_choices[TiltVideoExportModel.fps_index] + " fps"
                         + (TiltVideoExportModel.last_frame_seconds > 0.0
@@ -216,6 +303,49 @@ export component TiltVideoExportSection inherits Rectangle {
                     font-size: 11px;
                     color: Theme.text-muted;
                     wrap: word-wrap;
+                }
+
+                // What the angles mean: the solid stone at the Start and End angle of each
+                // axis, posed and framed exactly like the video's frames.
+                if TiltVideoExportModel.pose_previews.length > 0: Text {
+                    text: "Stone at the Start and End Angles";
+                    font-size: 10px;
+                    color: Theme.text-muted;
+                }
+                for preview in TiltVideoExportModel.pose_previews: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Text {
+                        width: 80px;
+                        text: root.axis_labels[preview.axis_index];
+                        font-size: 10px;
+                        color: Theme.text-secondary;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                    }
+                    VerticalLayout {
+                        spacing: 2px;
+                        Image {
+                            source: preview.start;
+                            width: 120px;
+                            height: 120px * self.source.height / Math.max(1, self.source.width);
+                            accessible-role: AccessibleRole.image;
+                            accessible-label: "The stone at the start angle, " + TiltVideoExportModel.start_angle_deg + " degrees, about the " + root.axis_labels[preview.axis_index] + " axis";
+                        }
+                        Text { text: "Start " + TiltVideoExportModel.start_angle_deg + "°"; font-size: 10px; color: Theme.text-muted; horizontal-alignment: center; }
+                    }
+                    Text { text: "→"; font-size: 14px; color: Theme.text-muted; vertical-alignment: center; }
+                    VerticalLayout {
+                        spacing: 2px;
+                        Image {
+                            source: preview.end;
+                            width: 120px;
+                            height: 120px * self.source.height / Math.max(1, self.source.width);
+                            accessible-role: AccessibleRole.image;
+                            accessible-label: "The stone at the end angle, " + TiltVideoExportModel.end_angle_deg + " degrees, about the " + root.axis_labels[preview.axis_index] + " axis";
+                        }
+                        Text { text: "End " + TiltVideoExportModel.end_angle_deg + "°"; font-size: 10px; color: Theme.text-muted; horizontal-alignment: center; }
+                    }
                 }
             }
 
@@ -407,11 +537,26 @@ export component TiltVideoExportSection inherits Rectangle {
             VerticalLayout {
                 spacing: 6px;
                 Text { text: "Output"; font-size: 11px; font-weight: 600; color: Theme.text-secondary; }
-                Text {
-                    text: "Folder: " + (ExportModel.directory == "" ? "chosen on first export..." : ExportModel.directory);
-                    font-size: 10px;
-                    color: Theme.text-muted;
-                    wrap: word-wrap;
+                HorizontalLayout {
+                    spacing: 6px;
+                    Text {
+                        horizontal-stretch: 1;
+                        text: "Folder: " + (ExportModel.directory == "" ? "chosen on first export..." : ExportModel.directory);
+                        font-size: 10px;
+                        color: Theme.text-muted;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                    }
+                    ActionButton {
+                        width: 80px;
+                        height: 24px;
+                        text: "Change...";
+                        hint: "Pick another folder to save videos and exports in. It is remembered.";
+                        font_size: 10px;
+                        ink: Theme.text-secondary;
+                        enabled: !TiltVideoExportModel.is_exporting;
+                        clicked => { ExportModel.change_directory(); }
+                    }
                 }
                 // Advanced: the folder-name template and its field list.
                 if GuideModel.shows_advanced(): Text { text: "Folder Name Template:"; font-size: 10px; color: Theme.text-muted; }
@@ -435,7 +580,7 @@ export component TiltVideoExportSection inherits Rectangle {
                     wrap: word-wrap;
                 }
                 Text {
-                    text: "Resolves to: " + TiltVideoExportModel.preview_video_folder_name(TiltVideoExportModel.filename_template, root.selected_axis_index);
+                    text: "Resolves to: " + TiltVideoExportModel.preview_video_folder_name(TiltVideoExportModel.filename_template, root.selected_axis_index, TiltVideoExportModel.video_axes);
                     font-size: 11px;
                     font-weight: 600;
                     color: Theme.accent-cyan;
@@ -533,7 +678,7 @@ export component TiltVideoExportSection inherits Rectangle {
                     padding-right: 10px;
                     alignment: center;
                     Text {
-                        text: "This will render " + video_content.computed_frame_count + " frames -- click Start again to confirm.";
+                        text: "This will make " + video_content.computed_frame_count + " frames (" + video_content.computed_render_count + " rendered) -- click Start again to confirm.";
                         font-size: 10px;
                         font-weight: 600;
                         color: Theme.notice-text;

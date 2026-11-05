@@ -1,7 +1,7 @@
 //! The parsed command line: one typed argument struct per command, the [`Command`] that holds
 //! them and the words the flags take.
 
-use pleochroma::optics::LightingPreset;
+use pleochroma::{color::HighlightRule, optics::LightingPreset};
 use pleochroma_cut_core::ObjectivePreset;
 use pleochroma_editor::retarget::CrownShift;
 use pleochroma_formats::native::design::DESIGN_EXTENSION;
@@ -171,6 +171,8 @@ pub enum ExportFormat {
     Gcs,
     /// The cutting sheet as a web page.
     Html,
+    /// The cutting sheet as a PDF (the official template, US Letter).
+    Pdf,
 }
 
 impl ExportFormat {
@@ -184,6 +186,7 @@ impl ExportFormat {
             DESIGN_EXTENSION => Some(Self::Psdd),
             "gcs" => Some(Self::Gcs),
             "html" | "htm" => Some(Self::Html),
+            "pdf" => Some(Self::Pdf),
             _ => None,
         }
     }
@@ -196,6 +199,7 @@ impl ExportFormat {
             Self::Psdd => DESIGN_EXTENSION,
             Self::Gcs => "gcs",
             Self::Html => "html",
+            Self::Pdf => "pdf",
         }
     }
 }
@@ -364,8 +368,8 @@ pub struct ExportArgs {
     pub out: PathBuf,
     /// A design library, for its custom materials.
     pub db: Option<PathBuf>,
-    /// The date the html cutting sheet prints under its title (`October 2026`); `None` prints
-    /// no date, which keeps the output the same every time.
+    /// The date the html or pdf cutting sheet prints beside the author (`October 2026`); `None`
+    /// prints no date, which keeps the output the same every time.
     pub date: Option<String>,
 }
 
@@ -469,6 +473,35 @@ pub struct RenderJobArgs {
     pub restart: bool,
     /// No progress lines.
     pub quiet: bool,
+    /// How over-bright colors are shown (`--highlights`); [`HighlightRule::KeepColor`], the rule
+    /// every render uses, unless asked.
+    pub highlights: HighlightRule,
+    /// A built-in material to render the job's stone in instead of its own (`--material`, any
+    /// letter case), sized for the job's stone width as the app sizes a design's material.
+    pub material: Option<String>,
+    /// A built-in color variant of the job's material to render instead of its own color
+    /// (`--color-variant`): a full key (`ruby.thai`) or the part after the dot (`thai`).
+    pub color_variant: Option<String>,
+    /// One of the typical color patterns of the job's material to render the stone in
+    /// (`--color-pattern`), built on the material's own color as the Color Pattern window
+    /// builds it: its label in any letter case, with or without spaces (`hexagonal-banding`).
+    pub color_pattern: Option<String>,
+    /// How the job's exposure is read: as written, or metered with `--meter`
+    /// ([`Exposure::Metered`]).
+    pub exposure: Exposure,
+}
+
+/// How `render` and `tilt-video` read the job's exposure.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Exposure {
+    /// The job's exposure as it was written (no `--meter`).
+    #[default]
+    AsJob,
+    /// `--meter`: read the job's exposure as the compensation on top of the lighting rig's
+    /// light meter, as the app meters its live view
+    /// (`pleochroma::optics::raytracer::metered_exposure`), for a job written before the
+    /// meter or by hand. A job lit by an HDR map keeps its exposure.
+    Metered,
 }
 
 /// How the reports of several designs are put together on standard output.

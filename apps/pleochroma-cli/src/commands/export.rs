@@ -1,16 +1,17 @@
 //! `export`: the design as `.asc` cutting instructions, a `.psdd` file, a Gem Cut Studio
-//! file or the cutting sheet as a web page.
+//! file or the cutting sheet as a web page or a PDF.
 //!
 //! Every format is written from the same solve the other commands use, so a design that does
-//! not solve and close is refused (exit 2) and nothing is written. The text of each format is
-//! the one the editor writes:
+//! not solve and close is refused (exit 2) and nothing is written. The contents of each format
+//! are the ones the editor writes:
 //!
 //! | Format | Written by |
 //! |---|---|
 //! | `asc` | `pleochroma_formats::asc::to_asc_string` on the editor's export schedule: the effective refractive index, the solved masts and concave tiers as footnotes, with the CRLF line ends `GemCAD` itself writes |
 //! | `psdd` (alias `pleochroma`) | the file the design was opened from, with the design swapped in (see [`Loaded::design_text`]) |
 //! | `gcs` | `pleochroma_formats::gcs::to_gcs_string_with_frosting` on the same schedule `asc` is made from, with the design's frosted tiers and facets (experimental, as in the editor) |
-//! | `html` | `pleochroma_editor::cut_sheet::cutting_sheet_document_with_default`: the cutting instructions with their four views, headed by the file's own title, designer, shape and notes (else the `.asc` header lines) and the `--date` text |
+//! | `html` | `pleochroma_editor::cut_sheet::cutting_sheet_document_with_default`: the cutting instructions in the standard template (the four views as line drawings), then the shaded renderings, masts and carat estimate; headed by the file's own title, designer, shape and notes (else the `.asc` header lines) and the `--date` text |
+//! | `pdf` | `pleochroma_editor::cut_sheet::cutting_sheet_pdf_with_default`: the same template as a PDF on US Letter pages, the only binary format |
 //!
 //! The desktop editor also stamps the library entry a design came from into the footnotes of an
 //! exported `.asc` or `.gcs`, and marks a schedule rebuilt from an angle table; a command line
@@ -26,7 +27,9 @@ use crate::{
 };
 use pleochroma::geometry::meet_solver::SolvedTier;
 use pleochroma_cut_core::Design;
-use pleochroma_editor::cut_sheet::cutting_sheet_document_with_default;
+use pleochroma_editor::cut_sheet::{
+    cutting_sheet_document_with_default, cutting_sheet_pdf_with_default,
+};
 use pleochroma_formats::{
     asc::{AscSchedule, to_asc_string},
     gcs::to_gcs_string_with_frosting,
@@ -52,45 +55,67 @@ fn export_schedule(
     Ok(schedule)
 }
 
-/// The text of `loaded` in `format`. `date_text` is what the html sheet prints under its
-/// title (empty prints no date); no other format reads it.
+/// What `export` writes: text for every format but `pdf`, bytes for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Exported {
+    /// A text format.
+    Text(String),
+    /// A binary format (the PDF sheet).
+    Bytes(Vec<u8>),
+}
+
+/// The contents of `loaded` in `format`. `date_text` is what the html and pdf sheets print
+/// beside the designer (empty prints no date); no other format reads it.
 ///
 /// # Errors
 ///
 /// [`CliError::design`] when the design is not a usable stone, or the format's writer refuses
 /// it (a header or footnote it cannot hold, planes that do not enclose a stone).
-fn export_text(
+fn export_contents(
     loaded: &Loaded,
     catalogue: &Catalogue,
     format: ExportFormat,
     date_text: &str,
-) -> Result<String, CliError> {
+) -> Result<Exported, CliError> {
     let design = &loaded.design;
     let analysis = analyze(design);
     let solved = analysis.require_stone(design)?;
     match format {
         ExportFormat::Asc => {
             let schedule = export_schedule(design, solved, catalogue, ".asc")?;
-            to_asc_string(&schedule).map_err(|error| {
-                CliError::design(format!("cannot write the design as .asc: {error}"))
-            })
+            to_asc_string(&schedule)
+                .map(Exported::Text)
+                .map_err(|error| {
+                    CliError::design(format!("cannot write the design as .asc: {error}"))
+                })
         }
-        ExportFormat::Psdd => loaded.design_text(design, catalogue),
+        ExportFormat::Psdd => loaded.design_text(design, catalogue).map(Exported::Text),
         ExportFormat::Gcs => {
             let schedule = export_schedule(design, solved, catalogue, ".gcs")?;
-            to_gcs_string_with_frosting(&schedule, &design.gcs_frosting_spec()).map_err(|error| {
-                CliError::design(format!("cannot write the design as .gcs: {error}"))
-            })
+            to_gcs_string_with_frosting(&schedule, &design.gcs_frosting_spec())
+                .map(Exported::Text)
+                .map_err(|error| {
+                    CliError::design(format!("cannot write the design as .gcs: {error}"))
+                })
         }
         // The library material's stored default axis rides along, so a custom material's default
         // prints the sheet's Orientation block as the desktop's sheet does.
-        ExportFormat::Html => Ok(cutting_sheet_document_with_default(
+        ExportFormat::Html => Ok(Exported::Text(cutting_sheet_document_with_default(
             design,
             solved,
             catalogue.custom(),
             catalogue.stored_default(design),
             &loaded.sheet_details(date_text),
-        )),
+        ))),
+        ExportFormat::Pdf => cutting_sheet_pdf_with_default(
+            design,
+            solved,
+            catalogue.custom(),
+            catalogue.stored_default(design),
+            &loaded.sheet_details(date_text),
+        )
+        .map(Exported::Bytes)
+        .map_err(|error| CliError::design(format!("cannot write the design as .pdf: {error}"))),
     }
 }
 
@@ -98,15 +123,19 @@ fn export_text(
 ///
 /// # Errors
 ///
-/// See [`export_text`].
+/// See [`export_contents`].
 fn execute(loaded: &Loaded, catalogue: &Catalogue, args: &ExportArgs) -> CommandResult {
-    let text = export_text(
+    let exported = export_contents(
         loaded,
         catalogue,
         args.format,
         args.date.as_deref().unwrap_or_default(),
     )?;
-    Ok(Outcome::default().with_file(args.out.clone(), text))
+    let outcome = Outcome::default();
+    Ok(match exported {
+        Exported::Text(text) => outcome.with_file(args.out.clone(), text),
+        Exported::Bytes(bytes) => outcome.with_binary_file(args.out.clone(), bytes),
+    })
 }
 
 /// Runs `export`.
@@ -138,8 +167,30 @@ mod tests {
         Loaded::in_memory(testing::template(), "round.psdd")
     }
 
+    /// The contents of a text format.
+    fn export_text(
+        loaded: &Loaded,
+        catalogue: &Catalogue,
+        format: ExportFormat,
+        date_text: &str,
+    ) -> Result<String, CliError> {
+        match export_contents(loaded, catalogue, format, date_text)? {
+            Exported::Text(text) => Ok(text),
+            Exported::Bytes(_) => panic!("{format:?} is a binary format"),
+        }
+    }
+
     fn text_in(format: ExportFormat) -> String {
         export_text(&loaded(), &Catalogue::default(), format, "").expect("exports")
+    }
+
+    fn pdf_bytes() -> Vec<u8> {
+        match export_contents(&loaded(), &Catalogue::default(), ExportFormat::Pdf, "")
+            .expect("exports")
+        {
+            Exported::Bytes(bytes) => bytes,
+            Exported::Text(_) => panic!("the PDF is bytes"),
+        }
     }
 
     #[test]
@@ -343,12 +394,15 @@ mod tests {
         assert!(!unset.contains("<h2>Orientation</h2>"), "{unset}");
     }
 
-    /// The date is text the caller gives: none means no date line (so the output never depends
-    /// on a clock), and the given text is printed under the title.
+    /// The date is text the caller gives: none leaves the template's date cell blank (so the
+    /// output never depends on a clock), and the given text is printed there.
     #[test]
     fn the_html_sheet_prints_the_given_date_and_no_other() {
         let without = text_in(ExportFormat::Html);
-        assert!(!without.contains("class=\"date\""), "{without}");
+        assert!(
+            without.contains("<p class=\"date\">&nbsp;</p>"),
+            "{without}"
+        );
         let with = export_text(
             &loaded(),
             &Catalogue::default(),
@@ -367,6 +421,18 @@ mod tests {
         for format in [ExportFormat::Asc, ExportFormat::Gcs, ExportFormat::Html] {
             assert_eq!(text_in(format), text_in(format), "{format:?}");
         }
+        assert_eq!(pdf_bytes(), pdf_bytes(), "the PDF has no date and no ID");
+    }
+
+    /// `--format pdf` writes the cutting sheet as a PDF: the template with the design's own
+    /// sections, in bytes.
+    #[test]
+    fn pdf_bytes_are_the_cutting_sheet() {
+        let bytes = pdf_bytes();
+        assert!(bytes.starts_with(b"%PDF-"));
+        let has = |needle: &[u8]| bytes.windows(needle.len()).any(|window| window == needle);
+        assert!(has(b"(Pavilion)"));
+        assert!(has(b"(Crown)"));
     }
 
     #[test]
@@ -382,11 +448,27 @@ mod tests {
             ExportFormat::Psdd,
             ExportFormat::Gcs,
             ExportFormat::Html,
+            ExportFormat::Pdf,
         ] {
             let error =
-                export_text(&loaded, &Catalogue::default(), format, "").expect_err("no stone");
+                export_contents(&loaded, &Catalogue::default(), format, "").expect_err("no stone");
             assert_eq!(error.code, EXIT_DESIGN, "{format:?}: {}", error.message);
         }
+    }
+
+    /// An `--out` file ending in `.pdf` picks the PDF and writes its bytes as they are.
+    #[test]
+    fn end_to_end_a_pdf_file_is_written_as_bytes() {
+        let input = testing::write_design("export-e2e-pdf.psdd", &testing::template());
+        let target = testing::temp_path("export-e2e.pdf")
+            .to_string_lossy()
+            .into_owned();
+        let outcome = testing::run(&["export", &input, "--out", &target]);
+        assert_eq!(outcome.exit, EXIT_OK, "{}", outcome.stderr);
+        assert_eq!(outcome.files.len(), 1);
+        let file = &outcome.files[0];
+        assert!(file.contents().starts_with(b"%PDF-"));
+        assert_eq!(file.text, "", "a binary file has no text");
     }
 
     #[test]

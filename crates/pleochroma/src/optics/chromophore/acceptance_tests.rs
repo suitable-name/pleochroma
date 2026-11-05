@@ -958,17 +958,27 @@ fn builtin_vs_recipe() -> Vec<(&'static str, [f64; 3], SolveResult)> {
 /// rebuilt the Amethyst and Citrine built-ins per axis from the measured spectra (lanes B1 and
 /// X6), so the built-in colors moved. Amethyst went from 11.25 (built-in C* 82, h 321 against the
 /// Caltech-shaped [FeO4]0 recipe C* 44) to 2.16 and now agrees; Citrine went from 2.41 to 0.68.
+///
+/// Re-pinned on 2026-11-04 (owner's run of that day): the dealer-photo rounds moved Ruby to 0.13
+/// (a Cr + Fe + V recipe), Sapphire to 0.47 and Aquamarine to 0.57. Amethyst moved its main band
+/// from the Anahi slab's 537 nm to 549 nm, the bluer purple of commercial amethyst in the dealer
+/// photos, so it now differs from the Anahi-shaped recipe on purpose (8.22): six agree to 3.5.
+///
+/// Re-pinned on 2026-11-04 (lead's quick-release run of that day): the saturation round
+/// (`calibration-records.md#saturation-round-2026-11-04`) scaled Tanzanite x 0.7, Peridot x 0.6,
+/// Aquamarine x 0.3 and Citrine x 2. Tanzanite, no longer more saturated than the V3+ recipe
+/// reaches, now agrees (2.78); Peridot 0.10, Aquamarine 0.67, Citrine 1.28: seven agree to 3.5.
 #[test]
 fn criterion_6_built_in_colors_vs_primary_data_recipes_are_pinned() {
     let pinned = [
-        ("Ruby", 1.00),
-        ("Sapphire", 0.22),
+        ("Ruby", 0.13),
+        ("Sapphire", 0.47),
         ("Emerald", 1.01),
-        ("Tanzanite", 7.27),
-        ("Peridot", 0.15),
-        ("Amethyst", 2.16),
-        ("Aquamarine", 0.75),
-        ("Citrine", 0.68),
+        ("Tanzanite", 2.78),
+        ("Peridot", 0.10),
+        ("Amethyst", 8.22),
+        ("Aquamarine", 0.67),
+        ("Citrine", 1.28),
     ];
     let results = builtin_vs_recipe();
     for ((name, _, res), (pin_name, pin)) in results.iter().zip(pinned) {
@@ -982,7 +992,7 @@ fn criterion_6_built_in_colors_vs_primary_data_recipes_are_pinned() {
     let agree = results.iter().filter(|(_, _, r)| r.delta_e <= 3.5).count();
     assert_eq!(
         agree, 7,
-        "Ruby, Sapphire, Emerald, Peridot, Amethyst, Aquamarine and Citrine agree to 3.5"
+        "Ruby, Sapphire, Emerald, Tanzanite, Peridot, Aquamarine and Citrine agree to 3.5"
     );
     let ruby = &results[0].2;
     assert!(ruby.delta_e <= 1.25 && ruby.recipe.entries.iter().any(|e| e.id == "Cr"));
@@ -992,7 +1002,9 @@ fn criterion_6_built_in_colors_vs_primary_data_recipes_are_pinned() {
 /// from model units to mm with W = 7 mm and the measured model width) within dE00 <= 3 for at
 /// least 6 of the 8 built-ins. Ignored until the measured color refits of 2026-10-19; since
 /// the per-axis refits of 2026-10-27 seven reproduce within 3 (Ruby, Sapphire, Emerald,
-/// Peridot, Amethyst, Aquamarine, Citrine), and Tanzanite is the one that differs.
+/// Peridot, Amethyst, Aquamarine, Citrine), and Tanzanite is the one that differs. Since
+/// 2026-11-04 Amethyst (moved to the commercial purple) is the one that differs and the lighter
+/// Tanzanite reproduces (2.78).
 #[test]
 fn criterion_6_built_in_sanity_at_least_6_of_8() {
     let results = builtin_vs_recipe();

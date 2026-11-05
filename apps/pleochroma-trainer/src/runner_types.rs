@@ -13,7 +13,7 @@ use pleochroma_ai::{
 };
 
 use super::imitation::label_is_informative;
-use crate::stats::TrainingDiagnostics;
+use crate::stats::{RolloutSchedulingDiagnostics, TrainingDiagnostics};
 
 /// Optical readings of one stone state.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -147,7 +147,8 @@ pub struct RolloutStats {
     pub evaluations: usize,
     /// Candidates the labels scored: the probes and the oracle step.
     pub label_evaluations: usize,
-    /// Wall-clock seconds the probe phases of the passes took.
+    /// Wall-clock seconds the probe phases of the rollout took.
+    /// Both streaming imitation and batched PPO passes report probe wall-clock time.
     pub label_secs: f32,
 }
 
@@ -240,6 +241,7 @@ pub struct IterationReport {
     pub weight_export_ms: f32,
     /// Host milliseconds in the batched rollout forward (not device utilization).
     pub rollout_forward_ms: f32,
+    pub rollout_scheduling: RolloutSchedulingDiagnostics,
     /// Seconds the main thread waited for the update thread at the wait point (0 when the
     /// update had already finished). Near 0: the rollout is the bottleneck; large: the update.
     pub update_wait_secs: f32,
@@ -328,6 +330,8 @@ pub struct RunnerStats {
     pub weight_export_secs: f32,
     /// Host milliseconds spent in batched rollout forwards.
     pub rollout_forward_ms: f32,
+    #[serde(default)]
+    pub rollout_scheduling: RolloutSchedulingDiagnostics,
     /// Seconds the last iteration waited for the update thread.
     pub update_wait_secs: f32,
     /// The iteration whose rollout the update installed during the last iteration trained on;
@@ -377,6 +381,7 @@ impl RunnerStats {
             update_secs: 0.0,
             weight_export_secs: 0.0,
             rollout_forward_ms: 0.0,
+            rollout_scheduling: RolloutSchedulingDiagnostics::default(),
             update_wait_secs: 0.0,
             update_of_iteration: None,
             evaluations_this_round: 0,
@@ -411,6 +416,9 @@ pub struct EvalPasses {
     /// Also play the finite-difference reference direction on measured sensitivities with the
     /// same line search. It is not a guaranteed upper bound.
     pub oracle: bool,
+    /// Play zero-mean Gaussian exploration with the imitation run's standard deviation.
+    /// This isolates gains from projection/search from gains due to the learned mean.
+    pub noise: bool,
 }
 
 /// Mean result of deterministic episodes (and optionally a sampled and an oracle episode) on a
@@ -419,6 +427,12 @@ pub struct EvalPasses {
 pub struct EvalReport {
     /// Designs evaluated.
     pub designs: usize,
+    /// Distinct corpus entries requested, before expanding objective presets.
+    #[serde(default)]
+    pub distinct_entries: usize,
+    /// Distinct connected design families requested, before objective expansion.
+    #[serde(default)]
+    pub distinct_families: usize,
     /// Designs that could not be evaluated, and why for the first one.
     pub failed: usize,
     /// Reason of the first failure (the first failing design in entry order).
@@ -443,6 +457,12 @@ pub struct EvalReport {
     /// Whether [`Self::mean_improvement_oracle`] was taken from the cache of an earlier
     /// validation instead of being played now.
     pub oracle_cached: bool,
+    /// Score drop of zero-mean exploration with the same projection and line search.
+    #[serde(default)]
+    pub mean_improvement_noise: Option<f32>,
+    /// Whether the model-independent noise reference was restored from an earlier pass.
+    #[serde(default)]
+    pub noise_cached: bool,
     /// Candidate evaluations per environment step of the model pass, over the designs (1 when
     /// the first line-search scale is always accepted, up to the number of scales).
     pub mean_evaluations_per_step: f32,
@@ -464,6 +484,12 @@ pub struct EvalCase {
     pub source_material: String,
     pub seed: u64,
     pub material_augmentation: String,
+    /// Physical width used by the episode; absent in older reports and unscaled fixtures.
+    #[serde(default)]
+    pub physical_size_mm: Option<f64>,
+    /// The loader supplied an absent width as training context, not as recovered source data.
+    #[serde(default)]
+    pub physical_size_augmented: bool,
     pub target_augmentation: String,
     pub lighting: String,
     pub shape_target: String,
@@ -475,7 +501,31 @@ pub struct EvalCase {
     pub steps: usize,
     pub elapsed_seconds: Option<f32>,
     pub model_seconds: Option<f32>,
-    /// Present only when this case ran the teacher reference, not when its mean was cached.
+    /// The sampled learned policy, evaluated from the identical initial state.
+    #[serde(default)]
+    pub sampled_final_score: Option<f32>,
+    /// Zero-mean Gaussian exploration from the identical initial state.
+    #[serde(default)]
+    pub noise_final_score: Option<f32>,
+    /// Model steps that changed the retained design.
+    #[serde(default)]
+    pub accepted_steps: usize,
+    /// Rejected model steps, grouped by the environment's reported reason.
+    #[serde(default)]
+    pub rejections: std::collections::BTreeMap<String, usize>,
+    /// Mean RMS of the projected policy proposals over movable tiers, in degrees.
+    #[serde(default)]
+    pub mean_action_rms_deg: Option<f64>,
+    /// At least one reference endpoint was restored from a completed prior pass.
+    #[serde(default)]
+    pub references_cached: bool,
+    /// This case's oracle endpoint was restored rather than evaluated in this pass.
+    #[serde(default)]
+    pub oracle_reference_cached: bool,
+    /// This case's noise endpoint was restored rather than evaluated in this pass.
+    #[serde(default)]
+    pub noise_reference_cached: bool,
+    /// Teacher endpoint, evaluated now or restored with `references_cached` set.
     pub oracle_final_score: Option<f32>,
     /// Scored candidates in probes/search/steps, excluding reset and endpoint rescoring.
     pub oracle_evaluations: Option<usize>,

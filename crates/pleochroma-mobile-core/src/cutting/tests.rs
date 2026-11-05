@@ -470,6 +470,22 @@ fn the_diagram_is_a_png() {
     assert!(png.starts_with(&[0x89, b'P', b'N', b'G']));
 }
 
+/// The sheet is also a PDF, and needs a solve like the HTML sheet.
+#[test]
+fn the_sheet_is_also_a_pdf() {
+    let state = solved_template();
+    let pdf = cutting_sheet_pdf(&state, "October 2026").expect("sheet");
+    assert!(pdf.starts_with(b"%PDF-"));
+    assert!(
+        pdf.windows(b"(Test Stone)".len())
+            .any(|window| window == b"(Test Stone)")
+    );
+    assert_eq!(
+        cutting_sheet_pdf(&unsolved_template(), ""),
+        Err(CutError::NotSolved)
+    );
+}
+
 #[test]
 fn the_highlighted_diagram_differs_from_the_plain_one() {
     let state = solved_template();

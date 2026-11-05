@@ -55,6 +55,7 @@ pub(in crate::gui) fn setup_render_export_callbacks(
 ) {
     setup_check_remote_availability_callback(ui, settings_store);
     setup_populate_export_fanout_presets_callback(ui, settings_store);
+    setup_remember_on_close(ui, settings_store);
     setup_toggle_export_preset_selected_callback(ui);
     setup_export_output_location_callbacks(ui, render_ctx, settings_store);
     super::advanced::setup_advanced_in_use_callback(ui);
@@ -587,6 +588,19 @@ fn setup_populate_export_fanout_presets_callback(
         });
 }
 
+/// Closing the dialog keeps its values for the next time it opens, even without an export. A
+/// closing dialog sends nothing to the remote, so the transfer choice stays as it was.
+fn setup_remember_on_close(ui: &MainWindow, settings_store: &Arc<SettingsPersister>) {
+    let ui_weak = ui.as_weak();
+    let settings_store = Arc::clone(settings_store);
+    ui.global::<ExportModel>().on_dialog_closed(move || {
+        let Some(ui) = ui_weak.upgrade() else {
+            return;
+        };
+        output_defaults::remember_still(&ui, &settings_store, false);
+    });
+}
+
 /// Wires the "Change..." export-directory button and the filename-template text
 /// field's live-edit persistence -- see `export_dialog.slint`'s "Output Location"
 /// section for both controls.
@@ -717,7 +731,8 @@ fn live_template_context(
         yaw_deg: ctx.yaw.to_degrees(),
         pitch_deg: ctx.pitch.to_degrees(),
         distance: ctx.distance,
-        exposure: ctx.exposure,
+        // The exposure the picture renders with, as the export names it (`SceneSnapshot`).
+        exposure: ctx.effective_exposure(),
     }
 }
 

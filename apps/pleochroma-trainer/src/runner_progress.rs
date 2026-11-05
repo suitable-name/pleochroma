@@ -36,6 +36,7 @@ struct ProgressState {
 struct ActiveTask {
     detail: String,
     started: Instant,
+    detail_started: Instant,
 }
 
 /// A serializable point-in-time view of the runner's progress.
@@ -50,6 +51,7 @@ pub struct ProgressSnapshot {
     pub completed_steps: usize,
     pub total_steps: usize,
     pub completed_tasks: usize,
+    /// Expected phase tasks; zero in JSON means the total is unknown.
     pub total_tasks: usize,
     pub fresh_labels: usize,
     pub reused_labels: usize,
@@ -57,6 +59,8 @@ pub struct ProgressSnapshot {
     pub last_task_detail: Option<String>,
     pub oldest_active_task: Option<String>,
     pub oldest_active_task_seconds: Option<f64>,
+    /// Age of the oldest task's currently reported detail, independent of task age.
+    pub oldest_active_detail_seconds: Option<f64>,
 }
 
 impl Default for TrainingProgress {
@@ -116,7 +120,7 @@ impl TrainingProgress {
         state.status = "running";
     }
 
-    /// Sets the current main-thread phase and its expected task count.
+    /// Sets the current main-thread phase and its expected task count, or zero if unknown.
     pub fn phase(&self, name: &'static str, total_tasks: usize) {
         let now = Instant::now();
         let mut state = self.lock();
@@ -133,11 +137,13 @@ impl TrainingProgress {
         let mut state = self.lock();
         let id = state.next_task_id;
         state.next_task_id = state.next_task_id.wrapping_add(1);
+        let now = Instant::now();
         state.active.insert(
             id,
             ActiveTask {
                 detail,
-                started: Instant::now(),
+                started: now,
+                detail_started: now,
             },
         );
         TaskGuard {
@@ -187,6 +193,8 @@ impl TrainingProgress {
             oldest_active_task: oldest.map(|task| task.detail.clone()),
             oldest_active_task_seconds: oldest
                 .map(|task| seconds(now.saturating_duration_since(task.started))),
+            oldest_active_detail_seconds: oldest
+                .map(|task| seconds(now.saturating_duration_since(task.detail_started))),
         }
     }
 
@@ -216,8 +224,11 @@ impl TaskGuard {
     ///
     /// A guard from an earlier phase cannot alter the current phase's tasks.
     pub fn update_detail(&self, detail: String) {
-        if let Some(task) = self.progress.lock().active.get_mut(&self.id) {
+        if let Some(task) = self.progress.lock().active.get_mut(&self.id)
+            && task.detail != detail
+        {
             task.detail = detail;
+            task.detail_started = Instant::now();
         }
     }
 }
@@ -290,10 +301,23 @@ mod tests {
         progress.phase("CPU evaluation", 1);
         let task = progress.task("case 1: initialization".into());
         let started = progress.lock().active[&task.id].started;
+        {
+            let mut state = progress.lock();
+            state.active.get_mut(&task.id).unwrap().detail_started =
+                started - Duration::from_secs(30);
+        }
         task.update_detail("case 1: oracle step 2".into());
+        let detail_started = progress.lock().active[&task.id].detail_started;
         assert_eq!(progress.lock().active[&task.id].started, started);
+        assert!(detail_started > started - Duration::from_secs(30));
+        task.update_detail("case 1: oracle step 2".into());
+        assert_eq!(
+            progress.lock().active[&task.id].detail_started,
+            detail_started
+        );
         let running = progress.snapshot();
         assert_eq!(running.completed_tasks, 0);
+        assert!(running.oldest_active_detail_seconds.is_some());
         assert_eq!(
             running.oldest_active_task.as_deref(),
             Some("case 1: oracle step 2")

@@ -3,11 +3,12 @@
 //! A step proposes one action. [`EnvCore::step_scaled`] tries it at a short list of scales
 //! (`DEFAULT_LINE_SEARCH`: the action itself, then half and a quarter of it) and keeps the
 //! first candidate that is a valid stone, passes both gates and scores strictly lower; the
-//! serial search skips the rest of the list. Adaptive parallel search can compute unused
-//! candidates speculatively, but accepts the same first improvement. The policy supplies a direction:
-//! how far to go along it is found by the environment, whose acceptance gate is quantised
-//! (a score only moves in whole ray counts) and would otherwise reject any move too small
-//! to cross a quantum.
+//! rest of the list is never computed. Every search is sequential, including the staged and
+//! "adaptive" ones: a speculative smaller scale costs projections on the CPU that bounds
+//! training throughput and is discarded whenever a larger scale is accepted. The policy
+//! supplies a direction: how far to go along it is found by the environment, whose
+//! acceptance gate is quantised (a score only moves in whole ray counts) and would
+//! otherwise reject any move too small to cross a quantum.
 //!
 //! [`EnvCore::try_candidate`] is the one place a candidate is built, scored and judged. The
 //! step, the teacher's oracle probe and the tests all go through it, so they cannot disagree
@@ -25,10 +26,6 @@ use super::{
     traits::{StepInfo, StepRejection},
 };
 use pleochroma_cut_core::{Design, ObjectiveComponents};
-use rayon::prelude::*;
-
-#[path = "line_search.rs"]
-mod line_search;
 
 #[path = "step_continuation.rs"]
 mod continuation;
@@ -36,8 +33,6 @@ pub use continuation::StepWork;
 #[path = "stepping_work.rs"]
 mod work;
 pub(super) use work::CandidateWork;
-
-pub(crate) use line_search::candidates;
 
 /// The scales of a line search that can be tried: finite and positive, in the given order.
 ///
@@ -128,8 +123,8 @@ struct Search {
 }
 
 /// Reads the candidates of a line search in list order: `first` is the first scale, `rest` the
-/// others (lazily for the sequential search, so the candidates after the accepted one are never
-/// evaluated; already computed for the parallel one). Stops at the first accepted candidate.
+/// others, computed lazily so the candidates after the accepted one are never evaluated.
+/// Stops at the first accepted candidate.
 fn fold_search(
     first: (f64, CandidateOutcome),
     rest: impl Iterator<Item = (f64, CandidateOutcome)>,
@@ -229,47 +224,22 @@ impl EnvCore {
         }
     }
 
-    /// Tries every scale in the currently installed Rayon pool and returns outcomes in list
-    /// order. No independent thread pool is created for a candidate search.
-    ///
-    /// [`Self::try_candidate`] is pure and `&self`, so the outcomes are exactly those a
-    /// sequential loop would compute; the caller then reads them in order and stops at the
-    /// first accepted one, which is how the sequential search decides. The price is the
-    /// candidates after the accepted one, evaluated for nothing: a trade for wall-clock time
-    /// when cores would otherwise idle.
-    pub(crate) fn try_scales_parallel(
-        &self,
-        action: &ContinuousTierAction,
-        scales: &[f64],
-    ) -> Vec<CandidateOutcome> {
-        scales
-            .par_iter()
-            .map(|&scale| self.try_candidate(action, scale))
-            .collect()
-    }
-
     /// Tries `scales` in order until one candidate is accepted. An empty list (or one with
     /// no usable scale, see [`usable_scales`]) tries the unit scale.
     ///
-    /// With `parallel` the candidates are evaluated concurrently
-    /// ([`Self::try_scales_parallel`]) and then folded in list order; the result, the
-    /// evaluation count included (that of the SEQUENTIAL search), is identical.
-    fn search(
-        &self,
-        action: &ContinuousTierAction,
-        scales: &[f64],
-        parallel: &(dyn Fn() -> bool + Sync),
-    ) -> Search {
+    /// A smaller scale is evaluated only after the larger one was rejected.
+    fn search(&self, action: &ContinuousTierAction, scales: &[f64]) -> Search {
         let mut list: Vec<f64> = usable_scales(scales).collect();
         if list.is_empty() {
             list.push(1.0);
         }
-        let mut pairs = candidates(self, action, &list, parallel);
-        match pairs.next() {
-            Some(first) => fold_search(first, pairs),
-            // Unreachable: `list` has at least the unit scale.
-            None => fold_search((1.0, self.try_candidate(action, 1.0)), std::iter::empty()),
-        }
+        let first = list[0];
+        fold_search(
+            (first, self.try_candidate(action, first)),
+            list[1..]
+                .iter()
+                .map(|&scale| (scale, self.try_candidate(action, scale))),
+        )
     }
 
     /// Applies `action` at the unit scale and advances the episode by one step; exactly
@@ -301,33 +271,34 @@ impl EnvCore {
         action: &ContinuousTierAction,
         scales: &[f64],
     ) -> CoreStep {
-        self.step_scaled_with(action, scales, false)
+        let search = self.search(action, scales);
+        self.finish_search(search)
     }
 
-    /// [`Self::step_scaled`], optionally evaluating the candidates of the line search
-    /// concurrently (`parallel`). The step, the reward and every field of the info are
-    /// bit-identical either way, and `StepInfo::evaluations` is the count of the sequential
-    /// search.
+    /// [`Self::step_scaled`]; `parallel` is retained for source compatibility.
+    ///
+    /// The line search is sequential (see the module documentation), so the step, the
+    /// reward and every field of the info are those of [`Self::step_scaled`].
     pub(crate) fn step_scaled_with(
         &mut self,
         action: &ContinuousTierAction,
         scales: &[f64],
-        parallel: bool,
+        _parallel: bool,
     ) -> CoreStep {
-        self.step_scaled_adaptive(action, scales, &|| parallel)
+        self.step_scaled(action, scales)
     }
 
-    /// Rechecks spare capacity before each unstarted scale. When it becomes available,
-    /// evaluate the remaining suffix in the installed Rayon pool, preserving list order
-    /// and the sequential evaluation count. Later speculative candidates may be unused.
+    /// [`Self::step_scaled`]; the capacity check is never consulted.
+    ///
+    /// No later scale is computed speculatively: each one costs projections on the CPU
+    /// that bounds training throughput and is discarded whenever an earlier scale wins.
     pub(crate) fn step_scaled_adaptive(
         &mut self,
         action: &ContinuousTierAction,
         scales: &[f64],
-        parallel: &(dyn Fn() -> bool + Sync),
+        _parallel: &(dyn Fn() -> bool + Sync),
     ) -> CoreStep {
-        let search = self.search(action, scales, parallel);
-        self.finish_search(search)
+        self.step_scaled(action, scales)
     }
 
     fn finish_search(&mut self, search: Search) -> CoreStep {

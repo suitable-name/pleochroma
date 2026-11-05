@@ -1,0 +1,310 @@
+format = "pleochroma-design"
+version = 1
+
+[meta]
+title = "30.129 STARDUST"
+designer = "Klein, Glenn"
+designer_info = "Klein, Glenn; Unpublished"
+source_citation = "Unpublished"
+source_url = "https://facetdiagrams.org/diagram/30-129-stardust/"
+source_design_id = "105841"
+shape = "Pentagon"
+notes = "Converter provenance: the enclosing block was inferred from the recorded cut, with 5% clearance on each axis. It is not measured rough and must not be used as a real yield target. Physical dimensions and material composition were not inferred."
+
+[preform]
+half_width = 1.0767324341506794
+length_over_width = 1.0287408277215913
+depth = 2.09054285079742
+y_offset = 0.0
+
+[preform.shape]
+kind = "block"
+
+[material]
+
+[schedule]
+gemcad_version = "5.0"
+gear_teeth = 96
+gear_reference_angle = 0.0
+symmetry_order = 5
+mirror = true
+refractive_index = 1.76
+headers = [
+    "PC 30.129  STARDUST",
+    "By Glenn Klein",
+]
+footnotes = [
+    "A very bright and beautiful design.  It shows many reflections around the girdle area even when tilted",
+    "to 90 degrees, or turned over and observed from the back (Pavilion) side.  Angles for Corundum are",
+    "shown.",
+]
+
+[[tiers]]
+name = "1"
+angle_deg = -42.0
+indices = [
+    96.0,
+    77.0,
+    58.0,
+    38.0,
+    19.0,
+]
+original_notes = ""
+tier_id = 0
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.7397981
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "2"
+angle_deg = -43.118269
+indices = [
+    88.0,
+    85.0,
+    69.0,
+    66.0,
+    50.0,
+    46.0,
+    30.0,
+    27.0,
+    11.0,
+    8.0,
+]
+original_notes = ""
+tier_id = 1
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.74095832
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "3"
+angle_deg = -46.377493
+indices = [
+    42.0,
+    34.0,
+    23.0,
+    15.0,
+    4.0,
+    92.0,
+    81.0,
+    73.0,
+    62.0,
+    54.0,
+]
+original_notes = ""
+tier_id = 2
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.72599204
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "4"
+angle_deg = -53.456464
+indices = [
+    91.0,
+    82.0,
+    72.0,
+    63.0,
+    53.0,
+    43.0,
+    33.0,
+    24.0,
+    14.0,
+    5.0,
+]
+original_notes = "Use one facet at INDEX 10-29-48-67-86 to level girdle."
+tier_id = 3
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.76319233
+
+[[tiers]]
+name = "5"
+angle_deg = -54.411859
+indices = [
+    96.0,
+    77.0,
+    58.0,
+    38.0,
+    19.0,
+]
+original_notes = ""
+tier_id = 4
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.72560864
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "G1"
+angle_deg = -90.0
+indices = [
+    96.0,
+    77.0,
+    58.0,
+    38.0,
+    19.0,
+]
+original_notes = ""
+tier_id = 5
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.99363397
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "G2"
+angle_deg = -90.0
+indices = [
+    87.0,
+    86.0,
+    68.0,
+    67.0,
+    49.0,
+    47.0,
+    29.0,
+    28.0,
+    10.0,
+    9.0,
+]
+original_notes = "Use one facet at each corner INDEX 10-29-48-67-86."
+tier_id = 6
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 1.0232639
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "A"
+angle_deg = 57.861733
+indices = [
+    96.0,
+    19.0,
+    38.0,
+    58.0,
+    77.0,
+]
+original_notes = ""
+tier_id = 7
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.94185994
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "B"
+angle_deg = 57.861733
+indices = [
+    9.0,
+    10.0,
+    28.0,
+    29.0,
+    47.0,
+    49.0,
+    67.0,
+    68.0,
+    86.0,
+    87.0,
+]
+original_notes = "Use one facet at INDEX 10-29-48-67-86."
+tier_id = 8
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.96694958
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "C"
+angle_deg = 39.0
+indices = [
+    96.0,
+    19.0,
+    38.0,
+    58.0,
+    77.0,
+]
+original_notes = ""
+tier_id = 9
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.82069962
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "D"
+angle_deg = 39.0
+indices = [
+    9.0,
+    10.0,
+    28.0,
+    29.0,
+    47.0,
+    49.0,
+    67.0,
+    68.0,
+    86.0,
+    87.0,
+]
+original_notes = "Use one facet at INDEX 10-29-48-67-86."
+tier_id = 10
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.83934634
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "T"
+angle_deg = 0.0
+indices = [96.0]
+original_notes = ""
+tier_id = 11
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.46466106
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[attachments]]
+name = "source-538.asc"
+role = "asc"
+mime_type = "text/plain"
+url = "https://facetdiagrams.org/wp-content/uploads/diagram-files/pc30129.asc"
+size = 1065
+sha256 = "7f689fe4eb776559c8ad47cf4bc7a119651b7428eac0629214fcaa260afb433d"
+data = "R2VtQ2FkIDUuMApnIDk2IDAuMAp5IDUgeQpJIDEuNzYKSCBQQyAzMC4xMjkgIFNUQVJEVVNUCkggQnkgR2xlbm4gS2xlaW4KYSAtNDIuMDAwMDAwIDAuNzM5Nzk4MTAgOTYgbiAxIDc3IDU4IDM4IDE5CmEgLTQzLjExODI2OSAwLjc0MDk1ODMyIDg4IG4gMiA4NSA2OSA2NiA1MCA0NiAzMCAyNyAxMSA4CmEgLTQ2LjM3NzQ5MyAwLjcyNTk5MjA0IDQyIDM0IDIzIDE1IDQgOTIgbiAzIDgxIDczIDYyIDU0CmEgLTUzLjQ1NjQ2NCAwLjc2MzE5MjMzIDkxIG4gNCA4MiA3MiA2MyA1MyA0MyAzMyAyNCAxNCA1IEcgVXNlIG9uZSBmYWNldCBhdCBJTkRFWCAxMC0yOS00OC02Ny04NiB0byBsZXZlbCBnaXJkbGUuCmEgLTU0LjQxMTg1OSAwLjcyNTYwODY0IDk2IG4gNSA3NyA1OCAzOCAxOQphIC05MC4wMDAwMDAgMC45OTM2MzM5NyA5NiBuIEcxIDc3IDU4IDM4IDE5CmEgLTkwLjAwMDAwMCAxLjAyMzI2MzkwIDg3IDg2IDY4IDY3IDQ5IDQ3IDI5IDI4IDEwIDkgbiBHMiBHIFVzZSBvbmUgZmFjZXQgYXQgZWFjaCBjb3JuZXIgSU5ERVggMTAtMjktNDgtNjctODYuCmEgNTcuODYxNzMzIDAuOTQxODU5OTQgOTYgbiBBIDE5IDM4IDU4IDc3CmEgNTcuODYxNzMzIDAuOTY2OTQ5NTggOSBuIEIgMTAgMjggMjkgNDcgNDkgNjcgNjggODYgODcgRyBVc2Ugb25lIGZhY2V0IGF0IElOREVYIDEwLTI5LTQ4LTY3LTg2LgphIDM5LjAwMDAwMCAwLjgyMDY5OTYyIDk2IG4gQyAxOSAzOCA1OCA3NwphIDM5LjAwMDAwMCAwLjgzOTM0NjM0IDkgbiBEIDEwIDI4IDI5IDQ3IDQ5IDY3IDY4IDg2IDg3IEcgVXNlIG9uZSBmYWNldCBhdCBJTkRFWCAxMC0yOS00OC02Ny04Ni4KYSAwLjAwMDAwMCAwLjQ2NDY2MTA2IDk2IG4gVApGIEEgdmVyeSBicmlnaHQgYW5kIGJlYXV0aWZ1bCBkZXNpZ24uICBJdCBzaG93cyBtYW55IHJlZmxlY3Rpb25zIGFyb3VuZCB0aGUgZ2lyZGxlIGFyZWEgZXZlbiB3aGVuIHRpbHRlZCAKRiB0byA5MCBkZWdyZWVzLCBvciB0dXJuZWQgb3ZlciBhbmQgb2JzZXJ2ZWQgZnJvbSB0aGUgYmFjayAoUGF2aWxpb24pIHNpZGUuICBBbmdsZXMgZm9yIENvcnVuZHVtIGFyZSAKRiBzaG93bi4K"

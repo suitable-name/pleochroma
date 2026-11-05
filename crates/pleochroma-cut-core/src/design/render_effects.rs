@@ -86,6 +86,34 @@ impl StoneRenderEffects {
         self
     }
 
+    /// These effects after the stone's material became the one called `material`, or `None`
+    /// when nothing changes.
+    ///
+    /// A material whose look is an effect ([`MaterialLook::of`]: precious opal's play-of-color,
+    /// labradorite's schiller, moonstone's adularescence, white opal's milky body, labradorite's
+    /// translucent one) gets it switched on with the catalogue defaults when the design has none
+    /// of it yet. Anything already chosen stays as it is. Called only on the change of material
+    /// itself, so an effect switched off afterwards stays off.
+    ///
+    /// [`MaterialLook::of`]: pleochroma::optics::materials::MaterialLook::of
+    #[must_use]
+    pub fn with_material_look(&self, material: &str) -> Option<Self> {
+        let look = pleochroma::optics::materials::MaterialLook::of(material);
+        let mut next = *self;
+        if next.structure.is_none() {
+            next.structure = look.structure.as_ref().map(StructureEffects::from_spec);
+        }
+        if next.inclusions.is_none() {
+            next.inclusions = look.inclusion_preset.and_then(InclusionEffects::of_preset);
+        }
+        if next.inclusion_sigma_s == 0.0
+            && let Some(sigma_s) = look.haze_sigma_s
+        {
+            next.inclusion_sigma_s = f64::from(sigma_s);
+        }
+        (next != *self).then_some(next)
+    }
+
     /// Whether this is exactly the default (nothing to write to a file).
     #[must_use]
     pub fn is_default(&self) -> bool {
@@ -187,5 +215,55 @@ mod tests {
             .is_default(),
             "a set second azimuth is not the default, even at zero"
         );
+    }
+
+    /// Choosing precious opal, labradorite or moonstone switches its look on, white opal also its
+    /// milky body; an effect already chosen stays, and a material without a look changes nothing.
+    #[test]
+    fn a_material_whose_look_is_an_effect_switches_it_on_once() {
+        let plain = StoneRenderEffects::default();
+        let opal = plain
+            .with_material_look("Precious Opal (White)")
+            .expect("white opal switches its look on");
+        assert!(opal.structure.is_some(), "play-of-color on");
+        assert!(opal.inclusion_sigma_s > 0.0, "milky body");
+        assert!(opal.inclusions.is_none());
+        assert_eq!(
+            opal.with_material_look("Precious Opal (White)"),
+            None,
+            "a second pick of the same look changes nothing"
+        );
+
+        let black = plain
+            .with_material_look("Precious Opal (Black)")
+            .expect("black opal switches its structure on");
+        assert!(black.structure.is_some());
+        assert_eq!(black.inclusion_sigma_s.to_bits(), 0.0f64.to_bits());
+        assert!(
+            plain
+                .with_material_look("Labradorite")
+                .is_some_and(|e| e.structure.is_some())
+        );
+        let moonstone = plain
+            .with_material_look("Moonstone")
+            .expect("moonstone switches its adularescence on");
+        assert_eq!(
+            moonstone.inclusions.map(|i| i.preset),
+            Some(pleochroma::optics::materials::MOONSTONE_PRESET)
+        );
+
+        // A haze the stone already has stays.
+        let hazy = StoneRenderEffects {
+            inclusion_sigma_s: 0.5,
+            ..plain
+        };
+        let hazy_opal = hazy
+            .with_material_look("Precious Opal (White)")
+            .expect("the structure still switches on");
+        assert_eq!(hazy_opal.inclusion_sigma_s.to_bits(), 0.5f64.to_bits());
+
+        for name in ["Sapphire", "Opal", "Diamond"] {
+            assert_eq!(plain.with_material_look(name), None, "{name}");
+        }
     }
 }

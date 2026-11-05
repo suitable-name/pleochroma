@@ -109,10 +109,21 @@ pub struct CutSheetRow {
     /// the tier's own recorded `.asc` notes while its constraint is still
     /// the pinned import value (see [`crate::design::ConstraintTier::original_notes`]),
     /// printed verbatim, else synthesizes text from its current `MeetConstraint`
-    /// (`Meet P1, P2, G1`, each name written as its target tier's code) -- never
-    /// empty, unlike the raw `.asc` `G` field, since a blank entry on a
-    /// printed sheet reads as "nothing recorded" rather than the actual
-    /// default a cutter assumes ("meets whatever the solver finds").
+    /// (`Meet P1, P2, G1`, each name written as its target tier's code). A tier placed by
+    /// an explicit depth (`ScaleReference` without notes, `MeetExisting`) names nothing, so
+    /// its text is worked out from the finished stone in the fantasy-cut template's
+    /// convention, in this order:
+    /// - `Set stone size.` for [`crate::Design::sizing_tier`], the first explicit-depth girdle
+    ///   tier in cutting order;
+    /// - `Cut to centerpoint.` for the first tier whose facets all end in one point on the
+    ///   axis;
+    /// - `Set girdle width.` for the first crown tier where it reaches the girdle;
+    /// - else `Meet P1, P2, G1`, listing the tiers cut earlier whose facets share a vertex
+    ///   with its own;
+    /// - else (nothing earlier touches it) its depth.
+    ///
+    /// Never empty, unlike the raw `.asc` `G` field, since a blank entry on a printed sheet
+    /// reads as "nothing recorded".
     ///
     /// Without the tier's name: [`Self::instruction`] puts that in front.
     pub meet_instruction: String,
@@ -172,9 +183,18 @@ impl CutSheetRow {
     /// The tier's own descriptive name, when it has one worth printing: anything that is not
     /// empty, not an old-style name (`1`, `A`, `G`, see [`is_legacy_123_abc`]) and not the
     /// row's own code (compared without regard to case).
+    ///
+    /// A name that starts with the code and a space (`P1 Five broad mains` on row `P1`) prints
+    /// without it (`Five broad mains`), since the sheet prints the code beside it anyway.
     #[must_use]
     pub fn descriptive_name(&self) -> Option<&str> {
         let name = self.name.trim();
+        let name = (!self.code.is_empty())
+            .then(|| name.split_at_checked(self.code.len()))
+            .flatten()
+            .filter(|(head, _)| head.eq_ignore_ascii_case(&self.code))
+            .and_then(|(_, rest)| rest.strip_prefix(char::is_whitespace))
+            .map_or(name, str::trim_start);
         (!name.is_empty() && !is_legacy_123_abc(name) && !name.eq_ignore_ascii_case(&self.code))
             .then_some(name)
     }
@@ -262,7 +282,22 @@ impl CutSheetRow {
     /// its tool line, each ending in a line feed. [`CuttingSheet::to_text`] is these lines for
     /// every row in order.
     pub fn write_text(&self, out: &mut String) {
-        let indices = format_sheet_indices(&self.indices);
+        self.write_text_with_indices(out, &format_sheet_indices(&self.indices));
+    }
+
+    /// [`Self::write_text`] with the index list written as the cutting-instructions template
+    /// writes it on a gear of `gear_teeth` teeth ([`format_sheet_indices_on_gear`]: index 0 is
+    /// the tooth count, `96-24-48-72`). The printed sheets of `pleochroma-editor` use this; the
+    /// row itself does not know its gear.
+    pub fn write_text_on_gear(&self, out: &mut String, gear_teeth: u32) {
+        self.write_text_with_indices(
+            out,
+            &format_sheet_indices_on_gear(&self.indices, gear_teeth),
+        );
+    }
+
+    /// The body of [`Self::write_text`] with the index list already formatted.
+    fn write_text_with_indices(&self, out: &mut String, indices: &str) {
         let label = self.label();
         // A concave tier has no mast; printing its placeholder `0.0` as `0.0000` would
         // read as "cut to depth zero". The column shows a dash, as the tier table does.
@@ -335,6 +370,37 @@ pub fn format_sheet_index(index: f64) -> String {
         format!("{:02}", index.round() as i64)
     } else {
         format!("{index:05.2}")
+    }
+}
+
+/// [`format_sheet_indices`] as the cutting-instructions template writes it.
+///
+/// On a gear of `gear_teeth` teeth, index 0 is written as the gear's tooth count
+/// (`96-24-48-72` on a 96 gear), every other position as [`format_sheet_index`] (`08` stays
+/// zero-padded).
+///
+/// The printed sheets (HTML, PDF and the editor's text sheet) use this form. A gear of zero
+/// teeth keeps `00`.
+#[must_use]
+pub fn format_sheet_indices_on_gear(indices: &[f64], gear_teeth: u32) -> String {
+    if indices.is_empty() {
+        return "-".to_string();
+    }
+    indices
+        .iter()
+        .map(|&i| format_sheet_index_on_gear(i, gear_teeth))
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// One position of [`format_sheet_indices_on_gear`]: a whole tooth 0 (within `1e-9`, a `-0.0`
+/// included) is the tooth count `gear_teeth`, every other position is [`format_sheet_index`].
+#[must_use]
+pub fn format_sheet_index_on_gear(index: f64, gear_teeth: u32) -> String {
+    if gear_teeth > 0 && index.abs() < 1e-9 {
+        format_sheet_index(f64::from(gear_teeth))
+    } else {
+        format_sheet_index(index)
     }
 }
 

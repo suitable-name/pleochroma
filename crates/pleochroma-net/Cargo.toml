@@ -59,7 +59,7 @@ tracing = { workspace = true }
 zeroize = "1.9.1"
 # See `lz4_flex` above. The C library (`zstd-sys`) builds with the MSVC toolchain; use
 # the one-shot `bulk` API only, so decode memory stays bounded by `raw_len`.
-zstd = { version = "0.14.2", optional = true }
+zstd = { version = "0.14.3", optional = true }
 
 [features]
 default = ["compression"]

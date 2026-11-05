@@ -18,6 +18,21 @@ fn pending_step(runner: &TrainingRunner) -> PendingStep {
     }
 }
 
+/// A step of slot 0 that moves every free tier by half the step limit.
+fn moving_step(runner: &TrainingRunner, labelled: bool) -> PendingStep {
+    let max_step = runner.slots[0].env.max_step_deg();
+    let mut pending = pending_step(runner);
+    pending.action = ContinuousTierAction::new(
+        pending
+            .free
+            .iter()
+            .map(|&free| if free { 0.5 * max_step } else { 0.0 })
+            .collect(),
+    );
+    pending.labelled = labelled;
+    pending
+}
+
 fn rejected(runner: &TrainingRunner, labelled: bool, fresh_label: bool) -> SlotOutcome {
     SlotOutcome {
         step: Step {
@@ -109,6 +124,56 @@ fn cached_labels_keep_telemetry_without_repeating_replay_and_stalled_slots_resta
         "a new episode admits its own state"
     );
     assert_eq!(rollout.diagnostics.labels_added, 2);
+}
+
+#[test]
+fn a_labelled_step_moves_as_the_unlabelled_one_and_caches_the_pre_step_label() {
+    // The teacher and the policy search of a labelled step run side by side: the step must not
+    // depend on the label, and the label must belong to the state before the step.
+    let mut labelled = fixture_runner_with(|cfg| cfg.label_every = 1);
+    let mut plain = fixture_runner_with(|cfg| cfg.label_every = 1);
+    let limits = || pool::StagedLimits {
+        threads: pool::pool_threads(),
+        pending: MAX_PENDING_WORK,
+        shared: None,
+    };
+    let before = labelled.slots[0].env.current_design().clone();
+    let h_deg = probe_size(&labelled.cfg, &labelled.slots[0]);
+    let pending = moving_step(&labelled, true);
+    let (with_label, _) = step_slot(
+        &mut labelled.slots[0],
+        &pending,
+        &labelled.cfg,
+        &labelled.progress,
+        0,
+        limits(),
+    );
+    let pending = moving_step(&plain, false);
+    let (without, _) = step_slot(
+        &mut plain.slots[0],
+        &pending,
+        &plain.cfg,
+        &plain.progress,
+        0,
+        limits(),
+    );
+    assert!(with_label.fresh_label);
+    let label = with_label.label.as_ref().expect("a fresh label");
+    assert!(without.label.is_none() && !without.fresh_label);
+    assert_eq!(
+        with_label.step.reward.to_bits(),
+        without.step.reward.to_bits()
+    );
+    assert_eq!(with_label.step.info, without.step.info);
+    assert_eq!(
+        labelled.slots[0].env.current_design(),
+        plain.slots[0].env.current_design()
+    );
+    let cached = labelled.slots[0]
+        .label_cache
+        .get(&before, h_deg, &labelled.cfg.line_search)
+        .expect("the label is cached for the pre-step state");
+    assert_eq!(cached.tiers, label.tiers);
 }
 
 #[test]

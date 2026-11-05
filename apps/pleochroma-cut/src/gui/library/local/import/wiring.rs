@@ -16,6 +16,7 @@ use crate::{
     settings::SettingsPersister,
 };
 use pleochroma_editor::guide::viewing_events as events;
+use pleochroma_formats::native::design::DESIGN_READ_EXTENSIONS;
 use pleochroma_vault::db::sqlite::Database;
 use slint::{ComponentHandle, ModelRc, VecModel, Weak};
 use std::{
@@ -200,9 +201,15 @@ pub fn setup_import_callback(
             crate::gui::pickers::PickerRequest {
                 kind: crate::gui::pickers::PickerKind::OpenFile,
                 title: None,
+                // The scan reads a picked `.psdd` too (stand-alone, or standing for the
+                // design beside it), so the filter offers it first.
                 filters: vec![crate::gui::pickers::PickerFilter {
-                    label: "Faceting Design (.asc, .gem, .gcs)".to_string(),
-                    extensions: vec!["asc".to_string(), "gem".to_string(), "gcs".to_string()],
+                    label: "Faceting Design (.psdd, .asc, .gem, .gcs)".to_string(),
+                    extensions: DESIGN_READ_EXTENSIONS
+                        .iter()
+                        .chain(&["asc", "gem", "gcs"])
+                        .map(ToString::to_string)
+                        .collect(),
                 }],
                 default_file_name: None,
                 starting_dir: last_import_directory(&settings_file),

@@ -334,8 +334,8 @@ rendered on the GPU by crates/pleochroma/tests/lighting_gallery.rs. Look for:
   * ISO hemisphere: evenly white facets, black leakage, and the dark
     head-shadow pattern in the table -- the GemRay ISO picture.
   * Light tent + black cards: grey-to-white gradation across the facets, black card
-    reflections for contrast, one hard spark; Rutile keeps a saturated yellow body
-    color with dark facets instead of a pale wash; Sapphire stays deep blue.
+    reflections for contrast, one hard spark; Rutile keeps its pale straw body color
+    (lab-grown rutile, since 2026-11-04) with dark facets; Sapphire stays deep blue.
   * Daylight sky (no sun): grey sky facets and a soft glow, no flashes; dark head
     shadow, dark ground.
   * Daylight sky + direct sun: the same sky plus a 0.27 degree sun (about 82 % of the

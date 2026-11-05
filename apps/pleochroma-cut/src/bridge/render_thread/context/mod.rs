@@ -671,6 +671,26 @@ impl RenderContext {
         .map_or(0.0, |material| material.dispersion.n_d())
     }
 
+    /// The exposure the renderers get: [`Self::exposure`] (the cutter's compensation) on top of
+    /// the incident-light meter of the lighting rig at the light pose
+    /// (`pleochroma::optics::raytracer::metered_exposure`), so every rig shows white paper at the
+    /// same level. A loaded HDR map is its own light and keeps the plain exposure. The live
+    /// frame, exports, render jobs, the remote scene and the file name placeholder `{exposure}`
+    /// all read this one value.
+    #[must_use]
+    pub fn effective_exposure(&self) -> f32 {
+        if self.env_map.is_some() {
+            self.exposure
+        } else {
+            pleochroma::optics::raytracer::metered_exposure(
+                self.exposure,
+                self.lighting_preset,
+                self.light_yaw,
+                self.light_pitch,
+            )
+        }
+    }
+
     /// The fluorescence of the material being traced: the emitters of its physics recipe, or
     /// `None` for every other material (built-in, fantasy, or a recipe without emitters). The
     /// render thread, export, the remote scene and the tilt sweeps all read this one answer

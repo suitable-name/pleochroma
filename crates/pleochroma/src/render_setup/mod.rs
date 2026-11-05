@@ -35,7 +35,7 @@ pub use materials::{
     REFERENCE_MODEL_WIDTH, absorption_path_scale_for, apply_material_overrides,
     apply_material_overrides_with_inclusions, effective_stone_width_mm, material_for_stone,
     material_for_stone_oriented, needs_model_width, resolve_material,
-    resolve_material_with_override,
+    resolve_material_with_override, stone_width_for_scale,
 };
 pub use plane_hash::{hash_geometry, hash_planes};
 #[cfg(feature = "hdr")]

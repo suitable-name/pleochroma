@@ -444,6 +444,18 @@ impl ConstraintTier {
     pub const fn is_table(&self) -> bool {
         self.angle_deg == 0.0 && tier_is_crown_side(self.angle_deg)
     }
+
+    /// Whether this is a girdle tier: a flat tier at exactly `+-90` degrees. It is cut with the
+    /// pavilion ([`Design::cutting_order`]), and the first one sets the stone's size
+    /// ([`Design::sizing_tier`]).
+    #[must_use]
+    #[expect(
+        clippy::float_cmp,
+        reason = "a girdle is authored as exactly +-90 degrees; the exact value is the rule"
+    )]
+    pub const fn is_girdle(&self) -> bool {
+        self.angle_deg.abs() == 90.0
+    }
 }
 
 impl Design {

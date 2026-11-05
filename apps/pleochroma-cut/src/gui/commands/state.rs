@@ -98,6 +98,12 @@ pub enum Fact {
     SimpleInterface,
     /// The 3D tab is showing the Edit view.
     EditView,
+    /// The 3D tab is showing the Live Render.
+    LiveRenderView,
+    /// The Cutting Instructions tab is on screen.
+    CuttingTablePage,
+    /// The Files & Downloads tab is on screen.
+    FilesPage,
     /// The Edit view's viewport is in Diagram mode.
     DiagramView,
     /// The guide leaves this group of controls usable (always true while it is closed).
@@ -170,10 +176,11 @@ impl CommandState {
             Fact::SimpleInterface,
             ui.global::<PreferencesModel>().get_simple_mode(),
         );
-        state.set(
-            Fact::EditView,
-            ui.get_active_tab() == 0 && ui.get_render_view_tab() == 1,
-        );
+        let (tab, view) = (ui.get_active_tab(), ui.get_render_view_tab());
+        state.set(Fact::EditView, tab == 0 && view == 1);
+        state.set(Fact::LiveRenderView, tab == 0 && view == 0);
+        state.set(Fact::CuttingTablePage, tab == 1);
+        state.set(Fact::FilesPage, tab == 2);
         state.set(
             Fact::DiagramView,
             crate::gui::view_modes::EditViewMode::from_raw(

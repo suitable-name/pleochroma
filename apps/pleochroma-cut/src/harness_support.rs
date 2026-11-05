@@ -54,6 +54,28 @@ pub const DATABASE_FILE_NAME: &str = "facet_diagrams.sqlite";
 /// Whether the live viewport renders nothing (see [`disable_viewport_rendering`]).
 static VIEWPORT_RENDERING_DISABLED: AtomicBool = AtomicBool::new(false);
 
+/// Set by [`disarm_seams`]: the seams step aside for the real dialogs, clipboard and opener.
+static SEAMS_DISARMED: AtomicBool = AtomicBool::new(false);
+
+/// Switches the seams off for the rest of the process.
+///
+/// File dialogs open, the clipboard and the OS opener are used, the library is found where the
+/// app always finds it, and a RADV restart really restarts.
+///
+/// The binary's `main` calls it. The harness drives the library in-process and never runs
+/// `main`, so a scenario still gets every seam, while a `ui-harness` build started as the app
+/// (an `.exe` built by `cargo test --features ui-harness` or an `--all-features` build) no
+/// longer answers every file dialog with "cancelled" or opens its library in the working
+/// directory.
+pub fn disarm_seams() {
+    SEAMS_DISARMED.store(true, Ordering::Relaxed);
+}
+
+/// Whether the seams answer (see [`disarm_seams`]).
+pub(crate) fn seams_armed() -> bool {
+    !SEAMS_DISARMED.load(Ordering::Relaxed)
+}
+
 thread_local! {
     /// A separate token per launch: an old window's scan cannot complete a newer one's.
     static STARTUP_PREVIEW_SCAN: RefCell<Option<Arc<AtomicBool>>> = const { RefCell::new(None) };
@@ -134,15 +156,17 @@ pub(crate) fn next_picker_answer(detail: &str) -> Option<PathBuf> {
 }
 
 /// Called by `gui::library::clipboard::copy_to_clipboard` (feature `ui-harness` only) instead of
-/// piping into the system clipboard tool: remembers the text. Always returns `true` (handled).
+/// piping into the system clipboard tool: remembers the text and returns `true` (handled).
+/// `false` once the seams are disarmed ([`disarm_seams`]): the real clipboard is used.
 pub(crate) fn capture_clipboard_write(text: &str) -> bool {
-    uiprobe_hooks::clipboard::capture(text)
+    seams_armed() && uiprobe_hooks::clipboard::capture(text)
 }
 
 /// Called by `gui::external_links::launch` (feature `ui-harness` only) instead of starting the
-/// OS opener: remembers the (already validated) URL or path. Always returns `true` (handled).
+/// OS opener: remembers the (already validated) URL or path and returns `true` (handled).
+/// `false` once the seams are disarmed ([`disarm_seams`]): the OS opener runs.
 pub(crate) fn capture_opened(target: &str) -> bool {
-    uiprobe_hooks::opener::capture(target)
+    seams_armed() && uiprobe_hooks::opener::capture(target)
 }
 
 /// Removes and returns the texts the app "copied to the clipboard" since the last call.

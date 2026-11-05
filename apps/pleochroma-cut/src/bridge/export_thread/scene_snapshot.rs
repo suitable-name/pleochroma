@@ -70,7 +70,8 @@ pub struct SceneSnapshot {
     pub lighting_preset: LightingPreset,
     /// Maximum number of ray bounces per path.
     pub max_bounces: u32,
-    /// Exposure multiplier applied when tone-mapping.
+    /// Exposure multiplier the renderer applies: `RenderContext::effective_exposure`, the
+    /// cutter's exposure on top of the rig's metered reading.
     pub exposure: f32,
     /// Tray radiance at exposure 1 (`0.0` = As Lit) -- `RenderContext::backdrop` resolved
     /// through `Backdrop::resolve` at this snapshot's own lighting preset and light pose.
@@ -297,7 +298,9 @@ impl SceneSnapshot {
             material,
             lighting_preset: guard.lighting_preset,
             max_bounces: guard.max_bounces,
-            exposure: guard.exposure,
+            // The metered exposure the live view renders with, so an export, a render job and
+            // the remote scene show what the viewport shows.
+            exposure: guard.effective_exposure(),
             backdrop: guard.backdrop.resolve(
                 guard.lighting_preset,
                 guard.light_yaw,

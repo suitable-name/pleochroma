@@ -7,7 +7,9 @@
 //!
 //! The flags live in `cli_args.rs` and everything the run prints in `cli_report.rs`.
 //!
-//! Exit status: `0` on success, `1` when the run fails, `2` for a usage error.
+//! Exit status: `0` on success, `1` when the run fails, `2` for a usage error, `130` when
+//! SIGINT/SIGTERM stopped the run (after committing it on the first signal, at once on the
+//! second; `--resume` continues it either way).
 
 mod cli_args;
 mod cli_console;
@@ -18,6 +20,7 @@ mod cli_resume;
 mod cli_run;
 mod cli_run_reporting;
 mod dataset;
+mod pgo_workload;
 #[path = "runner.rs"]
 mod runner;
 mod stats;
@@ -46,6 +49,9 @@ const SKIP_LINES_FULL: usize = 10;
 const SKIP_SUMMARY_EVERY: usize = 50;
 fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "--pgo") {
+        return pgo_workload::main(&args[1..]);
+    }
     // The new-version check is the very first output: one `info:` line when a newer release
     // exists, nothing when up to date, switched off or on any failure.
     let skip = std::env::var_os(NO_UPDATE_CHECK_ENV);
@@ -62,9 +68,10 @@ fn main() -> ExitCode {
         Ok(Parsed::Run(parsed)) => match with_heartbeat("recovery checkpoint verification", || {
             cli_resume::prepare(*parsed, &args)
         })
-            .and_then(|(args, mut recovery)| cli_run::run(&args, &mut recovery))
+        .and_then(|(args, mut recovery)| cli_run::run(&args, &mut recovery))
         {
-            Ok(()) => ExitCode::SUCCESS,
+            Ok(cli_run::RunOutcome::Completed) => ExitCode::SUCCESS,
+            Ok(cli_run::RunOutcome::Stopped) => ExitCode::from(cli_run::STOPPED_EXIT_STATUS),
             Err(e) => {
                 eprintln!("\nerror: {e}");
                 ExitCode::FAILURE
@@ -102,6 +109,7 @@ fn evaluate_test_split(
     let passes = EvalPasses {
         sampled: true,
         oracle: fast,
+        noise: runner.config().algo == runner::Algorithm::Imitation,
     };
     let report = runner.evaluate(entries, args.eval_fidelity, args.seed, passes)?;
     console.message(&format!(
@@ -222,6 +230,12 @@ fn load_split(args: &CliArgs, database: Option<&Path>) -> Result<DatasetSplit, B
         coverage.relations,
         coverage.concave
     );
+    eprintln!(
+        "corpus context: {} authored widths / {} sampled widths; {} sources eligible for material sampling",
+        coverage.authored_physical_size,
+        coverage.augmented_physical_size,
+        coverage.augmented_source_materials,
+    );
     if coverage.native == 0 {
         eprintln!(
             "warning: no native designs; add --design-dir to teach authored relations, dimensional targets and custom materials"
@@ -327,6 +341,11 @@ fn evaluation_snapshot(
         iteration,
         kind: kind.to_owned(),
         fidelity: if report.full_fidelity { "full" } else { "fast" }.to_owned(),
+        evaluation_revision: 3,
+        distinct_entries: report.distinct_entries,
+        distinct_families: report.distinct_families,
+        noise_drop: report.mean_improvement_noise,
+        noise_cached: report.noise_cached,
         cases: report.cases.clone(),
     }
 }
@@ -513,7 +532,16 @@ fn periodic_checkpoint_path(args: &CliArgs, iteration: usize) -> String {
     training_checkpoint_name(args, iteration)
 }
 
-fn validation_checkpoint_path(args: &CliArgs) -> String {
+/// The best-validation weights of one validation identity: `<stem>-best-validation-v3.<tag>.json`,
+/// or the fixed `<stem>-best-validation-v3.json` (`tag` `None`) that runs recorded before
+/// per-identity names keep using for their identity.
+fn validation_checkpoint_path(args: &CliArgs, tag: Option<&str>) -> String {
+    let name = |stem: &str| {
+        tag.map_or_else(
+            || format!("{stem}-best-validation-v3.json"),
+            |tag| format!("{stem}-best-validation-v3.{tag}.json"),
+        )
+    };
     if let Some(path) = &args.weights_path {
         let path = Path::new(path);
         let stem = path
@@ -523,11 +551,11 @@ fn validation_checkpoint_path(args: &CliArgs) -> String {
         return path
             .parent()
             .unwrap_or_else(|| Path::new("."))
-            .join(format!("{stem}-best-validation.json"))
+            .join(name(stem))
             .to_string_lossy()
             .into_owned();
     }
-    format!("{}-best-validation.json", training_checkpoint_stem(args))
+    name(&training_checkpoint_stem(args))
 }
 
 #[cfg(test)]

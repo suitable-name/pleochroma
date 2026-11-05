@@ -145,6 +145,7 @@ fn the_guide_locks_match_the_buttons_they_mirror() {
     assert_eq!(group_of("file.new"), Some(G::NewDesign));
     assert_eq!(group_of("file.save"), Some(G::FileOps));
     assert_eq!(group_of("file.export_cutting_sheet"), Some(G::FileOps));
+    assert_eq!(group_of("file.export_cutting_sheet_pdf"), Some(G::FileOps));
     assert_eq!(group_of("edit.undo"), Some(G::History));
     assert_eq!(group_of("edit.preferences"), Some(G::Advanced));
     assert_eq!(group_of("tiers.add"), Some(G::TierForm));

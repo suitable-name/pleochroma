@@ -368,10 +368,10 @@ mod tests {
     fn hello_and_welcome_bytes_are_the_pre_zoning_layout() {
         let mut hello = Hello::viewer(PROTOCOL_VERSION, [1, 2, 3, 4, 5, 6, 7, 8], [8; 8]);
         hello.accept_encodings = vec![PayloadEncoding::Raw];
-        let mut expected_hello = vec![0x23, 1, 2, 3, 4, 5, 6, 7, 8];
+        let mut expected_hello = vec![0x24, 1, 2, 3, 4, 5, 6, 7, 8];
         expected_hello.extend_from_slice(&[8; 8]);
         expected_hello.extend_from_slice(&[0x00, 0x00, 0x01, 0x00]);
-        assert_eq!(PROTOCOL_VERSION, 35, "the hand-written bytes assume v35");
+        assert_eq!(PROTOCOL_VERSION, 36, "the hand-written bytes assume v36");
         assert_eq!(postcard::to_allocvec(&hello).unwrap(), expected_hello);
 
         let welcome = Welcome {
@@ -386,7 +386,7 @@ mod tests {
             #[cfg(feature = "render")]
             zoning: false,
         };
-        let mut expected_welcome = vec![0x23];
+        let mut expected_welcome = vec![0x24];
         expected_welcome.extend_from_slice(&[9; 8]);
         expected_welcome.extend_from_slice(&[10; 8]);
         expected_welcome.extend_from_slice(&[0x00, 0x01, 0x00, 0x00, 0x00]);

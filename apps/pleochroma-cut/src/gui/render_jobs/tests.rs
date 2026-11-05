@@ -315,7 +315,7 @@ fn video_job(dir: &Path, keep_frames: bool) -> RenderJobFile {
 fn video_job_with(dir: &Path, keep_frames: bool, remote: RemoteSelection) -> RenderJobFile {
     let request = VideoExportRequest {
         scene: capture(RenderContext::default()),
-        axis_index: 0,
+        axes: vec![0],
         start_deg: -2.0,
         end_deg: 2.0,
         step_deg: 2.0,
@@ -328,11 +328,7 @@ fn video_job_with(dir: &Path, keep_frames: bool, remote: RemoteSelection) -> Ren
         out_dir: dir.to_path_buf(),
         out_name: "clip".to_string(),
         selection: metrics::MetricSelection::default(),
-        curves: metrics::MetricCurves {
-            brilliance: Vec::new(),
-            windowing: Vec::new(),
-            extinction: Vec::new(),
-        },
+        curves: Vec::new(),
         keep_frames,
         remote,
         local_compute: LocalComputeTarget::Cpu,

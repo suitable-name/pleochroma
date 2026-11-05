@@ -25,7 +25,7 @@ Applies to every entry below; the per-entry sections were corrected where the da
 | `almandine_garnet.purplish` | Almandine Garnet | yes | Strength chosen for a typical face-up color; spectrum measured (GRR 1776 almandine). | 35.3 / 46.8 / 12 | 35.3 / 46.8 / 12 |
 | `spessartine_garnet.reddish_orange` | Spessartine Garnet | yes | Strength chosen for a typical face-up color; spectrum measured (GRR 72 spessartine). | 61.4 / 73.5 / 66 | 61.4 / 73.5 / 66 |
 | `spessartine_garnet.pale_golden_orange` | Spessartine Garnet | yes | Scaled copy of the Spessartine Material Default (GRR 43) at a chosen strength; no pale stone measured. | 88.5 / 39.8 / 76 | 88.5 / 39.8 / 76 |
-| `grossular_garnet__tsavorite_.mint` | Grossular Garnet (Tsavorite) | yes | Scaled copy of the Tsavorite Material Default (GRR 229) at a chosen strength; no pale stone measured. | 79.3 / 62.9 / 137 | 79.3 / 62.9 / 137 |
+| `grossular_garnet__tsavorite_.mint` | Grossular Garnet (Tsavorite) | yes | Scaled copy of the Tsavorite Material Default (GRR 229) at a chosen strength; no pale stone measured. | 89.0 / 41.3 / 133 | 89.0 / 41.3 / 133 |
 | `grossular_garnet__tsavorite_.hessonite` | Grossular Garnet (Tsavorite) | yes | Strength chosen for a typical face-up color; spectrum measured (GRR 1386 brown grossular). | 68.5 / 74.5 / 71 | 68.5 / 74.5 / 71 |
 | `andradite_garnet__demantoid_.topazolite` | Andradite Garnet (Demantoid) | yes | Strength chosen for a typical face-up color; spectrum measured (GRR 48 andradite). | 74.3 / 53.5 / 98 | 74.3 / 53.5 / 98 |
 | `color_change_garnet__pyrope_spessartine_.tunduru` | Color-Change Garnet (Pyrope-Spessartine) | yes | Strength chosen for a typical face-up color; spectrum measured (GRR 2225). | 57.1 / 13.4 / 186 | 57.1 / 13.4 / 186 |
@@ -38,7 +38,7 @@ Applies to every entry below; the per-entry sections were corrected where the da
 | `zircon.red_brown` | Zircon | yes | Strength chosen for a typical face-up color; spectrum measured (GRR 1844). | 50.5 / 71.8 / 52 | 50.5 / 71.3 / 52 |
 | `zircon.green` | Zircon | yes | Strength chosen for a typical face-up color; spectrum measured (GRR 3106 green region). | 58.2 / 27.8 / 80 | 56.2 / 27.8 / 90 |
 | `zircon.colorless` | Zircon | yes | Colorless: no damage centres assumed; low-uranium zircon. | 100.0 / 0.0 / 0 | 100.0 / 0.0 / 0 |
-| `benitoite.light_blue` | Benitoite | yes | Strength estimated (2 percent of the dark zone); spectrum shape measured (GRR 561-D4). | 99.6 / 0.4 / 279 | 93.4 / 9.4 / 263 |
+| `benitoite.light_blue` | Benitoite | yes | Strength estimated (2 percent of the dark zone); spectrum shape measured (GRR 561-D4). | 90.0 / 14.3 / 262 (face-up with c in the table since 2026-11-03; 99.6 / 0.4 / 279 with c through it) | 93.4 / 9.4 / 263 |
 | `tanzanite.unheated` | Tanzanite | yes | Strength chosen for a typical face-up color; spectrum measured (GRR 1265). | 38.6 / 22.5 / 314 | 46.3 / 4.4 / 162 |
 | `tanzanite.green_zoisite` | Tanzanite | yes | Strength chosen for a typical face-up color; spectrum measured (CIT-16940 zoisite). | 48.5 / 34.3 / 94 | 55.9 / 24.9 / 117 |
 
@@ -87,7 +87,7 @@ Applies to every entry below; the per-entry sections were corrected where the da
 | Purplish (Almandine Garnet) | `almandine_garnet.purplish` | yes | k 0.3 | 8 | 35.3 / 46.8 / 12 | 0.00 |
 | Reddish Orange (Spessartine Garnet) | `spessartine_garnet.reddish_orange` | yes | k 0.6 | 7 | 61.4 / 73.5 / 66 | 0.00 |
 | Pale Golden Orange (Spessartine Garnet) | `spessartine_garnet.pale_golden_orange` | yes | x 0.4 of default | 8 | 88.5 / 39.8 / 76 | 0.00 |
-| Mint (Grossular Garnet (Tsavorite)) | `grossular_garnet__tsavorite_.mint` | yes | x 0.36 of default | 5 | 79.3 / 62.9 / 137 | 0.01 |
+| Mint (Grossular Garnet (Tsavorite)) | `grossular_garnet__tsavorite_.mint` | yes | x 0.5 of the default since 2026-11-04 (0.0875 x the sample's vanadium; it was 0.18 x, which the default reached that day) | 5 | 89.0 / 41.3 / 133 | 0.00 |
 | Hessonite (Grossular Garnet (Tsavorite)) | `grossular_garnet__tsavorite_.hessonite` | yes | k 0.7 | 4 | 68.5 / 74.5 / 71 | 0.01 |
 | Topazolite (Andradite Garnet (Demantoid)) | `andradite_garnet__demantoid_.topazolite` | yes | k 0.35 | 8 | 74.3 / 53.5 / 98 | 0.00 |
 | Tunduru (Color-Change Garnet (Pyrope-Spessartine)) | `color_change_garnet__pyrope_spessartine_.tunduru` | yes | k 0.35 | 7 | 57.1 / 13.4 / 186 | 0.00 |
@@ -255,13 +255,13 @@ all rays (o = e):
 
 Key `grossular_garnet__tsavorite_.mint`, estimated: **yes**.
 
-* **Sources.** Material Default of Grossular Garnet (Tsavorite) (Caltech GRR 229 fitted 2026-10-19 at 0.5 x the sample's vanadium; docs/chromophores/calibration-records.md#tsavorite) with every peak x 0.36 (= 0.18 x the sample's vanadium, the repo's own pale-tsavorite rule), converted to per mm by the 9.905 mm face-up path; estimated; docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.4.1 (V3+ 436 / 606 nm; about 0.33 wt% V2O3)
+* **Sources.** Caltech GRR 229 as fitted 2026-10-19 (docs/chromophores/calibration-records.md#tsavorite) at 0.0875 x the sample's vanadium (about 0.16 wt% V2O3), half the Material Default since 2026-11-04, converted to per mm by the 9.905 mm face-up path; estimated; docs/color_variants/R3_garnet_peridot_zircon_benitoite_tanzanite.md, section 2.4.1 (V3+ 436 / 606 nm). Until 2026-11-04 Mint was 0.18 x the vanadium (about 0.33 wt% V2O3, L* 79); the saturation round moved the default to 0.175 x, so Mint was halved to stay a paler stone.
 * **Cause.** V3+ (traces of Cr3+) on the Y site, light type.
-* **Spectrum and baseline.** None new: the default's 5 bands, peaks x 0.36 / 9.905 (per mm).
-* **Scaling.** x 0.36 of the default = 0.18 x the sample's vanadium (about 0.33 wt% V2O3). Estimated (scaling of a fitted measured spectrum).
-* **Target.** Light yellowish green, L* 79 C* 63 h 137.
+* **Spectrum and baseline.** None new: the default's 5 bands at half its strength, / 9.905 (per mm).
+* **Scaling.** x 0.5 of the default = 0.0875 x the sample's vanadium (about 0.16 wt% V2O3). Estimated (scaling of a fitted measured spectrum).
+* **Target.** Light mint green, L* 89 C* 41 h 133 (the default: L* 80 C* 62 h 137, dE2000 8.9).
 * **Colors (D65, 9.905 mm), reached by the stored bands versus the target (data at k, or the scaled default):**
-  * face-up: reached 79.3 / 62.9 / 137; target 79.3 / 62.9 / 137; dE00 0.01
+  * face-up: reached 89.0 / 41.3 / 133; target 89.0 / 41.3 / 133; dE00 0.00
 * **Pleochroism.** Cubic: one band set, no pleochroism.
 
 Bands (per mm):
@@ -270,11 +270,11 @@ all rays (o = e):
 
 | center nm | sigma cm^-1 | FWHM cm^-1 | peak per mm |
 |---|---|---|---|
-| 393.00 | 1583.6 | 3729 | 0.2599 |
-| 436.00 | 994.1 | 2341 | 0.2504 |
-| 490.00 | 1061.7 | 2500 | 0.04034 |
-| 606.00 | 1158.1 | 2727 | 0.1087 |
-| 666.00 | 495.2 | 1166 | 0.0241 |
+| 393.00 | 1583.6 | 3729 | 0.1263 |
+| 436.00 | 994.1 | 2341 | 0.1217 |
+| 490.00 | 1061.7 | 2500 | 0.01961 |
+| 606.00 | 1158.1 | 2727 | 0.05283 |
+| 666.00 | 495.2 | 1166 | 0.01171 |
 
 
 ### F3-07 Grossular Garnet (Tsavorite): Hessonite

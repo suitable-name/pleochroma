@@ -8,6 +8,7 @@
 //! that opens a dialog or a file picker never runs inside the palette's own handlers.
 
 use super::{
+    context,
     recents::Recents,
     registry::Command,
     search::{self, Entry},
@@ -94,10 +95,16 @@ fn refresh_rows(ui: &MainWindow, model: &VecModel<PaletteRow>, session: &RefCell
     let palette = ui.global::<CommandPaletteModel>();
     let query = palette.get_query();
     let state = CommandState::capture(ui);
-    let order = {
+    let mut order = {
         let session = session.borrow();
         search::rank(&query, &entries(COMMANDS), session.recents.ids())
     };
+    // Only the commands that belong to the page on screen are listed.
+    order.retain(|&index| {
+        COMMANDS
+            .get(index)
+            .is_some_and(|command| context::offered(command, &state))
+    });
     let rows: Vec<PaletteRow> = rows_for(&order, COMMANDS, &state)
         .iter()
         .map(to_slint_row)

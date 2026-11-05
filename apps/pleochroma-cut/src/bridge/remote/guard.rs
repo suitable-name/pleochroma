@@ -33,7 +33,7 @@ pub enum RemoteRefusal {
     /// transfer) or exceeds the protocol's asset size limit.
     HdrNotTransferable,
     /// The scene's material has colour zones and the remote does not
-    /// advertise the zoning capability (an older worker, or a coordinator); it would render
+    /// advertise the zoning capability (a worker without its own render lane); it would render
     /// only the base zone, so the picture renders locally.
     NoZoningSupport,
     /// The material scatters with oriented inclusions (a custom material's silk or

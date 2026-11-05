@@ -267,3 +267,20 @@ fn to_asc_string_rejects_non_finite_numbers() {
     );
     assert!(err.to_string().contains("inf"), "{err}");
 }
+
+/// A version that still carries the `GemCad` keyword (an older design file stored
+/// `GemCad 5.0`) is written once, not as `GemCad GemCad 5.0`, and parses back to the bare
+/// version.
+#[test]
+fn a_version_with_the_keyword_is_not_doubled() {
+    let mut schedule = one_tier_schedule();
+    assert_eq!(
+        schedule.gemcad_version, "5.0",
+        "test premise: the parser keeps the bare version"
+    );
+    schedule.gemcad_version = "GemCad 5.0".to_string();
+    let text = to_asc_string(&schedule).expect("must write");
+    let first_line = text.lines().next().unwrap_or_default();
+    assert_eq!(first_line.trim_end(), "GemCad 5.0", "{text}");
+    assert_eq!(parse_asc(&text).expect("must parse").gemcad_version, "5.0");
+}

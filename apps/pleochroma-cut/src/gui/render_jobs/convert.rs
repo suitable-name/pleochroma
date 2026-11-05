@@ -330,11 +330,24 @@ pub fn build_video_job(
         tilt_brilliance: request.selection.tilt_brilliance,
         angle: request.selection.angle,
     };
-    let curves = (request.selection.count() > 0).then(|| MetricCurvesData {
-        brilliance: request.curves.brilliance.clone(),
-        windowing: request.curves.windowing.clone(),
-        extinction: request.curves.extinction.clone(),
-    });
+    let freeze = |curves: &MetricCurves| MetricCurvesData {
+        brilliance: curves.brilliance.clone(),
+        windowing: curves.windowing.clone(),
+        extinction: curves.extinction.clone(),
+    };
+    // One set per axis, the first in `curves` and the rest in `more_curves`.
+    let mut all_curves: Vec<MetricCurvesData> = if request.selection.count() > 0 {
+        request.curves.iter().map(freeze).collect()
+    } else {
+        Vec::new()
+    };
+    let curves = (!all_curves.is_empty()).then(|| all_curves.remove(0));
+    let mut axes = request
+        .axes
+        .iter()
+        .map(|&axis| u32::try_from(axis).unwrap_or(0));
+    let axis_index = axes.next().unwrap_or(0);
+    let more_axes: Vec<u32> = axes.collect();
     let job = RenderJobFile {
         engine: request.scene.engine,
         optical_diagnostics: request.scene.optical_diagnostics.map(job_diagnostics),
@@ -350,7 +363,8 @@ pub fn build_video_job(
         compute: job_compute_for_engine(&request.remote, request.scene.engine),
         output: request.out_dir.to_string_lossy().into_owned(),
         kind: JobKind::TiltVideo(TiltVideoJob {
-            axis_index: u32::try_from(request.axis_index).unwrap_or(0),
+            axis_index,
+            more_axes,
             start_deg: request.start_deg,
             end_deg: request.end_deg,
             step_deg: request.step_deg,
@@ -360,6 +374,7 @@ pub fn build_video_job(
             color_space,
             overlay,
             curves,
+            more_curves: all_curves,
             keep_frames: request.keep_frames,
             video_name,
         }),
@@ -387,22 +402,21 @@ pub fn video_request_from_job(
         tilt_brilliance: video.overlay.tilt_brilliance,
         angle: video.overlay.angle,
     };
-    // The curves are read only for a selected overlay, and a job with one always holds them.
-    let curves = video.curves.as_ref().map_or_else(
-        || MetricCurves {
-            brilliance: Vec::new(),
-            windowing: Vec::new(),
-            extinction: Vec::new(),
-        },
-        |curves| MetricCurves {
+    // The curves are read only for a selected overlay, and a job with one always holds them,
+    // one set per axis.
+    let curves = video
+        .curves
+        .iter()
+        .chain(&video.more_curves)
+        .map(|curves| MetricCurves {
             brilliance: curves.brilliance.clone(),
             windowing: curves.windowing.clone(),
             extinction: curves.extinction.clone(),
-        },
-    );
+        })
+        .collect();
     VideoExportRequest {
         scene,
-        axis_index: video.axis_index as usize,
+        axes: video.axes().into_iter().map(|axis| axis as usize).collect(),
         start_deg: video.start_deg,
         end_deg: video.end_deg,
         step_deg: video.step_deg,

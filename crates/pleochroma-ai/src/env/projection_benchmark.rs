@@ -238,6 +238,7 @@ fn refusal(error: &ProjectionRefusal) -> (String, String) {
             .map_or(("cached_gate", error.clone()), |(kind, detail)| {
                 (kind, detail.to_owned())
             }),
+        ProjectionRefusal::AcceleratedMiss(reason) => (reason.label(), error.to_string()),
         ProjectionRefusal::OutsideRequestedBounds => {
             ("outside_requested_bounds", error.to_string())
         }

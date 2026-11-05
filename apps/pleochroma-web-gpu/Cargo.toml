@@ -28,10 +28,10 @@ pleochroma-web-core = { workspace = true }
 futures-channel = { version = "0.3.34", default-features = false, features = ["std"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["async-await"] }
 glam = { workspace = true }
-js-sys = "0.3.106"
-wasm-bindgen = "0.2.129"
-wasm-bindgen-futures = "0.4.56"
-web-sys = { version = "0.3.106", default-features = false, features = [
+js-sys = "0.3.107"
+wasm-bindgen = "0.2.130"
+wasm-bindgen-futures = "0.4.80"
+web-sys = { version = "0.3.107", default-features = false, features = [
     "DedicatedWorkerGlobalScope",
     "MessageEvent",
     "Performance",

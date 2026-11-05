@@ -72,12 +72,12 @@ fn the_label_rule_is_described_for_the_banner() {
     let config = config_for(&[]);
     assert_eq!(
         describe_labels(&config, 0.5),
-        "1 in 2 rollout samples, probe h = 0.50 deg, newest 50000 rows within 512 MiB"
+        "1 in 2 rollout samples, probe h = 0.50 deg, up to 50000 compact rows within 512 MiB host replay budget (actual capacity depends on tier counts)"
     );
     let config = config_for(&["--label-every", "4", "--label-h", "1"]);
     assert_eq!(
         describe_labels(&config, 0.5),
-        "1 in 4 rollout samples, probe h = 1.00 deg, newest 50000 rows within 512 MiB"
+        "1 in 4 rollout samples, probe h = 1.00 deg, up to 50000 compact rows within 512 MiB host replay budget (actual capacity depends on tier counts)"
     );
     let config = config_for(&["--algo", "ppo", "--label-every", "3"]);
     assert_eq!(
@@ -287,4 +287,20 @@ fn sparkline_scales_to_the_window() {
             .count(),
         3
     );
+}
+
+#[test]
+fn replay_occupancy_is_visible_when_available() {
+    let mut point = blank_point();
+    point.replay_rows = Some(123);
+    point.replay_bytes = Some(2 * 1024 * 1024);
+    point.replay_budget_bytes = Some(512 * 1024 * 1024);
+    assert!(
+        completed_metrics(&point, true)
+            .iter()
+            .any(|line| line.contains("replay retained 123 rows | 2.0 / 512.0 MiB"))
+    );
+    let json = serde_json::to_value(&point).unwrap();
+    assert_eq!(json["replay_rows"], 123);
+    assert_eq!(json["replay_bytes"], 2 * 1024 * 1024);
 }

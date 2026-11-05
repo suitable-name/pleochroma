@@ -252,7 +252,8 @@ fn materials_without_curve_data_keep_the_constant_offsets_bit_for_bit() {
         "Synthetic Moissanite",
         "Benitoite",
     ];
-    let with_principal_curves = ["Alexandrite", "Chrysoberyl (Yellow)"];
+    // Titanite (2026-11-03) carries its measured n_alpha / n_gamma curves (Busz, after Dana).
+    let with_principal_curves = ["Alexandrite", "Chrysoberyl (Yellow)", "Titanite (Sphene)"];
     for material in GemMaterial::all_materials() {
         let name = material.name.as_str();
         assert_eq!(

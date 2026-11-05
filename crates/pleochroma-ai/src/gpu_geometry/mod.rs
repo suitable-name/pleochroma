@@ -62,6 +62,41 @@ pub struct GeometryDiagnostics {
     pub unsupported_reasons: BTreeMap<String, u64>,
     /// Full production gates avoided by outward-rounded impossible-meet proofs.
     pub gpu_prefilter_refusals: u64,
+    /// Rejection-proof routing policy; independent of environment arithmetic/recovery identity.
+    pub arrangement_proof_policy: &'static str,
+    /// Candidates considered for the budgeted interval triple proof.
+    pub arrangement_probes: u64,
+    /// Original gates avoided by a missing-junction proof.
+    pub arrangement_refusals: u64,
+    /// Proofs with a possible triple for every junction; the CPU gate remains necessary.
+    pub arrangement_witnessed: u64,
+    /// Proofs that retained the CPU gate because of limits or numeric uncertainty.
+    pub arrangement_uncertain: u64,
+    /// Proofs bypassed because the plane count or conservative work estimate exceeds its limit.
+    /// These candidates still require the original CPU preservation gate.
+    pub arrangement_capacity_bypasses: u64,
+    /// In-budget gates that skipped the proof because the episode's proofs rarely refute.
+    /// These candidates still require the original CPU preservation gate.
+    pub arrangement_unproductive_bypasses: u64,
+    /// Successfully submitted CUDA arrangement tiles.
+    pub arrangement_tiles: u64,
+    /// Triple lanes submitted in those tiles, including singular triples.
+    pub arrangement_triples: u64,
+    /// Summed wall time preparing, launching and reading arrangement proofs.
+    /// Concurrent calls overlap; includes waiting and is not GPU kernel time.
+    pub arrangement_service_ms: f64,
+    /// Line-search candidates evaluated by residuals without rebuilding topology.
+    /// Every terminal output still passes the original authoritative gate.
+    pub line_trial_gates_avoided: u64,
+    /// Distinct exact non-improving possible trials retained for later certification.
+    /// When numerical search is exhausted the smallest residuals are checked first.
+    pub line_trial_gates_deferred: u64,
+    /// Deferred trials left uncertified because their request reached the per-request
+    /// certification cap. They are not refusals; the request reports its miss.
+    pub deferred_trials_uncertified: u64,
+    /// Improving or terminal iterates whose residual rows exceed the limit every
+    /// accepted state satisfies, so no CPU gate was run for them.
+    pub residual_screened_gates: u64,
     /// Completed CPU gates called by the cached projection or explicit certification.
     /// The original fallback projection's internal gates remain in baseline telemetry.
     pub cpu_gate_calls: u64,
@@ -90,7 +125,7 @@ pub struct GeometryDiagnostics {
     pub original_gate_refusals: u64,
     /// Original-policy certified candidates rejected by stricter request limits.
     pub requested_limit_refusals: u64,
-    /// Exact negative original-policy gate cache reads, without a CPU gate call.
+    /// Exact cached CPU-gate refusals or completed CUDA refutations reused without a new gate.
     pub negative_gate_cache_hits: u64,
     /// Exact repeated unsuccessful accelerated requests, without another correction.
     pub projection_miss_cache_hits: u64,
@@ -120,6 +155,19 @@ struct Counters {
     failures: AtomicU64,
     authoring: AtomicU64,
     prefilter: AtomicU64,
+    arrangement_probes: AtomicU64,
+    arrangement_refusals: AtomicU64,
+    arrangement_witnessed: AtomicU64,
+    arrangement_uncertain: AtomicU64,
+    arrangement_capacity_bypasses: AtomicU64,
+    arrangement_unproductive: AtomicU64,
+    arrangement_tiles: AtomicU64,
+    arrangement_triples: AtomicU64,
+    arrangement_ns: AtomicU64,
+    line_trial_gates_avoided: AtomicU64,
+    line_trial_gates_deferred: AtomicU64,
+    deferred_uncertified: AtomicU64,
+    screened: AtomicU64,
     gates: AtomicU64,
     gate_ns: AtomicU64,
     cache_hits: AtomicU64,
@@ -217,6 +265,20 @@ impl GpuGeometry {
                 .map(|reasons| reasons.clone())
                 .unwrap_or_default(),
             gpu_prefilter_refusals: c.prefilter.load(Ordering::Relaxed),
+            arrangement_proof_policy: "bounded-exact-refutations-v1",
+            arrangement_probes: c.arrangement_probes.load(Ordering::Relaxed),
+            arrangement_refusals: c.arrangement_refusals.load(Ordering::Relaxed),
+            arrangement_witnessed: c.arrangement_witnessed.load(Ordering::Relaxed),
+            arrangement_uncertain: c.arrangement_uncertain.load(Ordering::Relaxed),
+            arrangement_capacity_bypasses: c.arrangement_capacity_bypasses.load(Ordering::Relaxed),
+            arrangement_unproductive_bypasses: c.arrangement_unproductive.load(Ordering::Relaxed),
+            arrangement_tiles: c.arrangement_tiles.load(Ordering::Relaxed),
+            arrangement_triples: c.arrangement_triples.load(Ordering::Relaxed),
+            arrangement_service_ms: c.arrangement_ns.load(Ordering::Relaxed) as f64 / 1e6,
+            line_trial_gates_avoided: c.line_trial_gates_avoided.load(Ordering::Relaxed),
+            line_trial_gates_deferred: c.line_trial_gates_deferred.load(Ordering::Relaxed),
+            deferred_trials_uncertified: c.deferred_uncertified.load(Ordering::Relaxed),
+            residual_screened_gates: c.screened.load(Ordering::Relaxed),
             cpu_gate_calls: c.gates.load(Ordering::Relaxed),
             cpu_gate_ms: c.gate_ns.load(Ordering::Relaxed) as f64 / 1e6,
             certificate_cache_hits: c.cache_hits.load(Ordering::Relaxed),
@@ -309,6 +371,28 @@ impl GpuGeometry {
                 outcome.cached_refusals += 1;
             }
         }
+    }
+
+    pub(crate) fn deferred_line_trial_gate(&self) {
+        self.counters
+            .line_trial_gates_deferred
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn screened_gate(&self) {
+        self.counters.screened.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn uncertified_deferred_trials(&self, count: u64) {
+        self.counters
+            .deferred_uncertified
+            .fetch_add(count, Ordering::Relaxed);
+    }
+
+    pub(crate) fn skipped_line_trial_gates(&self, count: u64) {
+        self.counters
+            .line_trial_gates_avoided
+            .fetch_add(count, Ordering::Relaxed);
     }
 
     fn record_miss(&self, reason: ProjectionMissReason) {

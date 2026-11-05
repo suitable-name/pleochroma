@@ -180,6 +180,7 @@ const BUILT_IN_UNITS: &[(&str, AbsorptionUnit)] = &[
     ("Precious Opal (Black)", AbsorptionUnit::ModelUnit),
     ("Labradorite", AbsorptionUnit::ModelUnit),
     ("Moonstone", AbsorptionUnit::ModelUnit),
+    ("Titanite (Sphene)", AbsorptionUnit::ModelUnit),
 ];
 
 /// The zoned built-ins: the zoned Ametrine is a physical, per-millimetre material (its zones
@@ -479,6 +480,42 @@ fn the_calibration_constant_never_reaches_per_mm_materials() {
         let expected = f64::from(effective_stone_width_mm(width_mm)) / model_width;
         assert!((f64::from(scale) - expected).abs() < 1e-5, "{width_mm} mm");
     }
+}
+
+/// [`stone_width_for_scale`] undoes [`absorption_path_scale_for`] for both units, so a sized
+/// material's stone width is recovered from its scale alone.
+#[test]
+fn the_stone_width_comes_back_from_the_scale_of_either_unit() {
+    for unit in [AbsorptionUnit::ModelUnit, AbsorptionUnit::PerMm] {
+        for (width_mm, model_width) in [(7.0_f32, 2.0_f64), (5.2, 2.0), (10.87, 2.2), (18.0, 3.5)] {
+            let scale = absorption_path_scale_for(unit, width_mm, Some(model_width))
+                .expect("a measurable width");
+            let back = stone_width_for_scale(unit, scale, Some(model_width)).expect("a width");
+            assert!(
+                (back - width_mm).abs() < 1e-4 * width_mm,
+                "{unit:?} {width_mm} mm on {model_width}: got {back}"
+            );
+        }
+    }
+    // An unset width is the 7 mm it stands for.
+    let unset = absorption_path_scale_for(AbsorptionUnit::ModelUnit, 0.0, None).expect("scale");
+    let back = stone_width_for_scale(AbsorptionUnit::ModelUnit, unset, None).expect("a width");
+    assert!(
+        (back - PHYSICS_DEFAULT_STONE_WIDTH_MM).abs() < 1e-4,
+        "{back}"
+    );
+    assert_eq!(
+        stone_width_for_scale(AbsorptionUnit::PerMm, 1.5, None),
+        None
+    );
+    assert_eq!(
+        stone_width_for_scale(AbsorptionUnit::ModelUnit, 0.0, None),
+        None
+    );
+    assert_eq!(
+        stone_width_for_scale(AbsorptionUnit::PerMm, f32::NAN, Some(2.0)),
+        None
+    );
 }
 
 /// Calibration of [`MODEL_UNIT_FACE_UP_PATH`]: the measured face-up `mean_path_units` of the

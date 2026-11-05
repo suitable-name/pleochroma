@@ -3,9 +3,9 @@
 use super::{
     batch::{Fan, fan_out},
     types::{
-        CensusArgs, CensusBuiltins, CensusOutput, Command, ExportArgs, ExportFormat, InfoArgs,
-        JobCommandKind, MaterialArg, MetricsArgs, Mode, OptimizeArgs, RenderJobArgs, ReportFormat,
-        ReportStyle, RetargetArgs, SolveArgs, SweepArgs, ValidateArgs,
+        CensusArgs, CensusBuiltins, CensusOutput, Command, ExportArgs, ExportFormat, Exposure,
+        InfoArgs, JobCommandKind, MaterialArg, MetricsArgs, Mode, OptimizeArgs, RenderJobArgs,
+        ReportFormat, ReportStyle, RetargetArgs, SolveArgs, SweepArgs, ValidateArgs,
     },
     values::{
         Cursor, parse_candidates, parse_count, parse_crown_fraction, parse_crown_mode,
@@ -13,6 +13,7 @@ use super::{
         parse_range, parse_ri, parse_targets, set_material,
     },
 };
+use pleochroma::color::HighlightRule;
 use pleochroma_cut_core::{CANONICAL_LIGHTING_PRESET, ObjectivePreset};
 use pleochroma_editor::{
     optimize_view::{
@@ -503,6 +504,58 @@ fn parse_transfer(word: &str) -> Result<TransferChoice, String> {
         .ok_or_else(|| format!("unknown transfer choice {word:?} (expected full or final)"))
 }
 
+fn parse_highlights(word: &str) -> Result<HighlightRule, String> {
+    HighlightRule::from_cli_word(word)
+        .ok_or_else(|| format!("unknown highlight rule {word:?} (expected whiten or keep-color)"))
+}
+
+/// The pattern `--color-pattern` names; whether the material has it is judged by the command.
+fn parse_pattern_name(word: &str) -> Result<String, String> {
+    let name = word.trim();
+    if name.is_empty() {
+        return Err("--color-pattern needs a pattern name, got an empty value".to_string());
+    }
+    Ok(name.to_string())
+}
+
+/// The name `--material` gives; whether it is a built-in material is judged by the command.
+fn parse_material_name(word: &str) -> Result<String, String> {
+    let name = word.trim();
+    if name.is_empty() {
+        return Err("--material needs a material name, got an empty value".to_string());
+    }
+    Ok(name.to_string())
+}
+
+/// The key `--color-variant` names; whether the job's material has it is judged by the command.
+fn parse_variant_key(word: &str) -> Result<String, String> {
+    let key = word.trim();
+    if key.is_empty() {
+        return Err("--color-variant needs a variant key, got an empty value".to_string());
+    }
+    Ok(key.to_string())
+}
+
+/// The renderer `--engine` names: `path` or `ray`.
+fn parse_engine(word: &str) -> Result<pleochroma::renderer::engine::RenderEngine, String> {
+    match word {
+        "path" => Ok(pleochroma::renderer::engine::RenderEngine::PathTraced),
+        "ray" => Ok(pleochroma::renderer::engine::RenderEngine::RayTraced),
+        other => Err(format!(
+            "unknown renderer {other:?} for --engine (expected path or ray)"
+        )),
+    }
+}
+
+/// The `HOST:PORT` `--remote` gives; whether a worker answers there is found out by the command.
+fn parse_remote_address(word: &str) -> Result<String, String> {
+    let address = word.trim();
+    if address.is_empty() {
+        return Err("--remote needs HOST:PORT, got an empty value".to_string());
+    }
+    Ok(address.to_string())
+}
+
 /// Parses the words of `render` or `tilt-video`: one job file and the engine options.
 pub(super) fn parse_render_job(
     kind: JobCommandKind,
@@ -517,6 +570,10 @@ pub(super) fn parse_render_job(
     let (mut compute, mut transfer) = (None, None);
     let (mut remote, mut cert_dir): (Option<String>, Option<PathBuf>) = (None, None);
     let (mut contribute_local, mut restart, mut quiet) = (false, false, false);
+    let mut exposure = Exposure::AsJob;
+    let mut highlights = HighlightRule::default();
+    let (mut material, mut color_variant): (Option<String>, Option<String>) = (None, None);
+    let mut color_pattern: Option<String> = None;
     while let Some(word) = cursor.token() {
         match word {
             "--out" if kind == JobCommandKind::Render => out = Some(cursor.path("--out")?),
@@ -535,30 +592,23 @@ pub(super) fn parse_render_job(
                     "{word} is for \"tilt-video\", not \"{command}\" (see --help)"
                 ));
             }
-            "--engine" => {
-                engine = Some(match cursor.value("--engine")? {
-                    "path" => pleochroma::renderer::engine::RenderEngine::PathTraced,
-                    "ray" => pleochroma::renderer::engine::RenderEngine::RayTraced,
-                    other => {
-                        return Err(format!(
-                            "unknown renderer {other:?} for --engine (expected path or ray)"
-                        ));
-                    }
-                });
-            }
+            "--engine" => engine = Some(parse_engine(cursor.value("--engine")?)?),
             "--local" => local = parse_local(cursor.value("--local")?)?,
             "--compute" => compute = Some(parse_compute(cursor.value("--compute")?)?),
             "--transfer" => transfer = Some(parse_transfer(cursor.value("--transfer")?)?),
-            "--remote" => {
-                let address = cursor.value("--remote")?.trim();
-                if address.is_empty() {
-                    return Err("--remote needs HOST:PORT, got an empty value".to_string());
-                }
-                remote = Some(address.to_string());
-            }
+            "--remote" => remote = Some(parse_remote_address(cursor.value("--remote")?)?),
             "--cert-dir" => cert_dir = Some(cursor.path("--cert-dir")?),
             "--contribute-local" => contribute_local = true,
             "--quiet" => quiet = true,
+            "--meter" => exposure = Exposure::Metered,
+            "--highlights" => highlights = parse_highlights(cursor.value("--highlights")?)?,
+            "--material" => material = Some(parse_material_name(cursor.value("--material")?)?),
+            "--color-variant" => {
+                color_variant = Some(parse_variant_key(cursor.value("--color-variant")?)?);
+            }
+            "--color-pattern" => {
+                color_pattern = Some(parse_pattern_name(cursor.value("--color-pattern")?)?);
+            }
             other if other.starts_with('-') => {
                 return Err(format!(
                     "unknown flag {other:?} for \"{command}\" (see --help)"
@@ -595,6 +645,11 @@ pub(super) fn parse_render_job(
         contribute_local,
         restart,
         quiet,
+        highlights,
+        material,
+        color_variant,
+        color_pattern,
+        exposure,
     })
 }
 
@@ -631,8 +686,8 @@ pub(super) fn parse_export(args: &[String]) -> Result<Command, String> {
         })
         .ok_or_else(|| {
             format!(
-                "\"export\" needs --format asc|{DESIGN_EXTENSION}|gcs|html, or an --out file \
-                 ending in .asc, {DESIGN_EXTENSION_DOTTED}, .gcs or .html (see --help)"
+                "\"export\" needs --format asc|{DESIGN_EXTENSION}|gcs|html|pdf, or an --out file \
+                 ending in .asc, {DESIGN_EXTENSION_DOTTED}, .gcs, .html or .pdf (see --help)"
             )
         })?;
     let fan = Fan {

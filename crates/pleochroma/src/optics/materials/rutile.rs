@@ -49,6 +49,15 @@ impl GemMaterial {
     /// by ~430nm, giving rutile's characteristic yellow-to-brown body color. TUNED
     /// (aesthetic, not a cited absorption coefficient), like every other inclusion/
     /// pleochroism band in this file that isn't a directly measured spectrum.
+    ///
+    /// 2026-11-04 (owner: "The rutile looks way less yellow in the photos than the
+    /// rendering"): peak 0.64, 0.08 x the former 8.0. Cut rutile is lab-grown titania,
+    /// near-colorless to a pale straw yellow: five photos (four of one lab-rutile dealer,
+    /// one Commons synthetic round) have a whole-stone mean chroma C* of 3-10 and a
+    /// saturation `s_uv` of 0.08-0.21 (median 0.14); the 8.0 band rendered C* 33, `s_uv` 0.53,
+    /// a lemon yellow (Light Tent, the deck's library cushion). Strength sweep on that job:
+    /// x 0.1 gives C* 10 / `s_uv` 0.17, x 0.05 C* 6 / 0.10, the lightness unchanged (L* 86).
+    /// Calibration record: docs/chromophores/calibration-records.md#saturation-round-2026-11-04
     pub(super) fn built_in_material_rutile() -> Self {
         Self {
             name: "Rutile".to_string(),
@@ -60,8 +69,8 @@ impl GemMaterial {
             },
             birefringence_delta: 0.2957,
             absorption: AbsorptionTensor::uniaxial(
-                vec![AbsorptionBand::new(350.0, 40.0, 8.0)],
-                vec![AbsorptionBand::new(350.0, 40.0, 8.0)],
+                vec![AbsorptionBand::new(350.0, 40.0, 0.64)],
+                vec![AbsorptionBand::new(350.0, 40.0, 0.64)],
             ),
             c_axis: Vec3::Y,
             biaxial_delta_beta_alpha: None,

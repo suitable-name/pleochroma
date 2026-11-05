@@ -1,7 +1,9 @@
 //! The rollout and the update of one training iteration, for both algorithms.
 //!
-//! A rollout is a series of passes; a pass steps the first `n` slots once each (`n` is the slot
-//! count, or what is left of the rollout size). Every pass has the same shape:
+//! PPO collects round-robin passes because its rollout buffer needs complete on-policy samples.
+//! Imitation assigns fixed per-slot quotas once and streams each slot independently, batching
+//! policy inference over whichever slots are ready. Both paths share the same per-slot optical
+//! continuation stages and drain all work before an iteration boundary:
 //!
 //! 1. **Batched forward** (serial). The flat observations of the `n` slots go through the
 //!    rollout copy of the Burn model in ONE call (`BurnSetAttention::forward_host`), on the
@@ -16,14 +18,13 @@
 //!    preparation and completion, so unrelated work can supply the GPU during a slow probe.
 //! 4. **Per-slot continuation** keeps the state unchanged until its label and policy search
 //!    complete. Both searches reduce results in canonical order and retain all hard cases.
-//! 5. **Finish** (serial, in slot order): batch PPO time-limit critic bootstraps on the
-//!    rollout device, then update buffers, statistics and the ended slots' next seeds.
-//! 6. **Respawn** (parallel): the next episodes of the slots that ended are built on the pool
-//!    (an environment costs a base evaluation plus the solid and girdle measurements, as much
-//!    as a step) and installed serially in slot order.
+//! 5. **Commit** in canonical slot/local-step order: PPO batches time-limit critic bootstraps;
+//!    imitation folds labels, replay, metrics and episode summaries after streams drain.
+//! 6. **Respawn** on the bounded CPU pool, using the stream's deterministic slot/step seed.
 //!
-//! Each task and each slot writes its own result and the serial parts run in slot order, so the
-//! outcome of a rollout does not depend on the thread count.
+//! Each task writes its own result; RNG streams and canonical commits do not depend on
+//! completion order. Adaptive inference batches can still change GPU floating-point
+//! reduction order, so bitwise trajectories across thread counts are not guaranteed.
 //!
 //! The update that follows a rollout lives in `runner_update.rs`: an imitation update trains on
 //! the update thread while the next rollout runs, so [`TrainingRunner::iterate`] reports the
@@ -42,37 +43,38 @@ use super::{
     TrainingRunner, build_slot,
     imitation::{LabelledSample, explore_raw},
     pool,
-    teacher::wants_label,
+    teacher::labels_pass,
 };
 
 /// Everything the parallel stepping of a slot needs from the serial sampling.
-struct PendingStep {
+pub(super) struct PendingStep {
     /// Which real tiers the environment moves.
-    free: Vec<bool>,
+    pub(super) free: Vec<bool>,
     /// The raw (pre-squash) action that was drawn.
-    raw: Vec<f32>,
+    pub(super) raw: Vec<f32>,
     /// Log-probability of `raw` under the sampling policy (PPO mode only; 0 otherwise).
-    log_prob: f32,
+    pub(super) log_prob: f32,
     /// The critic's value of the state (PPO mode only).
-    value: f32,
+    pub(super) value: f32,
     /// The squashed and projected action the environment is stepped with.
-    action: ContinuousTierAction,
+    pub(super) action: ContinuousTierAction,
     /// The flat observation the action was chosen in.
-    state: Vec<f32>,
-    /// Whether this sample gets a finite-difference label (see `wants_label`).
-    labelled: bool,
+    pub(super) state: Vec<f32>,
+    /// Whether this sample gets a finite-difference label (see `labels_pass`).
+    pub(super) labelled: bool,
 }
 
 #[path = "runner_rollout_stages.rs"]
-mod stages;
+pub(super) mod stages;
+pub(super) use stages::{MAX_PENDING_WORK, step_slot};
 
 /// What the dependency pipeline returns for one slot.
-struct SlotOutcome {
-    step: Step<GemstoneObservation>,
+pub(super) struct SlotOutcome {
+    pub(super) step: Step<GemstoneObservation>,
     /// The finished label of a flagged slot.
-    label: Option<TeacherLabel>,
+    pub(super) label: Option<TeacherLabel>,
     /// Whether the teacher measured this state in the current pass rather than reusing it.
-    fresh_label: bool,
+    pub(super) fresh_label: bool,
 }
 
 /// A slot whose episode ended in this pass: where its next episode starts in the train split
@@ -91,8 +93,9 @@ fn probe_size(cfg: &RunConfig, slot: &Slot) -> f64 {
 
 impl TrainingRunner {
     /// Steps 1 and 2 of a pass: the batched forward over the first `n` slots, then the serial
-    /// sampling in slot order. `base` is the number of samples collected before the pass.
-    fn prepare_pass(&mut self, n: usize, base: usize) -> Result<Vec<PendingStep>, RunnerError> {
+    /// sampling in slot order. Labels follow [`labels_pass`] at the pass count `label_phase`,
+    /// so they rotate over the slots for every slot count.
+    fn prepare_pass(&mut self, n: usize) -> Result<Vec<PendingStep>, RunnerError> {
         let max_tiers = self.split.max_tiers;
         let mut states = Vec::with_capacity(n);
         let mut n_tiers = Vec::with_capacity(n);
@@ -125,7 +128,7 @@ impl TrainingRunner {
             .zip(batch.values);
         let mut pending = Vec::with_capacity(n);
         for (w, (state, ((mean, log_std), value))) in states.into_iter().zip(rows).enumerate() {
-            let labelled = wants_label(self.cfg.label_every, base, w, self.label_phase);
+            let labelled = labels_pass(self.cfg.label_every, self.label_phase, w);
             let policy = GaussianPolicy { mean, log_std };
             pending.push(self.sample_step(w, state, &policy, value, labelled));
         }
@@ -209,6 +212,8 @@ impl TrainingRunner {
                 cached_labels: &cached_labels,
                 scales: &self.cfg.line_search,
                 progress: &self.progress,
+                slot_offset: 0,
+                announce_phase: true,
             },
         );
         rollout.label_secs += probe_secs;
@@ -392,7 +397,7 @@ impl TrainingRunner {
         Ok(())
     }
 
-    /// Collects `rollout_size` steps round-robin over the workers. `keep_going` is asked before
+    /// Collects `rollout_size` steps using the algorithm's deterministic schedule. `keep_going` is asked before
     /// every environment step; when it returns `false` the partial rollout is discarded (the
     /// labelled states it already added to the aggregate stay: a label is exact for its state)
     /// and `None` is returned.
@@ -401,6 +406,9 @@ impl TrainingRunner {
         keep_going: &mut dyn FnMut() -> bool,
     ) -> Result<Option<RolloutStats>, RunnerError> {
         self.clear_rollout();
+        if self.cfg.algo == Algorithm::Imitation {
+            return super::rollout_stream::collect(self, keep_going);
+        }
         let mut rollout = RolloutStats::default();
         while rollout.steps < self.cfg.rollout_size {
             // One round-robin pass: the slots that still fit into the rollout.
@@ -414,7 +422,7 @@ impl TrainingRunner {
             if let Some(execution) = &self.execution {
                 execution.check().map_err(RunnerError::Data)?;
             }
-            let pending = self.prepare_pass(n, rollout.steps)?;
+            let pending = self.prepare_pass(n)?;
             if let Some(execution) = &self.execution {
                 execution.check().map_err(RunnerError::Data)?;
             }
@@ -455,13 +463,23 @@ impl TrainingRunner {
     ///
     /// # Errors
     ///
-    /// [`RunnerError`] from the environments, the network or the trainer (a diverged loss
-    /// included; the weights are then unchanged by that step, and the error surfaces at the
-    /// wait point after the iteration the update belongs to).
+    /// [`RunnerError`] from the environments, the network or the trainer (an imitation update
+    /// all of whose labelled mini-batches diverged included; it surfaces at the wait point after
+    /// the iteration the update belongs to, and `net` keeps the weights before it). A failed
+    /// iteration can leave episodes half-stepped, so the run then refuses to iterate or save
+    /// until [`Self::restore_recovery`] or [`Self::resync_after_failure`] (or a reset or weight
+    /// load) makes it consistent again ([`Self::needs_resync`]).
     pub fn iterate(
         &mut self,
         keep_going: &mut dyn FnMut() -> bool,
     ) -> Result<Option<IterationReport>, RunnerError> {
+        if !self.recovery_safe {
+            return Err(RunnerError::Data(
+                "a previous iteration failed; restore the last committed recovery or re-synchronise \
+                 the run before training"
+                    .into(),
+            ));
+        }
         if self.slots.is_empty() {
             return Err(RunnerError::Data(
                 "restore the recovery bundle before training".into(),
@@ -469,7 +487,11 @@ impl TrainingRunner {
         }
         self.progress
             .begin(self.stats.iteration + 1, self.cfg.rollout_size);
+        // Set before entering mutable work, so an unwinding panic is covered too.
+        // A normal cancellation drains work and commits consistent observations.
+        self.recovery_safe = false;
         let result = self.iterate_inner(keep_going);
+        self.recovery_safe = result.is_ok();
         self.progress.finish(match &result {
             Ok(Some(_)) => "iteration complete",
             Ok(None) => "cancelled",
@@ -483,6 +505,7 @@ impl TrainingRunner {
         keep_going: &mut dyn FnMut() -> bool,
     ) -> Result<Option<IterationReport>, RunnerError> {
         self.stats.rollout_forward_ms = 0.0;
+        self.stats.rollout_scheduling = Default::default();
         let started = Instant::now();
         let Some(rollout) = self.collect_rollout(keep_going)? else {
             self.sync_update()?;
@@ -543,6 +566,7 @@ impl TrainingRunner {
             training_host_ms,
             weight_export_ms: weight_export_secs * 1_000.0,
             rollout_forward_ms: stats.rollout_forward_ms,
+            rollout_scheduling: stats.rollout_scheduling.clone(),
             update_wait_secs,
             update_of_iteration,
             evaluations_this_round,

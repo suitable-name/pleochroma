@@ -45,7 +45,7 @@ fn action_regression_penalizes_drift_on_verified_zero_coordinates() {
     let target = matrix(vec![0.8, 0.0, 0.0], 1, 3);
     let predicted = matrix(vec![0.8, 0.6, 0.9], 1, 3);
     let mask = matrix(vec![1.0, 1.0, 0.0], 1, 3);
-    let loss = host_scalar(masked_huber(predicted, target, mask)).unwrap();
+    let loss = host_scalar(balanced_action_huber(predicted, target, mask)).unwrap();
     assert!((loss - 0.09).abs() < 1e-6, "{loss}");
 }
 

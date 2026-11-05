@@ -473,7 +473,7 @@ fn press_typed(app: &HarnessApp, label: &str, kind: &str) -> bool {
     true
 }
 
-/// Opens the File menu of the editor's command bar and presses its three export items, each with a
+/// Opens the File menu of the editor's command bar and presses its four export items, each with a
 /// queued answer for the file dialog (a path in the profile's scratch folder). Proves the menu
 /// opens and each item reaches its writer; a missing file is a note (the item may write beside
 /// the chosen name).
@@ -485,6 +485,7 @@ fn export_menu(ctx: &mut Ctx<'_>) {
     main_window::select_render_view(ctx.app, 1);
     let items = [
         ("Export Cutting Sheet (HTML)...", "html"),
+        ("Export Cutting Sheet (PDF)...", "pdf"),
         ("Export Diagram (PNG)...", "png"),
         ("Export as Gem Cut Studio (.gcs)...", "gcs"),
     ];

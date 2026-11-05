@@ -17,13 +17,14 @@ use uiprobe::{AccessibleRole, screenshot::Shot};
 /// What the Export dialog's Output Location shows instead of the real folder.
 const NEUTRAL_FOLDER: &str = "D:\\Renders";
 /// Library list row labels of the card menu, top to bottom.
-const CARD_MENU_ITEMS: [&str; 6] = [
+const CARD_MENU_ITEMS: [&str; 7] = [
     "Generate Previews",
     "Compute Tilt Curves",
     "Ignore",
     "Exclude from Planner",
     "Build This Design",
     "Add Tag",
+    "Delete",
 ];
 
 /// `main.png`: the library with the design selected, 3D Spectral Preview, Path-Traced, settled.

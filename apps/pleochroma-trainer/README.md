@@ -4,6 +4,11 @@ Standalone Slint GUI and headless CLI for training the two `pleochroma-ai` polic
 not wired into the editor, web app, mobile app, or worker services. A trained checkpoint must be
 integrated separately. The GUI and CLI share the trainer loop and model format.
 
+For Linux CPU/CUDA/WGPU builds optimized from real training profiles, see
+[PGO and optional BOLT builds](PGO.md). The profiling script covers training,
+validation, checkpoint writing and recovery through the actual CLI's native
+`--pgo` workload. It builds without the optional GUI dependencies and needs no Python.
+
 ## Tasks and data
 
 The two tasks have distinct checkpoint identities: **Optimizer** changes tier angles while
@@ -25,16 +30,31 @@ attachments. `--design-dir PATH` loads the regular files directly inside a direc
 library; add `--include-library` to use both. Native files keep their authored rough, physical
 size, relations, dimensional targets, concave tools, crystal-axis effects, frosting and material
 (an embedded custom material is restored; an unknown custom name is refused rather than replaced
-by Diamond), and draft files are refused. Legacy ASC files carry none of that: the trainer infers
-an enclosing block rough and draws one physical width per record from a fixed list, labelled as
-augmentation in the evaluation artifacts. Invalid, oversized or unrepresentable designs are
+by Diamond), and draft files are refused. Unrecognized inclusion/structure choices and crystal-axis
+rules are reported as unsupported; an unrecognized active color variant requires a supported color
+fallback. These declarations are not treated as missing material. Legacy ASC files receive an
+inferred enclosing block.
+In either format, an absent physical width receives one deterministic training width per record
+from 4, 5.5, 7, 10 or 14 mm. An explicit width is never replaced. A native design with millimetre
+targets but no physical width is refused: sampling that missing anchor would alter the intended
+target geometry. The sampled width changes only the in-memory training context; source PSDD files,
+rough geometry and meet constraints are not rewritten. Evaluation cases report `physical_size_mm`
+and `physical_size_augmented`. Invalid, oversized or unrepresentable designs are
 reported as skips (an observation capacity is exceeded by a tier with more than 128 index
 positions, an angle relation of more than 32 nodes, more than 16 named-meet participants, more than
 32 custom rough planes or more than eight concave tools). Each run writes a corpus coverage
 sidecar next to `--save-stats` (`<stats-stem>.coverage.json`): ASC/native counts, geometric
-families, tier bands, dimensional targets, native materials, per-split capability counts and the
-analytical-scope notes of effects the objective does not evaluate. Retarget targets are drawn from every built-in material of the renderer's catalogue
-with a sampled crystal frame; native sources keep their authored material. Records sharing an entry ID or normalized geometry are connected into one
+families, tier bands, dimensional targets, native materials, authored versus augmented width counts,
+material-sampling eligibility, per-split capability counts and analytical-scope notes of effects
+the objective does not evaluate. Native format and material authorship are counted separately.
+Retarget targets are drawn from every built-in material of the renderer's catalogue with a sampled
+crystal frame. Explicit source material choices (including RI-only or color overrides), embedded
+custom materials, and authored material-dependent context remain fixed. Empty native material
+sections with default context use the same episode-seeded source mixture as ASC: 25% retain the
+recorded refractive index and 75% sample a catalogue material and crystal frame. This source mixture
+is separate from `--same-material-frac`, which chooses how often the retarget target equals that
+episode's source. No mineral composition is inferred from a title or filename.
+Records sharing an entry ID or normalized geometry are connected into one
 group before train/validation/test assignment, preventing attachments or duplicate cuts from
 crossing splits; the grouping key is a conservative geometric family that ignores tier order,
 equivalent gears, uniform scale, rotation and reflection. Validation uses a fixed cohort stratified
@@ -42,6 +62,12 @@ by format, tier band, concavity and relation programs, always drawn from the val
 The split seed is recorded. `--fixture` is a smoke test that deliberately shares
 the same fixture across splits; it is not evidence of generalization and cannot produce a
 best-validation checkpoint.
+
+Use a fresh output prefix when switching to a native corpus or upgrading a native run that
+previously froze unspecified materials or used the default physical size. Recovery refuses a
+changed loaded corpus so saved episodes cannot silently resume under different material/size
+semantics. `--warm-start` can reuse compatible model weights in a fresh run; normal `--resume`
+still restores an unchanged run using its saved corpus path and settings.
 
 ## Training behavior
 
@@ -161,17 +187,32 @@ After a remote restart, only this is needed:
 
 `--resume /notebooks/retarget_m_layout7.latest.json` and the `.run` directory are accepted too.
 The saved absolute database/directory/output paths are reused; `DIAGRAM_DB_PATH` need not be set
-again. The corpus must still be available and unchanged. Only the device may be overridden;
-changing training flags requires a new run. Resuming iteration 20 of a 300-iteration run starts
+again. The corpus must still be available and unchanged. A resume accepts these overrides, and
+prints each one it applies: `--device`, `--save-every`, and for imitation runs `--imitation-lr`
+and `--max-grad-norm`. Any other changed training flag (including the PPO `--lr`) still requires
+a new run; the error names the fields that differ. `--relabel` is needed when the CUDA
+environment math or the device changed since the save: it drops the replay labels and caches made
+under the old math (the warning gives the counts). Without it such a resume is refused, so a run
+never trains its last iterations on a silently emptied replay. Resuming iteration 20 of a 300-iteration run starts
 at iteration 21 and stops at 300, with the same validation and saving cadence. A pending validation
 or test evaluation is retried before advancing. Resuming a completed run exits successfully
 without training again. The dashboard also keeps the original iteration numbering.
 
-Recovery is exact at committed iteration boundaries: work since the last save is repeated after
-a crash, and a partially completed rollout/update is not a checkpoint. Device changes preserve
-saved training state but do not promise bitwise identical floating-point results across CPU,
-CUDA, WGPU, hardware or drivers. A snapshot is published only after its payload files are
-written and flushed; interrupted saves do not replace the previously committed target.
+Recovery restores the saved state at committed iteration boundaries: work since the last save
+is repeated after a crash, and a partially completed rollout/update is not a checkpoint.
+Adaptive GPU batch grouping can change floating-point reduction order even on the same device;
+bitwise future trajectories are not promised across timing, CPU/CUDA/WGPU, hardware or drivers.
+A snapshot is published only after its payload files are
+written and flushed; interrupted saves do not replace the previously committed target. If the
+latest generation fails verification, the previous one is restored with a loud warning and the
+damaged directory is renamed `damaged-<name>`. Leftover temporary generation directories of
+killed saves, and the journals of older validations, are removed automatically.
+
+Ctrl-C (SIGINT) or SIGTERM stops a CLI run cleanly: the current iteration finishes, the state is
+saved, and the process exits with code 130 and the `--resume` command to continue. A second
+signal exits at once. Best-validation checkpoints are kept per validation identity
+(`*-best-validation-v3.<identity hash>.json`), so a resume on another device never overwrites
+the best model of the original one.
 
 Numbered model-only checkpoints remain available for inference and warm starts. The exact
 `--save-weights` path receives final weights; when omitted, it defaults to `<save-stats stem>.ckpt.json`
@@ -184,14 +225,17 @@ iteration counter, optimizer, replay, RNG and reward scale start fresh. Choose n
 Model checkpoints still use schema v6 and observation layout v7; schema 5 and earlier are
 incompatible with the larger embeddings. Do not alter schema or layout identifiers to force a load.
 
-Each replay row holds a full flat observation (`3781 + padded_tiers * 384` floats, about 113 KB at 64
-tiers and 212 KB at 128). Padding follows the largest retained design, within `--max-tiers`. The aggregate therefore keeps at most `--label-capacity` rows and at most
-512 MiB (`MAX_LABEL_BYTES`), whichever is smaller (roughly 4,600 rows at 64 padded tiers). In
-bounded-update mode, the snapshot is at most 64 MiB (roughly 570 rows at 64 tiers), with batches
-clamped to available rows. Full-epoch mode (`--updates-per-round 0`) copies the retained aggregate
-and streams prepared windows of at most 32 MiB; it deliberately visits all retained rows. The
-512 MiB limit covers retained row payload and headers, not total process or device memory. The
-banner prints the byte cap next to the row capacity.
+Replay rows retain each observation's global features and real tier tokens, omitting only zero
+padding. `--label-capacity` limits the row count; `--label-memory-mib` limits retained host
+payload and headers (default 512 MiB). For example, `--label-memory-mib 4096` allows a 4 GiB
+host replay budget; choose it based on available system RAM. Actual row capacity depends on tier
+counts. Eviction protects the newest quarter and selects deterministically among older rows, so
+some historical examples survive alongside recent ones. The eviction counter is saved for resume.
+
+Bounded-update snapshots are limited to 64 MiB of compact rows and the update's work budget.
+Full-epoch mode (`--updates-per-round 0`) copies the retained compact aggregate and streams
+prepared windows of at most 32 MiB. Snapshots and other process/device allocations are additional
+to the replay budget.
 
 ### Diagnosing a long first iteration
 
@@ -430,7 +474,7 @@ Recovery retains saved model/optimizer/RNG/episode state. Replay and cached teac
 are retained when the environment arithmetic matches. When it changes, those labels and
 the oracle cache are cleared with an explicit warning: an action may project differently
 under the new arithmetic. Training keeps its saved iteration, configuration and optimizer;
-cross-revision bitwise replay is not promised. The execution revision is `cuda-env-v3`.
+cross-revision bitwise replay is not promised. The execution revision is `cuda-env-v4`.
 Validation caches and completed-case journals bind the physics
 and policy backend identities. The CLI uses separate versioned journal directories for the execution route, preserving older
 journals. Inside a route, incompatible or corrupt identities are refused rather than silently
@@ -469,42 +513,75 @@ progress/statistics files for comparing phase times. A quiet GPU during exact ge
 possible; a CUDA label alone does not show how much work reached the accelerator. Do not infer
 speedup from kernel-launch counts or reduce worker counts without that measurement.
 
-### CUDA throughput changes in `cuda-env-v3`
+### CUDA throughput changes in `cuda-env-v4`
 
 For remote CPU/GPU measurements, targeted projection comparisons and an independent
 optical capacity probe, see [Throughput diagnostics](THROUGHPUT_DIAGNOSTICS.md).
 The collector packages flushed reports and hardware telemetry into one archive.
 
-The A100 report showed 796 CPU projection fallbacks for 2,679 accelerated requests,
-with about 2,224 seconds of summed fallback service time. Optical batches averaged
-1.12 candidates despite capacity for 128. This points to geometry and scheduling
-starvation; increasing optical buffer capacity or the neural minibatch alone cannot
-remove that wait. Service times from concurrent workers overlap and are not GPU utilization.
+The `throughput-a100-01` collection timed out after 1,800 seconds without finishing
+a measured pipeline iteration. Its 908 CPU projection fallback starts accumulated
+4,759 seconds of overlapping service time, while optical batches averaged 1.025
+candidates. Those service seconds are not elapsed time or a percentage of wall time.
+This establishes an upstream geometry/scheduling problem; it does not establish a
+steady-state training rate or CPU/GPU numerical parity for every workload.
 
 The accelerated projector now chooses represented finite differences inside the actual
 angle bounds, clips coupled corrections to both authored bounds and the original trust
 region, and tries smaller ordered backtracking fractions when the first four fail.
-Every accepted result still passes the original meet-preservation gate. Exact bounded
+Every accepted result still passes the original meet-preservation gate. Bound-active
+coordinates are pinned and the remaining QR system is re-solved, including cascades
+requiring more than six passes. The conservative CUDA interval filter tightens support
+slab enclosures with the dual-basis identity; uncertain cases still reach the CPU gate.
+Direct-mast probes construct production-equivalent f32 planes locally and rebuild
+first-retained plane ownership for each candidate, including cheater offsets. An
+unchanged plane count is never treated as proof that aliases are unchanged.
+Exact bounded
 episode-local caches retain deterministic failed requests, failed gates and CPU fallback
 results. Request bounds are part of the key; cancellation and infrastructure failures are
-not cached. Unsupported inputs retain the original reference fallback.
+not cached. Only `UnsupportedNetwork` uses the CPU projection fallback. Other
+accelerated misses retain their diagnostic reason and refuse the proposal. This
+intentionally gives up rare CPU-rescued moves; it does not weaken acceptance checks.
 
 Rollout probes, teacher finalization and policy steps now use per-slot dependencies.
 An unrelated slow tier no longer prevents a ready slot from finishing its own work.
 Optical submissions have owned tickets and bounded admission: the caller coordinates
 readiness while CPU pool threads prepare other geometry. Spare threads in that same
-pool can prepare both probe sides or remaining search candidates. No extra CPU pool
-or thread per request is created. Sampling, candidate reduction, replay insertion and
-episode seed assignment keep canonical order. There is still a pass boundary before
-the next batched policy forward, so a difficult last slot can remain a bottleneck.
+pool can prepare both probe sides or remaining search candidates. Single-slot
+respawns also enter that pool. A bounded set of coordinator threads owns independent
+slot streams: ready slots can advance without waiting for an unrelated slot's index
+lane. Every slot keeps a fixed rollout quota, its own seeded random stream, and at
+most one step in flight. Results enter replay in canonical slot/step order.
+
+The streams share 128 admissions for in-flight, prepared and parked stage work.
+An active stream can borrow capacity as others finish. Completed probe results hold
+only small fixed-size values, not live GPU tickets, and are bounded separately by
+concurrent slots and their free-tier counts. The final iteration boundary still
+waits for every slot's quota; a genuinely expensive last slot can still dominate it.
+
+Host inference uses power-of-two tier and row buckets, with the input's tier limit
+as the final cap. Dummy rows never enter the returned policy or sampling RNG. Both
+training and inference zero padded tier features before projection. Imitation
+windows use the same tier buckets; real minibatch rows and loss weighting stay
+unchanged. Early small batches and full-epoch tails can still introduce additional
+device shapes. Fixed per-slot RNG/order does not promise bitwise GPU trajectories
+across different inference batch shapes or devices.
+
+Solid-construction and optical-width results have separate bounded caches, with
+reuse across caches only for exact plane keys. Optical work drains requests already
+queued without a deliberate coalescing sleep; bounded inspection prevents cancelled
+traffic from indefinitely delaying live work. Queue and collection durations are
+reported separately from service time. Sparse batches can still contain one request.
 
 The progress file adds `environment.geometry.projection_miss_reasons` and
 `cpu_fallback_by_reason` (actual calls, successful/refused completions, summed service
 milliseconds, and cached outcomes), plus `original_gate_refusals`,
 `requested_limit_refusals`, `negative_gate_cache_hits` and `projection_miss_cache_hits`.
 These distinguish an accelerated correction miss from a design rejected by the exact gate.
-`label_secs` measures the overlapping interval until all probes in a pass complete; it
+`label_secs` measures the union of concurrent probe intervals within a rollout; it
 must not be added to rollout time as independent work.
+Progress JSON uses `total_tasks: 0` for an unknown total; human output shows
+`completed/unknown`, while rollout step counts retain their known total.
 
 No new launch flags are required. Keep the same workload for the first comparison:
 256 rollout steps, 128 minibatch, 16 updates, default automatic worker count, seed 42,
@@ -515,11 +592,123 @@ The existing run resumes with:
 ./pleochroma-trainer-cli --device cuda --resume /notebooks/retarget_m_cuda_v2
 ```
 
-The prefix is a path, not an arithmetic version selector. Upgrading this run to v3 rebuilds
+The prefix is a path, not an arithmetic version selector. Upgrading this run to v4 rebuilds
 its old teacher labels but retains learned weights and Adam/RNG/episode state. Legacy snapshots
 without an arithmetic marker also rebuild their derived labels once. Checkpoints
 remain synchronized iteration boundaries; an interrupted partial iteration is repeated.
+A failed or unwinding iteration, failed update, or partial recovery installation
+cannot overwrite the last committed recovery. Restore that recovery before continuing.
+Unexpected worker-job panics report the failed slot and drain surviving work; lost
+slot ownership produces a recovery-required error instead of an indefinite wait.
 Compare warmed iterations separately from first-use compilation. Required evidence is
 lower rollout/fallback wall time and unchanged validity behavior, not merely higher GPU
 occupancy. Exact CPU authoring, preservation validation and remaining reference fallbacks
 still exist. This change has not been benchmarked or executed by the implementation agent.
+
+### Iteration-162 follow-up: `cuda-env-v5`
+
+The v4 measurements show that removing CPU projection rescue did not remove the
+original-preservation gate bottleneck. Of 57,639 CPU gate calls, 56,152 were line
+trials; 53,858 of those trials were refused. Their summed service time overlaps
+across workers and must not be interpreted as elapsed time. Optical batches of one
+and an empty queue indicate a lack of ready optical work, not exhausted GPU memory.
+
+The v5 projector prioritizes residual-improving trials and defers other possible
+trials. A residual plateau is not proof of a broken meet: deferred trials still
+receive the authoritative original gate before a numerical search failure is
+returned. Only the outward-rounded conservative prefilter can discard a trial
+without that gate. Final-iterate gate results survive small-cache eviction, so an
+already refused terminal iterate is not certified again. Exact duplicate deferred
+states are also removed within a request without conflating tier identities. The diagnostics separate
+`line_trial_gates_deferred` (postponement) from `line_trial_gates_avoided` (proven
+prefilter rejection). Failing searches can still incur substantial exact CPU work;
+this implementation has not been timed and does not promise GPU saturation.
+
+Imitation replay stores real tier rows instead of zero padding. Its row limit and
+new `--label-memory-mib` host-memory limit both apply. Deterministic mixed-history
+eviction retains a recent quarter and selects older rows for replacement; it is
+not a uniform reservoir sampler. The eviction counter is checkpointed. Telemetry
+reports current retained rows, accounted bytes, and budget. Existing padded replay
+files remain readable. Progress now separates the age of the current task detail
+from the age of its entire task, so time preparing geometry is not presented as
+time waiting for optics.
+
+The action Huber loss balances moving and stationary coordinates within each
+verified teacher action, then averages samples. The historical `--cosine-coeff`
+option now weights a bounded vector disagreement penalty with a useful gradient
+at a zero prediction; raw cosine remains a diagnostic. Teacher acceptance and
+meet checks are unchanged. Metrics identify this loss as
+`imitation_objective_revision: "balanced-action-vector-v2"`; total losses from
+older objective definitions are not directly comparable.
+
+Validation selects distinct connected design families before additional material
+contexts. Reports distinguish entries, families, and objective cases. Imitation
+validation includes zero-mean exploration with the sampled policy's noise scale,
+mask, projection, line search, and episode limit. This model-independent reference
+and the oracle are cached only with complete paired endpoints and matching
+contexts. Per-case output includes sampled/noise endpoints, model accepted steps,
+rejection reasons, and action RMS. Reference timings marked cached describe the
+original reference computation, not time spent in the current validation pass.
+Generalization-gap eligibility counts families rather than repeated objective
+cases. It is still a stratified diagnostic, not an unbiased population estimate.
+
+Evaluation journals and best-validation selection use revision 3. Changed cohort
+or physics settings start a new best-score comparison; older evaluation records
+remain in the history. Upgrading CUDA recovery from v4 to v5 preserves learned
+weights, optimizer state, RNG and episodes, but rebuilds derived teacher labels
+and reference caches. Compare deterministic held-out improvements against sampled,
+zero-mean and oracle improvements before concluding that a lower training loss
+means a better optimizer.
+
+For the next A100-80G run, keep M, 256 rollout steps, mini-batches of 128 and 16
+updates as the controlled comparison. Increase replay to
+`--label-capacity 50000 --label-memory-mib 4096` on a host with sufficient RAM.
+This is a 4 GiB host replay budget, not a GPU allocation. Checkpoints can become
+larger and take longer to write. Keep automatic workers initially; extra rollout
+slots or a larger model do not remove CPU certification costs. Only increase the
+minibatch after warmed measurements show update work delaying the next iteration.
+
+Added regression tests cover deferred certification, imported slack and numeric
+plateaus, loss gradients and masks, compact replay and recovery, family coverage,
+and reference-cache validity. No builds, tests, Clippy, or benchmarks were run for
+this follow-up. Run the validation commands above before deployment and collect a
+new throughput archive with the same corpus and seed.
+
+### Throughput capture 2026-11-01: `cuda-env-v7`
+
+The A100 capture `throughput-a100-v5-01` (pipeline case, 27 slots, 256 steps, label every
+2) measured 1.8 steps per second, about 4 of 9 cores busy and 4 % GPU. The CPU original
+gate took about 2,850 CPU seconds in 54,882 calls (about 52 ms each, 95 % refused, mostly
+detached junctions); CUDA residuals took 38 s and CUDA optics 3.4 s. The GPU waited for the
+CPU gate. The capture also showed the optical service at 1,090 requests per second with one
+request in flight and 18,300 with 128, while the trainer issued about 5.5 per second.
+
+Changes:
+
+- Projection: a stalled request certifies at most four deferred line trials, smallest
+  residual first (`deferred_trials_uncertified` counts the rest; their own gate phase is
+  `deferred_trial`). This changes which requests succeed, hence `cuda-env-v7`.
+- Projection: an improving trial, the seed and the terminal iterate skip the CPU gate when a
+  junction's residual rows exceed `2 bound (1 + 3/|det|)`, a limit every accepted state
+  satisfies by the necessary conditions of the outward-rounded prefilter
+  (`residual_screened_gates`). Every returned design is still certified by the original gate.
+- Projection: authored (named-meet) probes are no longer solved twice per line-search batch.
+  The arrangement proof stops per episode after 64 proofs with fewer than one refutation in
+  32 (`arrangement_unproductive_bypasses`), and its kernel no longer issues an atomic read
+  per junction per lane.
+- Labels: the streamed and the PPO schedules label every `label_every`-th step of each slot,
+  staggered by slot. The old schedule labelled the same 13 or 14 of 27 slots on every step
+  with period 2, so the iteration waited for those slots.
+- Rollout: a labelled step runs the teacher and its policy step side by side; teacher probe
+  sides and every candidate of a teacher phase fan out on the pool; the step line search is
+  strictly sequential (smaller scales only after a rejection, no discarded speculation);
+  coordinators back off from 50 µs to 1 ms while optics tickets wait.
+- Solid service: four scratch sets, and vertex deduplication after the scratch lock is
+  released. The second width arrangement per scored candidate stays on purpose: it measures
+  the f32 fan planes like the CPU reference, and reusing the f64 build width would change
+  every optical output.
+
+Expect `cpu_gate_calls` to fall sharply, `labels_added` per iteration to rise (labels are now
+spread over all slots) and `cuda_optical_requests` to fall (no speculative scales). Collect a
+new throughput archive with the same corpus and seed to measure the result. A run saved under
+`cuda-env-v6` resumes only with `--relabel`.

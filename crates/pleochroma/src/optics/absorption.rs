@@ -354,6 +354,26 @@ impl AbsorptionTensor {
             is_pleochroic: true,
         }
     }
+
+    /// The same tensor with every band's peak multiplied by `factor`: a stone with `factor`
+    /// times the chromophore concentration (absorption is linear in it), the shapes, centres
+    /// and widths unchanged.
+    ///
+    /// The built-in materials use it for their strength calibration against photos of real
+    /// stones (2026-11-04), so the measured band sets stay as fitted and the factor reads as
+    /// one number in the entry.
+    #[must_use]
+    pub fn scaled(mut self, factor: f32) -> Self {
+        for band in self
+            .o_ray
+            .iter_mut()
+            .chain(self.e_ray.iter_mut())
+            .chain(self.beta_ray.iter_mut().flatten())
+        {
+            band.peak *= factor;
+        }
+        self
+    }
 }
 
 /// Builds a 3-band absorption set from an `[R, G, B]` peak-coefficient triple, using
@@ -409,6 +429,43 @@ pub fn body_color_bands(amplitudes_per_mm: [f32; 7]) -> Vec<AbsorptionBand> {
             AbsorptionBand::energy(centre, sigma_nu * 2.35482, a)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod scaled_tensor_tests {
+    use super::*;
+
+    /// Every ray's peaks scale, nothing else moves, and a biaxial tensor's beta ray scales too.
+    #[test]
+    fn scaled_multiplies_every_peak_of_every_ray_and_nothing_else() {
+        let band = |c: f32, p: f32| AbsorptionBand::energy(c, 2_000.0, p);
+        let t = AbsorptionTensor::biaxial(
+            vec![band(400.0, 2.0)],
+            vec![band(500.0, 4.0), band(600.0, 1.0)],
+            vec![band(700.0, 8.0)],
+        );
+        let s = t.clone().scaled(0.5);
+        let peaks = |t: &AbsorptionTensor| -> Vec<f32> {
+            t.o_ray
+                .iter()
+                .chain(t.beta_ray.iter().flatten())
+                .chain(&t.e_ray)
+                .map(|b| b.peak)
+                .collect()
+        };
+        assert_eq!(peaks(&s), [1.0, 2.0, 0.5, 4.0]);
+        let shape = |t: &AbsorptionTensor| -> Vec<(f32, f32, BandShape)> {
+            t.o_ray
+                .iter()
+                .chain(t.beta_ray.iter().flatten())
+                .chain(&t.e_ray)
+                .map(|b| (b.center_nm, b.width_nm, b.shape))
+                .collect()
+        };
+        assert_eq!(shape(&s), shape(&t));
+        assert_eq!(s.is_pleochroic, t.is_pleochroic);
+        assert_eq!(t.clone().scaled(1.0), t);
+    }
 }
 
 #[cfg(test)]

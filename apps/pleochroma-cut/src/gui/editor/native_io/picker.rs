@@ -33,8 +33,10 @@ pub(super) enum PickKind {
     SaveAsc { default_name: String },
     /// "Export as Gem Cut Studio (.gcs)...": the `.gcs` save-as picker.
     SaveGcs { default_name: String },
-    /// "Export Cutting Sheet": the `.html` save-as picker.
+    /// "Export Cutting Sheet (HTML)...": the `.html` save-as picker.
     SaveCuttingSheet { default_name: String },
+    /// "Export Cutting Sheet (PDF)...": the `.pdf` save-as picker.
+    SaveCuttingSheetPdf { default_name: String },
     /// "Export Diagram": the `.png` save-as picker.
     SaveDiagram { default_name: String },
     /// "Open": accepts a `.psdd` design file, a bare `.asc`, or a `.gem`/`.gcs` design
@@ -111,12 +113,25 @@ pub(super) fn pick_file(
             default_file_name: Some(default_name),
             starting_dir: default_export_dir(),
         },
+        // Each cutting-sheet item offers its own file type only. The written format still
+        // follows the picked name (`cut_sheet::write_cutting_sheet_with`): a name typed with
+        // `.pdf` in the HTML dialog writes the PDF.
         PickKind::SaveCuttingSheet { default_name } => PickerRequest {
             kind: PickerKind::SaveFile,
             title: None,
             filters: vec![PickerFilter {
                 label: "Cutting Sheet (HTML)".to_string(),
                 extensions: vec!["html".to_string()],
+            }],
+            default_file_name: Some(default_name),
+            starting_dir: None,
+        },
+        PickKind::SaveCuttingSheetPdf { default_name } => PickerRequest {
+            kind: PickerKind::SaveFile,
+            title: None,
+            filters: vec![PickerFilter {
+                label: "Cutting Sheet (PDF)".to_string(),
+                extensions: vec!["pdf".to_string()],
             }],
             default_file_name: Some(default_name),
             starting_dir: None,

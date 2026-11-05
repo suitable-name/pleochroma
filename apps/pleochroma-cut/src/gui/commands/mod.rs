@@ -11,6 +11,9 @@
 //! - [`rules`] and [`state`] -- when a command is available, as pure checks over a plain
 //!   snapshot of the window. A command the worked-example guide has locked is disabled with
 //!   the reason "Locked by the guide".
+//! - [`context`] -- which commands the palette offers on the page on screen: designing
+//!   commands on the Edit view, the Live Render's modes on the Live Render, and so on. A
+//!   command that belongs to another page is not listed at all.
 //! - [`search`] and [`recents`] -- the fuzzy ranking and the session's recent commands.
 //! - [`run`] -- what the commands do beyond calling one Slint callback.
 //! - [`palette`] -- the wiring to `ui/models/command_palette.slint`.
@@ -18,6 +21,7 @@
 //! A command never reimplements an action: it invokes the same Slint callback or sets the
 //! same property its menu item or button does.
 
+mod context;
 mod palette;
 mod recents;
 mod registry;

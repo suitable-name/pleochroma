@@ -45,6 +45,33 @@ fn staged_probes_preserve_ordered_secants_winners_and_counts() {
 }
 
 #[test]
+fn pool_workers_share_both_probe_sides_without_changing_results() {
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(2)
+        .build()
+        .expect("test pool");
+    let env = fixture_env();
+    let tiers = env.core.free_tiers().to_vec();
+    let h = 0.25;
+    let expected: Vec<_> = tiers.iter().map(|&tier| env.probe_tier(tier, h)).collect();
+    // Unrequested sharing on a pool worker: the staged and the direct probe both join.
+    let (staged, direct): (Vec<_>, Vec<_>) = pool.install(|| {
+        tiers
+            .iter()
+            .map(|&tier| {
+                let mut work = env.prepare_tier_probe_with(tier, h, false);
+                assert!(work.poll());
+                (env.complete_tier_probe(work), env.probe_tier(tier, h))
+            })
+            .unzip()
+    });
+    for ((staged, direct), expected) in staged.into_iter().zip(direct).zip(expected) {
+        assert_probe(staged, expected);
+        assert_probe(direct, expected);
+    }
+}
+
+#[test]
 fn candidate_completion_preserves_full_environment_measurements_and_gates() {
     let env = fixture_env();
     let core = &env.core;

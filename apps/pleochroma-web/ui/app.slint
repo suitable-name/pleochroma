@@ -166,6 +166,11 @@ export component AppWindow inherits Window {
                 activated => { AppModel.download-cutting-sheet(); }
             }
             MenuItem {
+                title: "Download Cutting Sheet (PDF)";
+                enabled: AppModel.has-design && GuideModel.allows-file-ops();
+                activated => { AppModel.download-cutting-sheet-pdf(); }
+            }
+            MenuItem {
                 title: "Download Diagram PNG";
                 enabled: AppModel.has-design && GuideModel.allows-file-ops();
                 activated => { AppModel.download-diagram(); }

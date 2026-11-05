@@ -1,11 +1,38 @@
 use super::*;
 
 #[test]
-fn axis_label_for_index_reads_the_profile_azimuth_table() {
-    assert_eq!(axis_label_for_index(0), "0");
-    assert_eq!(axis_label_for_index(1), "45");
-    assert_eq!(axis_label_for_index(-1), "0");
-    assert_eq!(axis_label_for_index(999), "0");
+fn axes_label_reads_the_profile_azimuth_table() {
+    assert_eq!(axes_label(&[0]), "0");
+    assert_eq!(axes_label(&[1]), "45");
+    assert_eq!(axes_label(&[0, 2]), "0+90");
+    assert_eq!(axes_label(&[999]), "0");
+    assert_eq!(axes_label(&[]), "0");
+    // The folder name follows the play order.
+    assert_eq!(axes_label(&[2, 0]), "90+0");
+}
+
+/// The chips' list keeps the order it is given, drops repeats and indices off the chart.
+#[test]
+fn axis_order_keeps_the_order_and_each_axis_once() {
+    assert_eq!(axis_order([2, 0, 3]), vec![2, 0, 3]);
+    assert_eq!(axis_order([1, 1, 3, 1]), vec![1, 3]);
+    assert_eq!(axis_order([-1, 4, 2, 99]), vec![2]);
+    assert!(axis_order([]).is_empty());
+}
+
+/// Click order is play order: nothing is chosen at first, the first click is first, the second
+/// second; taking one out moves the ones after it up, and taking out the last one leaves none.
+#[test]
+fn a_click_on_an_axis_chip_appends_or_removes_it_in_order() {
+    assert_eq!(toggled_axes(&[], 2), vec![2]);
+    assert_eq!(toggled_axes(&[2], 0), vec![2, 0]);
+    assert_eq!(toggled_axes(&[2, 0], 3), vec![2, 0, 3]);
+    // The first one out: the second becomes first, the third second.
+    assert_eq!(toggled_axes(&[2, 0, 3], 2), vec![0, 3]);
+    // Out and in again: it goes last.
+    assert_eq!(toggled_axes(&[0, 3], 2), vec![0, 3, 2]);
+    // The last one out: none chosen again.
+    assert!(toggled_axes(&[3], 3).is_empty());
 }
 
 #[test]
@@ -39,7 +66,7 @@ fn preview_reflects_the_real_open_design_and_material_not_the_hard_coded_sample(
     let scene =
         SceneSnapshot::capture(&Mutex::new(RenderContext::default())).expect("Diamond resolves");
     let settings = VideoTemplateSettings {
-        axis_index: 0,
+        axis_label: axes_label(&[0]),
         fps: 30,
         width: 1920,
         height: 1080,

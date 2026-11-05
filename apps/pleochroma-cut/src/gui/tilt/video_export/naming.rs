@@ -1,8 +1,8 @@
 //! Filename preview helpers shared by direct and queued video exports.
 use super::{
     Arc, ComponentHandle, LibraryModel, MainWindow, Mutex, RenderContext, SceneSnapshot,
-    TemplateContext, TiltVideoExportModel, VideoTemplateSettings, axis_label_for_index,
-    colorspace_label, params, samples_per_pixel_from_exponent, template,
+    TemplateContext, TiltVideoExportModel, VideoTemplateSettings, axes_label, colorspace_label,
+    params, samples_per_pixel_from_exponent, selected_axes, template,
 };
 /// Builds the `TemplateContext`/`VideoTemplateExtras` pair for a given
 /// design/designer/shape/RI/material/scene/settings -- the ONE place both the real
@@ -39,7 +39,7 @@ pub(super) fn build_video_template_context(
         exposure: scene.exposure,
     };
     let extras = template::VideoTemplateExtras {
-        axis_label: axis_label_for_index(settings.axis_index),
+        axis_label: settings.axis_label,
         fps: settings.fps,
         step_deg: settings.step_deg,
         start_deg: settings.start_deg,
@@ -55,7 +55,8 @@ pub(super) fn build_video_template_context(
 /// live UI, for the dialog's "Resolves to" preview. `axis_index` travels as a plain
 /// argument rather than being read off `TiltVideoExportModel` because the dialog's
 /// `selected_axis_index` is Slint-local state that Rust never otherwise sees (see
-/// `performance_graph_dialog.slint`'s own doc comment on that property).
+/// `performance_graph_dialog.slint`'s own doc comment on that property); it names the
+/// video's axis only while no axis chip is chosen (`selected_axes`).
 pub(super) fn live_template_context(
     ui: &MainWindow,
     render_ctx: &Arc<Mutex<RenderContext>>,
@@ -83,7 +84,8 @@ pub(super) fn live_template_context(
     let step_deg = params::clamp_step_deg(f64::from(model.get_step_deg()));
     let start_deg = params::clamp_angle_deg(f64::from(model.get_start_angle_deg()));
     let end_deg = params::clamp_angle_deg(f64::from(model.get_end_angle_deg()));
-    let total_frames = params::frame_count(start_deg, end_deg, step_deg);
+    let axes = selected_axes(ui, axis_index);
+    let total_frames = params::pose_count(&axes, start_deg, end_deg, step_deg);
 
     build_video_template_context(
         detail.title.as_str(),
@@ -93,7 +95,7 @@ pub(super) fn live_template_context(
         scene.material.name.as_str(),
         &scene,
         VideoTemplateSettings {
-            axis_index,
+            axis_label: axes_label(&axes),
             fps,
             width,
             height,

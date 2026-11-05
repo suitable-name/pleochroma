@@ -147,11 +147,15 @@ impl Design {
                 got_tiers: solved.len(),
             });
         }
+        // The tier that sets the stone's size, the same one the cutting instructions name: the
+        // first explicit-depth girdle tier in cutting order (the template's convention).
+        let sizing_tier = self.sizing_tier();
         let tiers = self
             .tiers
             .iter()
             .zip(solved)
-            .map(|(tier, solved)| AscTier {
+            .enumerate()
+            .map(|(k, (tier, solved))| AscTier {
                 angle_deg: tier.angle_deg,
                 mast: solved.mast,
                 name: tier.name.clone(),
@@ -159,7 +163,7 @@ impl Design {
                 // A design keeps only the folded tier name; the writer puts it
                 // after the first index, GemCAD's default label placement.
                 index_names: Vec::new(),
-                notes: constraint_notes(tier),
+                notes: constraint_notes(tier, Some(k) == sizing_tier),
             })
             .collect();
         Ok(AscSchedule {
@@ -353,20 +357,27 @@ impl Design {
 ///   [`crate::manufacturability::check_meet_name_asc_safety`] for the warning that
 ///   flags it instead), so a caller relying on byte-for-byte reclassification must
 ///   check that separately.
-/// - [`MeetConstraint::ScaleReference`] -> `"Set stone size."`, one of several real
-///   phrasings `pleochroma_formats::asc::MeetInstruction::ScaleReference` recognizes (this
-///   crate does not track which specific phrasing a freshly authored -- not
-///   imported -- scale reference should use, only that it is one).
-fn constraint_notes(tier: &ConstraintTier) -> String {
+/// - [`MeetConstraint::ScaleReference`] -> `"Set stone size."` on `sets_stone_size`, the
+///   tier [`Design::sizing_tier`] names (the first explicit-depth girdle tier in cutting order,
+///   as the cutting instructions print it; one of several real phrasings
+///   `pleochroma_formats::asc::MeetInstruction::ScaleReference` recognizes; this crate does
+///   not track which specific phrasing a freshly authored -- not imported -- scale
+///   reference should use, only that it is one), else empty. Only one cut sets the size
+///   of the stone: a design whose every tier is placed by an explicit depth printed the
+///   instruction on every line until 2026-11-04 (owner: clean up the published files),
+///   which a cutter reads as nonsense after the first tier. The depth itself stays in the
+///   line's mast, and [`Design::from_asc_schedule`] pins every tier to its mast whatever
+///   its text says, so the geometry round-trips unchanged.
+fn constraint_notes(tier: &ConstraintTier, sets_stone_size: bool) -> String {
     if let (MeetConstraint::ScaleReference(_), Some(original_notes)) =
         (&tier.constraint, &tier.original_notes)
     {
         return original_notes.clone();
     }
     match &tier.constraint {
-        MeetConstraint::MeetExisting => String::new(),
         MeetConstraint::MeetNamed(names) => format!("Meet {}", names.join(", ")),
-        MeetConstraint::ScaleReference(_) => "Set stone size.".to_string(),
+        MeetConstraint::ScaleReference(_) if sets_stone_size => "Set stone size.".to_string(),
+        MeetConstraint::MeetExisting | MeetConstraint::ScaleReference(_) => String::new(),
     }
 }
 

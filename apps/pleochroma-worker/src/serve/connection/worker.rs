@@ -218,13 +218,13 @@ pub fn handle_viewer_connection<S: Read + Write + TimeoutRead + TimeoutWrite>(
         None,
         payload_encoding,
     );
-    // Zoned scenes are traced only by this machine's own lane: a coordinator's viewer
-    // connection does not forward zones to its joined workers, so it never advertises the
-    // bit (a zoning viewer then renders zoned pictures locally). The bit is also only
-    // sent back to a viewer that carried it in its own HELLO.
+    // Zoned scenes are traced by this machine's own lane or, on a coordinator (v36), by its
+    // own lane and its joined workers, which get the zones ahead of every chunk. A plain
+    // worker without an own lane renders nothing. The bit is only sent back to a viewer that
+    // carried it in its own HELLO.
     #[cfg(feature = "worker")]
     let welcome = Welcome {
-        zoning: remote_hello.zoning && ctx.own_lane && ctx.coordinator.is_none(),
+        zoning: remote_hello.zoning && (ctx.own_lane || ctx.coordinator.is_some()),
         ..welcome
     };
     #[cfg(not(feature = "worker"))]

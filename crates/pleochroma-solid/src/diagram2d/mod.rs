@@ -61,6 +61,12 @@
 //! The profile looks from world `+Z` towards `-Z`. [`render_diagram_end_view`] adds the
 //! second side view, from world `-X` towards `+X`, as a separate function (the stone turned
 //! a quarter turn about `+Y`, drawn as a profile panel) so [`PanelKind`] stays as it is.
+//!
+//! ## Line drawings
+//!
+//! [`render_vector_views`] draws the four sheet views (crown, profile, end, pavilion) as crisp
+//! facet outlines with their labels instead of pixels, on the same layout and projection, for
+//! the printed cutting-instructions template; [`view_to_svg`] writes one as an SVG.
 
 use super::raster::simplify_ring;
 use pleochroma::geometry::meet_solver::Block;
@@ -72,9 +78,14 @@ mod legend;
 mod render;
 #[cfg(test)]
 mod tests;
+mod vector;
 
-pub use layout::{PanelLayout, project_point};
+pub use layout::{PanelLayout, project_point, text_scale};
 pub use render::{render_diagram, render_diagram_end_view, render_diagram_single_panel};
+pub use vector::{
+    BASELINE_DROP_EMS, LineWeight, VectorLabel, VectorLine, VectorView, render_vector_views,
+    view_to_svg,
+};
 // `raster.rs`'s orientation-marker/facet-label overlay shares this module's one
 // bitmap font rather than carrying a second copy -- see `labels`'s own doc
 // comment.
@@ -322,6 +333,12 @@ pub struct DiagramStyle {
     /// undercut wall of a groove cut into a steep pavilion facet has an upward
     /// normal that the crown panel's predicate would accept.
     pub tool_facet_block: Vec<Option<Block>>,
+    /// The pixel multiple the facet labels are drawn at (`0` counts as `1`). The label-room
+    /// thresholds and the leader line grow with it. `1` (the default) keeps the original
+    /// 5x7 labels, which every viewport and pinned picture uses. The printed sheet's large
+    /// renderings set it to [`text_scale`] of their height, so their labels match the tooth
+    /// numbers instead of shrinking to specks at 1600 x 1257.
+    pub label_scale: u32,
 }
 
 impl Default for DiagramStyle {
@@ -352,6 +369,7 @@ impl Default for DiagramStyle {
             mirror_line_color: [45, 212, 191],
             wheel_color: [128, 136, 152],
             tool_facet_block: Vec::new(),
+            label_scale: 1,
         }
     }
 }

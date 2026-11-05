@@ -4,7 +4,7 @@
 //! finite-difference labels of a share of the visited states ([`pleochroma_ai::env::TeacherLabel`])
 //! and adds them to one growing aggregate, [`LabelledStates`]. The next update trains on the whole
 //! aggregate, so the model keeps learning from the states of its earlier, worse selves. The
-//! aggregate is a first-in-first-out queue with a capacity: past it the oldest states leave.
+//! aggregate retains a mixture of recent and older states under row and byte limits.
 
 use std::collections::VecDeque;
 
@@ -63,6 +63,12 @@ impl LabelledSample {
             .filter(|row| row.len() == free.len() && row.iter().all(|value| value.is_finite()))
             .cloned()
             .unwrap_or_else(|| vec![f32::NAN; free.len()]);
+        let mut state = state;
+        let compact_len = pleochroma_ai::env::flat_len(free.len());
+        if state.len() >= compact_len && state[compact_len..].iter().all(|v| v.to_bits() == 0) {
+            state.truncate(compact_len);
+            state.shrink_to_fit();
+        }
         Self {
             state,
             free,
@@ -90,13 +96,16 @@ pub fn label_is_informative(label: &TeacherLabel) -> bool {
             .any(|tier| tier.components.iter().any(|c| c.is_finite()))
 }
 
-/// The aggregate of labelled states, oldest first, holding at most `cap` of them.
+/// The aggregate of labelled states, holding at most `cap` of them.
+/// The newest quarter stays ordered; older rows may be reordered during eviction.
 ///
 /// The seven queues are parallel (one entry per state), in the layout of
 /// [`pleochroma_ai::training::ImitationBatch`].
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct LabelledStates {
     cap: usize,
+    #[serde(default)]
+    eviction_counter: u64,
     byte_limit: usize,
     bytes: usize,
     row_bytes: VecDeque<usize>,
@@ -115,6 +124,7 @@ impl LabelledStates {
         &self,
         cap: usize,
         max_tiers: usize,
+        byte_limit: usize,
     ) -> Result<(), super::RunnerError> {
         let rows = self.states.len();
         let lengths = [
@@ -127,7 +137,7 @@ impl LabelledStates {
             self.oracle_gain.len(),
         ];
         if self.cap != cap
-            || self.byte_limit != MAX_LABEL_BYTES
+            || self.byte_limit != byte_limit
             || rows > cap
             || self.bytes > self.byte_limit
             || lengths.iter().any(|n| *n != rows)
@@ -146,7 +156,8 @@ impl LabelledStates {
             let tiers = self.n_tiers[row];
             if tiers == 0
                 || tiers > max_tiers
-                || self.states[row].len() != width
+                || (self.states[row].len() != width
+                    && self.states[row].len() != pleochroma_ai::env::flat_len(tiers))
                 || self.states[row].iter().any(|v| !v.is_finite())
                 || self.free_tiers[row].len() != tiers
                 || self.sensitivities[row].len() != tiers
@@ -160,6 +171,8 @@ impl LabelledStates {
                     .iter()
                     .chain(&self.action_targets[row])
                     .any(|v| v.is_infinite())
+                || !(self.action_targets[row].iter().all(|v| v.is_finite())
+                    || self.action_targets[row].iter().all(|v| v.is_nan()))
                 || self.oracle_gain[row].is_infinite()
             {
                 return Err(super::RunnerError::Data(format!(
@@ -173,9 +186,16 @@ impl LabelledStates {
     /// An empty aggregate that keeps at most `cap` states (at least 1).
     #[must_use]
     pub fn new(cap: usize) -> Self {
+        Self::with_budget(cap, MAX_LABEL_BYTES)
+    }
+
+    /// An empty aggregate with a host-memory payload budget in bytes.
+    #[must_use]
+    pub fn with_budget(cap: usize, byte_limit: usize) -> Self {
         Self {
             cap: cap.max(1),
-            byte_limit: MAX_LABEL_BYTES,
+            eviction_counter: 0,
+            byte_limit,
             bytes: 0,
             row_bytes: VecDeque::new(),
             states: VecDeque::new(),
@@ -188,10 +208,48 @@ impl LabelledStates {
         }
     }
 
+    /// Queue backing allocations are accounted in addition to row payloads. Row headers
+    /// are included in both figures, intentionally leaving a conservative budget margin.
+    fn queue_bytes(&self) -> usize {
+        // Two slots per retained row cover VecDeque's geometric growth; we shrink
+        // queues when eviction or recovery would leave more spare capacity than this.
+        let slot = 2 * std::mem::size_of::<usize>()
+            + 4 * std::mem::size_of::<Vec<f32>>()
+            + std::mem::size_of::<Vec<bool>>()
+            + std::mem::size_of::<Vec<[f32; N_COMPONENTS]>>()
+            + std::mem::size_of::<f32>();
+        self.len().saturating_mul(2).saturating_mul(slot)
+    }
+
+    pub(super) fn normalize_queue_capacity(&mut self) {
+        let max_capacity = self.len().saturating_mul(2);
+        if [
+            self.row_bytes.capacity(),
+            self.states.capacity(),
+            self.n_tiers.capacity(),
+            self.free_tiers.capacity(),
+            self.sensitivities.capacity(),
+            self.score_slopes.capacity(),
+            self.action_targets.capacity(),
+            self.oracle_gain.capacity(),
+        ]
+        .into_iter()
+        .any(|n| n > max_capacity)
+        {
+            self.shrink_queues();
+        }
+    }
+
     /// States held now.
     #[must_use]
     pub fn len(&self) -> usize {
         self.states.len()
+    }
+
+    /// Accounted host payload and per-row headers currently retained.
+    #[must_use]
+    pub fn retained_bytes(&self) -> usize {
+        self.bytes.saturating_add(self.queue_bytes())
     }
 
     /// Whether no state is held.
@@ -200,7 +258,7 @@ impl LabelledStates {
         self.states.is_empty()
     }
 
-    /// Adds `sample` as the newest state; past the capacity the oldest states leave.
+    /// Adds a state, evicting deterministically from older rows when over budget.
     pub fn push(&mut self, sample: LabelledSample) {
         let bytes = sample.retained_bytes();
         self.bytes = self.bytes.saturating_add(bytes);
@@ -212,23 +270,63 @@ impl LabelledStates {
         self.score_slopes.push_back(sample.score_slopes);
         self.action_targets.push_back(sample.action_targets);
         self.oracle_gain.push_back(sample.oracle_gain);
-        while self.states.len() > self.cap || self.bytes > self.byte_limit {
+        self.enforce_budget();
+    }
+
+    /// Apply the current conservative accounting after loading legacy recovery data.
+    pub(super) fn enforce_budget(&mut self) {
+        self.normalize_queue_capacity();
+        while !self.states.is_empty()
+            && (self.states.len() > self.cap || self.retained_bytes() > self.byte_limit)
+        {
+            // Preserve the newest quarter and choose deterministically among the older rows.
+            // The serialized counter makes future decisions identical after recovery.
+            let eligible = (self.states.len() * 3 / 4).max(1);
+            let mut x = self.eviction_counter.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            x = (x ^ (x >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            x = (x ^ (x >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            x ^= x >> 31;
+            self.eviction_counter = self.eviction_counter.wrapping_add(1);
+            let index = (x % eligible as u64) as usize;
+            // Swap the selected older row to the front, then pop it. Only the older
+            // segment is reordered; every parallel queue takes the identical swap.
+            self.row_bytes.swap(0, index);
+            self.n_tiers.swap(0, index);
+            self.states.swap(0, index);
+            self.free_tiers.swap(0, index);
+            self.sensitivities.swap(0, index);
+            self.score_slopes.swap(0, index);
+            self.action_targets.swap(0, index);
+            self.oracle_gain.swap(0, index);
             self.bytes = self
                 .bytes
                 .saturating_sub(self.row_bytes.pop_front().unwrap_or(0));
-            self.states.pop_front();
             self.n_tiers.pop_front();
+            self.states.pop_front();
             self.free_tiers.pop_front();
             self.sensitivities.pop_front();
             self.score_slopes.pop_front();
             self.action_targets.pop_front();
             self.oracle_gain.pop_front();
         }
+        self.normalize_queue_capacity();
+    }
+
+    fn shrink_queues(&mut self) {
+        self.row_bytes.shrink_to_fit();
+        self.states.shrink_to_fit();
+        self.n_tiers.shrink_to_fit();
+        self.free_tiers.shrink_to_fit();
+        self.sensitivities.shrink_to_fit();
+        self.score_slopes.shrink_to_fit();
+        self.action_targets.shrink_to_fit();
+        self.oracle_gain.shrink_to_fit();
     }
 
     /// Drops every state.
     pub fn clear(&mut self) {
         self.bytes = 0;
+        self.eviction_counter = 0;
         self.row_bytes.clear();
         self.states.clear();
         self.n_tiers.clear();
@@ -237,9 +335,10 @@ impl LabelledStates {
         self.score_slopes.clear();
         self.action_targets.clear();
         self.oracle_gain.clear();
+        self.shrink_queues();
     }
 
-    /// The whole aggregate as a training batch, oldest state first. Nothing is copied: the
+    /// The whole aggregate as a training batch. Nothing is copied: the
     /// queues are made contiguous in place and the batch borrows them.
     pub fn batch(&mut self) -> ImitationBatch<'_> {
         ImitationBatch {
@@ -407,7 +506,7 @@ mod tests {
     }
 
     #[test]
-    fn the_oldest_states_leave_first_once_the_capacity_is_reached() {
+    fn eviction_keeps_recent_rows_and_parallel_queues_aligned() {
         let mut aggregate = LabelledStates::new(3);
         assert!(aggregate.is_empty());
         for marker in 0..5_usize {
@@ -415,10 +514,10 @@ mod tests {
             assert_eq!(aggregate.len(), (marker + 1).min(3));
         }
         let batch = aggregate.batch();
-        // The states 2, 3 and 4 remain, oldest first, in every parallel queue.
-        assert_eq!(batch.oracle_gain, [2.0, 3.0, 4.0]);
+        assert_eq!(batch.oracle_gain.len(), 3);
+        assert_eq!(batch.oracle_gain[2], 4.0);
         let firsts: Vec<f32> = batch.states.iter().map(|s| s[0]).collect();
-        assert_eq!(firsts, [2.0, 3.0, 4.0]);
+        assert_eq!(firsts, batch.oracle_gain);
         assert_eq!(batch.n_tiers, [2, 2, 2]);
         assert_eq!(batch.free_tiers.len(), 3);
         assert_eq!(batch.sensitivities.len(), 3);
@@ -438,14 +537,17 @@ mod tests {
     fn byte_eviction_keeps_parallel_rows_aligned_and_clear_releases_accounting() {
         let mut aggregate = LabelledStates::new(100);
         let row_bytes = sample(0.0, 2).retained_bytes();
-        aggregate.byte_limit = 2 * row_bytes;
-        for marker in [1.0, 2.0, 3.0] {
+        for marker in [1.0, 2.0] {
             aggregate.push(sample(marker, 2));
         }
+        aggregate.byte_limit = aggregate.retained_bytes();
+        aggregate.push(sample(3.0, 2));
+        assert!(aggregate.retained_bytes() <= aggregate.byte_limit);
         assert_eq!(aggregate.bytes, 2 * row_bytes);
         let batch = aggregate.batch();
-        assert_eq!(batch.oracle_gain, [2.0, 3.0]);
-        assert_eq!(batch.states[0][0], 2.0);
+        assert_eq!(batch.oracle_gain.len(), 2);
+        assert_eq!(batch.oracle_gain[1], 3.0);
+        assert_eq!(batch.states[0][0], batch.oracle_gain[0]);
         batch.validate(GLOBAL_DIM, TIER_DIM, 4).unwrap();
         aggregate.clear();
         assert_eq!(aggregate.bytes, 0);
@@ -471,7 +573,7 @@ mod tests {
             assert_eq!(batch.sensitivities[i].len(), batch.n_tiers[i]);
             assert_eq!(batch.score_slopes[i].len(), batch.n_tiers[i]);
         }
-        assert_eq!(batch.states[0].len(), flat_len(4));
+        assert_eq!(batch.states[0].len(), flat_len(1));
         batch
             .validate(GLOBAL_DIM, TIER_DIM, 4)
             .expect("the aggregate is a valid imitation batch");
@@ -485,7 +587,7 @@ mod tests {
             aggregate.push(sample(marker as f32, 2));
             let _ = aggregate.batch();
         }
-        assert_eq!(aggregate.batch().oracle_gain, [7.0, 8.0, 9.0, 10.0]);
+        assert_eq!(aggregate.batch().oracle_gain[3], 10.0);
     }
 
     #[test]
@@ -501,6 +603,57 @@ mod tests {
         // It can be refilled afterwards.
         aggregate.push(sample(3.0, 1));
         assert_eq!(aggregate.len(), 1);
+    }
+
+    #[test]
+    fn replay_budget_includes_queue_capacity_and_eviction_keeps_rows_aligned() {
+        let mut replay = LabelledStates::with_budget(10, 1024 * 1024);
+        for i in 0..10 {
+            replay.push(sample(i as f32, 2));
+        }
+        assert!(replay.retained_bytes() > replay.bytes);
+        replay.byte_limit = replay.retained_bytes();
+        for i in 10..100 {
+            replay.push(sample(i as f32, 2));
+            assert!(replay.retained_bytes() <= replay.byte_limit);
+            let batch = replay.batch();
+            for (state, gain) in batch.states.iter().zip(batch.oracle_gain) {
+                assert_eq!(state[0], *gain);
+            }
+            assert_eq!(*batch.oracle_gain.last().unwrap(), i as f32);
+        }
+    }
+
+    #[test]
+    fn compact_rows_preserve_real_values_and_resume_eviction_sequence() {
+        let mut state: Vec<f32> = (0..flat_len(2)).map(|i| i as f32).collect();
+        let expected = state.clone();
+        state.resize(flat_len(4), 0.0);
+        let mut replay = LabelledStates::with_budget(5, 8 * 1024 * 1024);
+        replay.push(LabelledSample::new(
+            state,
+            vec![true, false],
+            &label(vec![None; 2], Some(1.0)),
+        ));
+        assert_eq!(replay.batch().states[0], expected);
+        for i in 0..20 {
+            replay.push(sample(i as f32, 2));
+        }
+        let saved = rmp_serde::to_vec_named(&replay).unwrap();
+        let mut restored: LabelledStates = rmp_serde::from_slice(&saved).unwrap();
+        for i in 20..40 {
+            replay.push(sample(i as f32, 2));
+            restored.push(sample(i as f32, 2));
+        }
+        let original = replay.batch();
+        let resumed = restored.batch();
+        assert_eq!(original.oracle_gain, resumed.oracle_gain);
+        assert_eq!(original.states, resumed.states);
+        for (state, gain) in original.states.iter().zip(original.oracle_gain) {
+            assert_eq!(state[0], *gain);
+        }
+        assert_eq!(original.oracle_gain[original.len() - 1], 39.0);
+        assert_eq!(replay.bytes, restored.bytes);
     }
 
     #[test]

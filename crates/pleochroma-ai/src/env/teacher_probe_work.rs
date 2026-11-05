@@ -1,5 +1,5 @@
 //! Two-sided teacher probes with owned optical continuations.
-use super::{ContinuousTierAction, EnvCore, TierProbe};
+use super::{ContinuousTierAction, EnvCore, TierProbe, on_pool_worker};
 use crate::env::{OptimizerEnv, RetargetEnv, common::DesignEval, stepping::CandidateWork};
 
 /// Prepared positive and negative probes of one unchanged environment state.
@@ -29,6 +29,8 @@ impl TierProbeWork {
 }
 
 impl EnvCore {
+    /// Both sides are always prepared, so a pool worker shares them whatever `parallel`
+    /// says ([`on_pool_worker`]); off a pool only `parallel` shares them.
     fn prepare_tier_probe_with(&self, tier: usize, h_deg: f64, parallel: bool) -> TierProbeWork {
         let mut work = TierProbeWork {
             tier,
@@ -38,7 +40,7 @@ impl EnvCore {
         if !(h_deg.is_finite() && h_deg > 0.0) || !self.policy_coordinate(tier).mobile {
             return work;
         }
-        if parallel {
+        if parallel || on_pool_worker() {
             (work.positive, work.negative) = rayon::join(
                 || self.prepare_probe_side(tier, h_deg),
                 || self.prepare_probe_side(tier, -h_deg),
@@ -99,7 +101,8 @@ impl OptimizerEnv {
         self.prepare_tier_probe_with(tier, h_deg, false)
     }
 
-    /// Prepare both sides using spare capacity in the installed Rayon pool when requested.
+    /// Prepare both sides in the installed Rayon pool: always on a pool worker, otherwise
+    /// when requested. Results do not depend on where the sides ran.
     #[must_use]
     pub fn prepare_tier_probe_with(
         &self,
@@ -124,7 +127,8 @@ impl RetargetEnv {
         self.prepare_tier_probe_with(tier, h_deg, false)
     }
 
-    /// Prepare both sides using spare capacity in the installed Rayon pool when requested.
+    /// Prepare both sides in the installed Rayon pool: always on a pool worker, otherwise
+    /// when requested. Results do not depend on where the sides ran.
     #[must_use]
     pub fn prepare_tier_probe_with(
         &self,

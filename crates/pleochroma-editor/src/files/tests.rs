@@ -35,9 +35,7 @@ fn psdd_is_the_design_file_extension() {
             "{name}"
         );
     }
-    for name in ["settings.toml"] {
-        assert_eq!(InputFileKind::from_file_name(name), None, "{name}");
-    }
+    assert_eq!(InputFileKind::from_file_name("settings.toml"), None);
 }
 
 const DESIGN_HEADER: &str = "format = \"pleochroma-design\"\nversion = 1\n";
@@ -126,6 +124,10 @@ fn file_names_follow_the_desktop_rules() {
     assert_eq!(
         cutting_sheet_file_name("round.asc"),
         "round_cutting_sheet.html"
+    );
+    assert_eq!(
+        cutting_sheet_pdf_file_name("round.asc"),
+        "round_cutting_sheet.pdf"
     );
     assert_eq!(diagram_file_name("round.asc"), "round_diagram.png");
     assert_eq!(sanitize_file_name(" <> "), "__");

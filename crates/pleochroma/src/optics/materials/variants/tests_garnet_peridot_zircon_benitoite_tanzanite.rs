@@ -59,7 +59,8 @@ const ENTRIES: [Entry; 21] = [
     (
         "Grossular Garnet (Tsavorite)",
         "grossular_garnet__tsavorite_.mint",
-        [79.289, -45.937, 42.995],
+        // half the default since 2026-11-04 (it was [79.289, -45.937, 42.995], the default's color)
+        [89.0, -28.396, 29.938],
         &[],
     ),
     (
@@ -138,10 +139,13 @@ const ENTRIES: [Entry; 21] = [
         [100.000, 0.000, 0.000],
         &[[100.000, 0.000, 0.000], [100.000, 0.000, 0.000]],
     ),
+    // Face-up oriented by the host stone: since 2026-11-03 Benitoite's c axis lies in the table,
+    // so face up shows the blue e-ray beside the near-colorless o-ray (with c through the table
+    // it was the o-ray alone, [99.598, 0.069, -0.415]). The direction colors are unchanged.
     (
         "Benitoite",
         "benitoite.light_blue",
-        [99.598, 0.069, -0.415],
+        [90.022, -1.988, -14.181],
         &[[99.598, 0.069, -0.415], [78.309, -5.173, -31.554]],
     ),
     (
@@ -372,12 +376,17 @@ fn scaled_copies_show_the_default_scaled_at_the_seven_mm_swatch() {
             "spessartine_garnet.pale_golden_orange",
             0.4_f32,
         ),
+        // Mint is half the default since 2026-11-04 (0.0875 x the GRR 229 vanadium): the default
+        // went to 0.175 x that day (the photos' saturation), where the earlier Mint (0.18 x) sat,
+        // so Mint was made paler to stay a different stone (dE2000 about 9 from the default).
         (
             "Grossular Garnet (Tsavorite)",
             "grossular_garnet__tsavorite_.mint",
-            0.36,
+            0.5,
         ),
-        ("Peridot", "peridot.deep_green", 1.4),
+        // Deep Green is 1.4 x the San Carlos crystal; the default is x 0.6 of it since 2026-11-04
+        // (the photos' saturation), so Deep Green is 1.4 / 0.6 of the default.
+        ("Peridot", "peridot.deep_green", 1.4 / 0.6),
     ] {
         let default = built_in_variants(material).remove(0);
         let mut scaled = default.absorption.clone();

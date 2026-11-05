@@ -269,6 +269,8 @@ pub(super) enum ProjectionRefusal {
     Gate(pleochroma_cut_core::meet_preservation::PreservationViolation),
     /// Exact previous deterministic CPU refusal for this episode and request.
     CachedGate(String),
+    /// The accelerated meet-preservation projection search missed with a specific reason.
+    AcceleratedMiss(crate::gpu_geometry::ProjectionMissReason),
     /// The projected state left the configured per-tier angle bounds.
     OutsideRequestedBounds,
     /// The projected state moved a free tier by more than the step limit.
@@ -287,6 +289,11 @@ impl std::fmt::Display for ProjectionRefusal {
                 )
             }
             Self::CachedGate(message) => f.write_str(message),
+            Self::AcceleratedMiss(reason) => write!(
+                f,
+                "the accelerated meet-preservation search ended without a certified candidate ({}): {reason:?}",
+                reason.label()
+            ),
             Self::OutsideRequestedBounds => {
                 f.write_str("the projected state leaves the configured angle bounds")
             }
@@ -406,7 +413,23 @@ pub(super) fn project(
     );
     let projected = match accelerated {
         Ok(projected) => projected,
-        Err(reason) => cpu_project(space, candidate, angle_bounds, reason)?,
+        Err(crate::gpu_geometry::ProjectionMissReason::UnsupportedNetwork) => cpu_project(
+            space,
+            candidate,
+            angle_bounds,
+            crate::gpu_geometry::ProjectionMissReason::UnsupportedNetwork,
+        )?,
+        Err(reason) => {
+            if let Some(backend) = &space.gpu_geometry {
+                backend.check().map_err(ProjectionRefusal::GpuFailure)?;
+            }
+            if reason == crate::gpu_geometry::ProjectionMissReason::ExecutionFailure {
+                return Err(ProjectionRefusal::GpuFailure(
+                    "GPU geometry projection execution failure".into(),
+                ));
+            }
+            return Err(ProjectionRefusal::AcceleratedMiss(reason));
+        }
     };
     let violates_requested = space.requested_bounds.iter().any(|(&i, &(lo, hi))| {
         projected

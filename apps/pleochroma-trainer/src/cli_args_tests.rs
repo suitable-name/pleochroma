@@ -54,6 +54,7 @@ fn the_help_documents_every_flag_and_not_the_removed_one() {
         "--cosine-coeff",
         "--action-coeff",
         "--gain-coeff",
+        "--max-grad-norm",
         "--lr",
         "--max-step-deg",
         "--entropy-coeff",
@@ -73,6 +74,7 @@ fn the_help_documents_every_flag_and_not_the_removed_one() {
         "--classical-baseline",
         "--fixture",
         "--resume",
+        "--relabel",
         "--warm-start",
         "--save-stats",
         "--save-weights",
@@ -679,3 +681,10 @@ fn the_bounded_schedule_decays_over_iterations_times_updates() {
 
 #[path = "cli_args_context_tests.rs"]
 mod context;
+
+#[test]
+fn replay_host_memory_budget_is_configurable() {
+    let args = run_args(&["--label-memory-mib", "4096"]);
+    assert_eq!(args.label_memory_mib, Some(4096));
+    assert_eq!(build_config(&args).label_memory_mib, 4096);
+}

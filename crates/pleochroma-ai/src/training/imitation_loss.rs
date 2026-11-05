@@ -61,6 +61,59 @@ pub(super) fn masked_huber(hat: Tensor<2>, target: Tensor<2>, mask: Tensor<2>) -
         / n_labels
 }
 
+/// Give each verified move equal weight, and split its weight equally between moving and
+/// stationary coordinates when both exist.
+///
+/// Pooling all coordinates would dilute a sparse move
+/// by the number of stationary tiers and give larger designs more weight. Tiny nonzero targets
+/// retain their physical amplitude: neither this loss nor its gradient normalizes them to one.
+pub(super) fn balanced_action_huber(
+    hat: Tensor<2>,
+    target: Tensor<2>,
+    mask: Tensor<2>,
+) -> Tensor<1> {
+    let moving = target.clone().abs().greater_elem(0.0).float() * mask.clone();
+    let stationary = mask.clone() - moving.clone();
+    let abs_error = ((hat - target) * mask.clone()).abs();
+    let quadratic = abs_error.clone().clamp(0.0, HUBER_DELTA);
+    let linear = abs_error - quadratic.clone();
+    let error = (quadratic.clone() * quadratic).mul_scalar(0.5) + linear.mul_scalar(HUBER_DELTA);
+    let moving_count = moving.clone().sum_dim(1);
+    let stationary_count = stationary.clone().sum_dim(1);
+    let moving_loss =
+        (error.clone() * moving).sum_dim(1) / moving_count.clone().clamp(1.0, COUNT_CLAMP_MAX);
+    let stationary_loss =
+        (error * stationary).sum_dim(1) / stationary_count.clone().clamp(1.0, COUNT_CLAMP_MAX);
+    let groups = moving_count.clamp(0.0, 1.0) + stationary_count.clamp(0.0, 1.0);
+    let per_sample = (moving_loss + stationary_loss) / groups.clamp(1.0, 2.0);
+    let samples = mask.sum_dim(1).clamp(0.0, 1.0).sum();
+    per_sample.sum() / samples.clamp(1.0, COUNT_CLAMP_MAX)
+}
+
+/// Bounded vector discrepancy for direction supervision, averaged over nonzero verified moves.
+///
+/// `||a-y||^2 / max(1, ||a||^2 + ||y||^2)` lies in `[0, 2]`, is zero at the verified move,
+/// and has a finite gradient at a zero prediction. The denominator is differentiated as well;
+/// for a positive rescaling `a = k*y`, the unique minimum remains `k = 1` (no scale ambiguity).
+/// The unit floor uses action-fraction units;
+/// a tiny teacher move produces a tiny squared error rather than a unit direction/large cosine
+/// gradient. Raw cosine remains an independent diagnostic, not the optimized objective.
+pub(super) fn bounded_direction_loss(
+    hat: Tensor<2>,
+    target: Tensor<2>,
+    mask: Tensor<2>,
+) -> Tensor<1> {
+    let hat = hat * mask.clone();
+    let target = target * mask;
+    let target_norm_sq = (target.clone() * target.clone()).sum_dim(1);
+    let labelled = target_norm_sq.clone().greater_elem(0.0).float();
+    let norm_sum = (hat.clone() * hat.clone()).sum_dim(1) + target_norm_sq;
+    let error = hat - target;
+    let per_sample = (error.clone() * error).sum_dim(1) / norm_sum.clamp(1.0, COUNT_CLAMP_MAX);
+    let samples = labelled.clone().sum().clamp(1.0, COUNT_CLAMP_MAX);
+    (per_sample * labelled).sum() / samples
+}
+
 /// The device-side loss terms of one mini-batch, each of shape `[1]`.
 pub(super) struct LossTerms {
     pub(super) total: Tensor<1>,
@@ -86,15 +139,20 @@ pub(super) fn imitation_terms(
     );
     let sens_mse = masked_sens_mse(out.sensitivities, labels.sens_target, labels.sens_mask);
     let action = out.mean.tanh();
-    let (cosine, cos_loss) = masked_cosine(
+    let (cosine, _) = masked_cosine(
         action.clone(),
         labels.action_target.clone(),
         labels.action_mask.clone(),
     );
-    let action_loss = masked_huber(action, labels.action_target, labels.action_mask);
+    let direction_loss = bounded_direction_loss(
+        action.clone(),
+        labels.action_target.clone(),
+        labels.action_mask.clone(),
+    );
+    let action_loss = balanced_action_huber(action, labels.action_target, labels.action_mask);
     let gain_loss = masked_huber(out.gain, labels.gain_target, labels.gain_mask);
     let total = sens_huber
-        + cos_loss.mul_scalar(config.cosine_coeff)
+        + direction_loss.mul_scalar(config.cosine_coeff)
         + action_loss.clone().mul_scalar(config.action_coeff)
         + gain_loss.clone().mul_scalar(config.gain_coeff);
     LossTerms {

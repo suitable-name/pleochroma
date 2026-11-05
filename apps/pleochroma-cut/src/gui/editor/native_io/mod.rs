@@ -262,7 +262,9 @@ pub(in crate::gui::editor) fn current_design_file() -> Option<PathBuf> {
 // can only match or narrow an item's own declared visibility, never widen it, so
 // each item is declared `pub(in crate::gui::editor)` (or `pub(in crate::gui)` for
 // `ask_write_confirm`) directly at its definition site.
-pub(in crate::gui::editor) use autosave::{delete_leftover_autosave, find_leftover_autosave};
+pub(in crate::gui::editor) use autosave::{
+    delete_leftover_autosave, find_leftover_autosave, forget_recent_native_file,
+};
 pub(in crate::gui) use confirm::ask_write_confirm;
 pub(in crate::gui::editor) use export::{
     setup_export_asc_callback, setup_export_cutting_sheet_callback, setup_export_diagram_callback,

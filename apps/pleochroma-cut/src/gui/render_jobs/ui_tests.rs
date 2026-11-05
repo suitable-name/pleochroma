@@ -525,6 +525,7 @@ fn still_kind() -> JobKind {
 fn video_kind() -> JobKind {
     JobKind::TiltVideo(TiltVideoJob {
         axis_index: 1,
+        more_axes: Vec::new(),
         start_deg: -90.0,
         end_deg: 90.0,
         step_deg: 1.0,
@@ -534,6 +535,7 @@ fn video_kind() -> JobKind {
         color_space: JobColorSpace::Srgb,
         overlay: OverlaySelection::default(),
         curves: None,
+        more_curves: Vec::new(),
         keep_frames: false,
         video_name: "round".to_string(),
     })

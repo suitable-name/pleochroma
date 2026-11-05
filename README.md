@@ -291,8 +291,10 @@ give it a worse code layout than no BOLT at all.
 The [macOS workflow](.github/workflows/build-macos.yml) builds **Pleochroma Cut**
 for Apple Silicon and Intel, with GPU support (Metal) and the existing CPU fallback.
 In GitHub, open **Actions > Build macOS desktop app > Run workflow**, or push a
-`v*` tag. It uploads separate versioned `macos-arm64.zip` and `macos-x86_64.zip`
-artifacts containing **Pleochroma Cut.app**; it does not publish a release.
+`v*` tag. It uploads separate `pleochroma-cut-macos-arm64.zip` and
+`pleochroma-cut-macos-x86_64.zip` artifacts containing **Pleochroma Cut.app**
+(the worker likewise as `pleochroma-worker-macos-*.zip`). The names carry no
+version, so `releases/latest/download/<name>` links always reach the newest build.
 
 The architectures run sequentially (`max-parallel: 1`), overlapping workflow runs
 are serialized, and Cargo uses one build job (`CARGO_BUILD_JOBS=1`, `--jobs 1`).

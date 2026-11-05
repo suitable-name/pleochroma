@@ -16,43 +16,44 @@ only ones offered by older versions of the drop-down.
 | Material | Optical character | n_D | Birefringence (Δn) | Dispersion | Color |
 |---|---|---|---|---|---|
 | Diamond* | Isotropic | 2.417 | — | Abbe V_d ≈ 55.3 | colorless |
-| Sapphire* | Uniaxial (−) | 1.768 | −0.0081 | Abbe V_d ≈ 72.3 | Blue (Fe²⁺–Ti⁴⁺ charge transfer) |
-| Ruby* | Uniaxial (−) | 1.768 | −0.0081 | Abbe V_d ≈ 72.3 | Red to slightly purplish red (Cr³⁺, GIA cross sections, about 800 ppma·cm); a 7 mm stone is a dark red, the o-ray absorbs more than the e-ray |
+| Sapphire* | Uniaxial (−) | 1.768 | −0.0081 | Abbe V_d ≈ 72.3 | Royal blue (Fe²⁺–Ti⁴⁺ charge transfer, GIA cross sections, 12.5 ppma·cm); a 7 mm stone face-up is a vivid, slightly violetish medium-dark blue, the o-ray darker than the greenish e-ray. The former, lighter default is the Medium Blue variant |
+| Ruby* | Uniaxial (−) | 1.768 | −0.0081 | Abbe V_d ≈ 72.3 | Red (Cr³⁺ and Fe³⁺, GIA cross sections at about 400 and 1000 ppma·cm, a typical Mozambique-type ruby); a 7 mm stone is a dark red, the o-ray absorbs more than the e-ray |
 | Emerald* | Uniaxial (−) | 1.579 | −0.0060 | Abbe V_d ≈ 70.9 | Green (Cr³⁺/V³⁺), narrow green transmission window |
-| Zircon* | Uniaxial (+) | 1.925 | +0.0590 | Abbe V_d ≈ 41.0 | Near-colorless with faint tint (trace U⁴⁺ lines) |
-| Alexandrite | Biaxial (+) | 1.743 | +0.0076 | Abbe V_d ≈ 73.9 | color-change: green in daylight, red in incandescent light (Cr³⁺) |
-| Topaz* | Biaxial (+) | 1.627 | +0.0080 | Abbe V_d ≈ 76.8 | Blue (models London/Sky Blue topaz's irradiation color centre) |
+| Zircon* | Uniaxial (+) | 1.925 | +0.0590 | Abbe V_d ≈ 41.0 | Colorless (trace U⁴⁺ lines, as in a low-uranium gem zircon) |
+| Alexandrite | Biaxial (+) | 1.743 | +0.0076 | Abbe V_d ≈ 73.9 | color-change: bluish green in daylight, purplish red in incandescent light (Cr³⁺; measured rays of a Tanzanian alexandrite, the red ray estimated) |
+| Topaz* | Biaxial (+) | 1.627 | +0.0080 | Abbe V_d ≈ 76.8 | Blue (the Swiss and sky blue of electron-irradiated, heated topaz; measured spectrum, one ray estimated) |
 | Spinel* | Isotropic | 1.716 | — | Abbe V_d ≈ 60.6 | Red (Cr³⁺) |
 | Quartz* | Uniaxial (+) | 1.544 | +0.0091 | Abbe V_d ≈ 69.7 | colorless (rock crystal) |
-| Tourmaline | Uniaxial (−) | 1.639 | −0.0210 | Abbe V_d ≈ 64.6 | Green (elbaite), strongly dichroic — the "dark ray" runs along the c-axis |
+| Tourmaline | Uniaxial (−) | 1.639 | −0.0210 | Abbe V_d ≈ 64.6 | Olive to yellowish green (elbaite with a yellow component and a little pink Mn³⁺, which greys the green), strongly dichroic — the "dark ray" runs along the c-axis |
 | Tanzanite* | Biaxial (+) | 1.701 | +0.0130 | Abbe V_d ≈ 40.2 | Models the heat-treated commercial stone: violet-blue, trichroic: deepest and most purplish along the alpha axis, blue along beta, lighter blue along gamma (fitted to the Caltech spectra of zoisite GRR 2292, a naturally blue crystal without the band that heating removes) |
 | Synthetic Moissanite* | Uniaxial (+) | 2.647 | +0.0415 | Abbe V_d ≈ 25.9 | colorless |
 | Cubic Zirconia* | Isotropic | 2.158 | — | Abbe V_d ≈ 33.5 | colorless |
-| Aquamarine | Uniaxial (−) | 1.577 | −0.0060 | Abbe V_d ≈ 70.7 | Light blue (Fe²⁺–Fe³⁺ intervalence band at about 600–680 nm along the c axis, Fe²⁺ at about 830 nm): the e-ray (along c) is a deep violet-blue, the o-ray nearly colorless; fitted to the Caltech spectra of aquamarine GRR 1488. The stone is oriented with the c axis in the table plane (as for Tourmaline), so the face-up view shows the blue ray |
-| Morganite | Uniaxial (−) | 1.577 | −0.0060 | Abbe V_d ≈ 70.7 | Pale pink (Mn³⁺) |
-| Chrysoberyl (Yellow) | Biaxial (+) | 1.746 | +0.0076 | Abbe V_d ≈ 74.2 | Yellow (Fe³⁺) |
+| Aquamarine | Uniaxial (−) | 1.577 | −0.0060 | Abbe V_d ≈ 70.7 | Pale blue, as most cut aquamarines are (Fe²⁺–Fe³⁺ intervalence band at about 600–680 nm along the c axis, Fe²⁺ at about 830 nm): the e-ray (along c) is a deep violet-blue, the o-ray nearly colorless; fitted to the Caltech spectra of aquamarine GRR 1488, with some Fe³⁺ for the slightly greenish blue of most stones. The stone is oriented with the c axis in the table plane (as for Tourmaline), so the face-up view shows the blue ray |
+| Morganite | Uniaxial (−) | 1.577 | −0.0060 | Abbe V_d ≈ 70.7 | Pale salmon pink (Mn³⁺ with some Fe³⁺) |
+| Chrysoberyl (Yellow) | Biaxial (+) | 1.746 | +0.0076 | Abbe V_d ≈ 74.2 | Greenish yellow (Fe³⁺ with a trace of Cr³⁺) |
 | Amethyst | Uniaxial (+) | 1.544 | +0.0091 | Abbe V_d ≈ 69.7 | Purple/violet (irradiation-induced iron color centre) |
-| Citrine | Uniaxial (+) | 1.544 | +0.0091 | Abbe V_d ≈ 69.7 | Yellow-orange (Fe³⁺ UV-blue absorption edge) |
+| Citrine | Uniaxial (+) | 1.544 | +0.0091 | Abbe V_d ≈ 69.7 | Golden yellow (Fe³⁺ UV-blue absorption edge) |
 | Ametrine | Uniaxial (+) | 1.544 | +0.0091 | Abbe V_d ≈ 69.7 | Bicolor quartz: amethyst purple on one side of a plane through the stone's centre, citrine yellow-orange on the other (Chapter 24) |
-| Pyrope Garnet | Isotropic | 1.714 | — | Abbe V_d ≈ 56.1 | Deep red (Cr³⁺/Fe²⁺) |
-| Almandine Garnet | Isotropic | 1.790 | — | Abbe V_d ≈ 56.9 | Red-brown to violet-red (Fe²⁺ triplet) |
+| Pyrope Garnet | Isotropic | 1.714 | — | Abbe V_d ≈ 56.1 | Medium red (Cr³⁺/Fe²⁺ with some Mn²⁺, measured spectra) |
+| Almandine Garnet | Isotropic | 1.790 | — | Abbe V_d ≈ 56.9 | Deep red, slightly orange (Fe²⁺ triplet over a blue edge with some Mn²⁺, measured spectra) |
 | Spessartine Garnet | Isotropic | 1.800 | — | Abbe V_d ≈ 51.2 | Light vivid orange (Mn²⁺ lines at 411, 421 and 429 nm plus a charge-transfer edge; fitted to the Caltech spectrum of spessartine GRR 43) |
-| Color-Change Garnet (Pyrope-Spessartine) | Isotropic | 1.760 | — | Abbe V_d ≈ 52.5 | Tanzanian color-change garnet: brownish-mauve in daylight, pink-red to orange-red under incandescent light (Mn²⁺ violet cut-off plus a broad Cr³⁺/V³⁺ band at ~573 nm) |
+| Color-Change Garnet (Pyrope-Spessartine) | Isotropic | 1.760 | — | Abbe V_d ≈ 52.5 | Tanzanian color-change garnet, the common type: khaki yellow in daylight, turning orange to salmon pink under incandescent light (the measured Tunduru spectrum with a weaker V³⁺/Cr³⁺ band at 581 nm: the Mn²⁺ edge closes the violet and blue). The rare blue-to-purple stones are the Tunduru and Stronger Change variants |
 | Grossular Garnet (Tsavorite) | Isotropic | 1.734 | — | Abbe V_d ≈ 45.7 | Vivid green (V³⁺ at 436 and 606 nm), transmission windows at 520 nm and beyond 700 nm; fitted to the Caltech spectrum of tsavorite GRR 229 |
-| Andradite Garnet (Demantoid) | Isotropic | 1.887 | — | Abbe V_d ≈ 26.9 | Deep green (Fe³⁺ edge, Cr³⁺ at 629 nm), transmission windows at 520–545 nm and beyond 720 nm; fitted to the Caltech spectrum of demantoid GIA 2952 — the most dispersive of the garnets here |
+| Andradite Garnet (Demantoid) | Isotropic | 1.887 | — | Abbe V_d ≈ 26.9 | Yellowish green (Fe³⁺ edge and a little Cr³⁺ at 629 nm, as in the Namibian and Madagascan stones that make up most of today's demantoid); built from the Caltech spectra of demantoid GIA 2952 and andradite GRR 48 — the most dispersive of the garnets here |
 | Peridot | Biaxial (+) | 1.654 | +0.0360 | Abbe V_d ≈ 56.5 | Yellow-green, trichroic (Fe²⁺, fitted to the Caltech olivine spectra) |
 | YAG | Isotropic | 1.833 | — | Abbe V_d ≈ 52.0 | colorless synthetic |
 | GGG | Isotropic | 1.970 | — | Δn(F–C) ≈ 0.045 | colorless synthetic (historic diamond simulant) |
 | Benitoite | Uniaxial (+) | 1.757 | +0.0470 | Abbe V_d ≈ 29.1 | Strongly dichroic: sapphire-blue one way, near-colorless the other (Ti/Fe) |
-| Andalusite | Biaxial (−) | 1.634 | −0.0100 | Abbe V_d ≈ 68.5 | Trichroic: red-brown / yellow-green / olive-yellow-brown |
+| Andalusite | Biaxial (−) | 1.634 | −0.0100 | Abbe V_d ≈ 68.5 | Trichroic: red-brown along one direction, pale yellow-green along the other two; face-up a brownish olive |
 | Opal | Isotropic | 1.450 | — | Δn(F–C) ≈ 0.001 (deliberately minimal) | colorless body opal with no play-of-color; for the flashes of a precious opal use Precious Opal (White) or (Black) below |
 | Glass (N-BK7) | Isotropic | 1.517 | — | Abbe V_d ≈ 64.0 | colorless reference crown glass |
 | Glass (F2) | Isotropic | 1.620 | — | Abbe V_d ≈ 36.4 | colorless reference dense flint glass |
-| Rutile | Uniaxial (+) | 2.616 | +0.287 | Abbe V_d ≈ 8.5 | Yellow-to-brown body color (near-UV absorption edge); this renderer's most extreme birefringence built-in |
-| Precious Opal (White) | Isotropic | 1.450 | — | Δn(F–C) ≈ 0.001 (deliberately minimal) | pale body with a milky veil; the play-of-color of its patches is a choice of the design (Chapter 28) |
+| Rutile | Uniaxial (+) | 2.616 | +0.287 | Abbe V_d ≈ 8.5 | Pale straw yellow, as lab-grown rutile is (near-UV absorption edge); this renderer's most extreme birefringence built-in |
+| Precious Opal (White) | Isotropic | 1.450 | — | Δn(F–C) ≈ 0.001 (deliberately minimal) | milky, translucent cream-white body (its haze is switched on with the material); the play-of-color of its patches is a choice of the design (Chapter 28) |
 | Precious Opal (Black) | Isotropic | 1.450 | — | Δn(F–C) ≈ 0.001 (deliberately minimal) | dark neutral body, which makes the play-of-color stand out (Chapter 28) |
-| Labradorite | Biaxial (+) | 1.5625 (indices 1.559, 1.5625, 1.567) | +0.0080 | Δn(B–G) ≈ 0.012 (a placeholder borrowed from moonstone; no measured value was found) | colorless body; the schiller is a choice of the design, fixed in the crystal (Chapter 28) |
+| Labradorite | Biaxial (+) | 1.5625 (indices 1.559, 1.5625, 1.567) | +0.0080 | Δn(B–G) ≈ 0.012 (a placeholder borrowed from moonstone; no measured value was found) | translucent olive-grey body (its light haze is switched on with the material), lamellae parallel to the table by default; the schiller, blue with some green, is a choice of the design, fixed in the crystal (Chapter 28) |
 | Moonstone | Biaxial (−) | 1.523 (indices 1.518, 1.523, 1.526) | −0.0080 | Δn(B–G) ≈ 0.012 | colorless body; the adularescence is the Adularescence inclusion preset (Chapter 27) |
+| Titanite (Sphene) | Biaxial (+), 2V 27° | 1.894 (indices 1.888, 1.894, 2.011) | +0.1226 | Δn(B–G) ≈ 0.057 (n_β; 0.064 for n_γ) | yellow-green; trichroic: X nearly colorless, Y yellow-green, Z golden; Z lies in the table |
 
 **Notes**
 
@@ -72,14 +73,17 @@ only ones offered by older versions of the drop-down.
   Extraordinary Ray").
 - Chrysoberyl (Yellow) takes the published curves of Alexandrite, which gives
   it a total birefringence of 0.0076; older versions showed 0.0090.
-- One further species with real gemological interest, Sphene (titanite),
-  is deliberately not included: it needs birefringence and dispersion
-  magnitudes well outside the range this renderer's anisotropic optics
-  have been verified against, so adding it would mean shipping unverified
-  numbers rather than a checked material (Chapter 12). Rutile is included,
-  with its anisotropic Fresnel solve verified at its birefringence magnitude —
-  see the `built_in_material_rutile` doc comment in
-  `crates/pleochroma/src/optics/materials/rutile.rs`.
+- Titanite (Sphene) and Rutile carry birefringence and dispersion far beyond
+  the other built-ins; both were added only after the anisotropic optics had
+  been checked at their magnitudes (Titanite with measured indices, Rutile
+  with its Fresnel solve — see the `built_in_material_rutile` doc comment in
+  `crates/pleochroma/src/optics/materials/rutile.rs`).
+- The body-color strengths follow photographs of cut stones of the kind sold
+  today. Aquamarine, Morganite, Topaz, Tanzanite, Peridot, Tsavorite, Demantoid,
+  Pyrope and Spinel are lighter and less saturated than the measured crystals
+  they were fitted to, and Citrine is stronger. Several richer colors remain
+  available as Color Variants, for example Aquamarine's Santa Maria, Topaz's
+  Swiss and London and Peridot's Deep Green.
 
 ## Next Steps
 

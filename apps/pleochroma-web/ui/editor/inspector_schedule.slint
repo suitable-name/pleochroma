@@ -36,10 +36,13 @@ export component ScheduleTab inherits VerticalLayout {
             if row.notes != "": Text { text: row.notes; font-size: 9px; color: Theme.text-muted; wrap: word-wrap; }
         }
     }
-    // The two downloads. Like the File menu entries they stand beside, they are locked while a
+    // The downloads. Like the File menu entries they stand beside, they are locked while a
     // tutorial step leaves file actions closed. The guided walkthrough outlines them as the
     // stand-ins for the menu items it cannot outline (`schedule_cutting_sheet`,
-    // `schedule_diagram`, the web's own highlight targets).
+    // `schedule_diagram`, the web's own highlight targets). The two cutting sheets share one
+    // outline: the HTML page (the standard template, then renderings and further details) and
+    // the PDF (the standard template alone). The diagram has a row of its own, so the tab stays
+    // as narrow as before.
     HorizontalLayout {
         spacing: 6px;
         Rectangle {
@@ -48,13 +51,23 @@ export component ScheduleTab inherits VerticalLayout {
             border-color: Theme.accent-cyan;
             HorizontalLayout {
                 padding: 2px;
+                spacing: 6px;
                 Button {
                     text: "Cutting Sheet (HTML)";
                     enabled: AppModel.has-design && GuideModel.allows-file-ops();
                     clicked => { AppModel.download-cutting-sheet(); }
                 }
+                Button {
+                    text: "Cutting Sheet (PDF)";
+                    enabled: AppModel.has-design && GuideModel.allows-file-ops();
+                    clicked => { AppModel.download-cutting-sheet-pdf(); }
+                }
             }
         }
+        Rectangle { horizontal-stretch: 1; }
+    }
+    HorizontalLayout {
+        spacing: 6px;
         Rectangle {
             border-radius: Theme.radius-sm;
             border-width: GuideModel.highlight-target == "schedule_diagram" ? 2px : 0px;

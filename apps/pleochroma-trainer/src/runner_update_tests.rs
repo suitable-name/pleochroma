@@ -235,6 +235,11 @@ fn synchronized_metrics_show_pending_update_then_iteration_reports_it_once() {
         .imitation
         .expect("the imitation update has metrics");
 
+    assert_eq!(runner.stats().last_train, train);
+    assert_eq!(runner.stats().last_imitation, Some(imitation));
+    assert_eq!(runner.stats().update_of_iteration, Some(update_id));
+    assert_eq!(runner.stats().update_secs, installed.secs);
+
     let point = runner.metric_point(0.0);
     assert_eq!(point.update_of_iteration, Some(update_id));
     assert_eq!(point.policy_loss, train.policy_loss);

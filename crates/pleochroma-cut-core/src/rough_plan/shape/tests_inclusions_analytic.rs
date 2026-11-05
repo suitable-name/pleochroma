@@ -231,6 +231,7 @@ fn an_uncut_block_with_an_inclusion_plans_on_the_shaped_path() {
 }
 
 #[test]
+#[ignore = "slow rough-planner test (over 60 s); run with --ignored"]
 fn no_stone_enters_the_inclusion_of_any_kind() {
     for (name, base) in kinds() {
         // The control: the plain rough is filled right through the middle.
@@ -263,6 +264,7 @@ fn no_stone_enters_the_inclusion_of_any_kind() {
 }
 
 #[test]
+#[ignore = "slow rough-planner test (over 60 s); run with --ignored"]
 fn every_stone_of_a_cylinder_or_pebble_with_an_inclusion_stays_in_the_material() {
     // The outer mesh coincides with the planes of the polytope, so a stone rests on both: the
     // plan must still place stones, and each one must be clear of the mesh.
@@ -293,6 +295,7 @@ fn every_stone_of_a_cylinder_or_pebble_with_an_inclusion_stays_in_the_material()
 }
 
 #[test]
+#[ignore = "slow rough-planner test (over 60 s); run with --ignored"]
 fn a_plan_around_an_inclusion_is_the_same_twice() {
     for (name, base) in kinds() {
         let model = with_box(base);

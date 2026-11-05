@@ -116,19 +116,25 @@ impl GemMaterial {
                 // 1.98e-18 cm^2 at 580 nm E-perp-c, 1.25e-18 at 700 nm E-parallel-c)
                 // at 10 ppma*cm. Fitted, not tuned. Swatch (7 mm, D65): L*57 C*40
                 // h=283 (x1.2 for L*51); the old data gave L*54 h=275.
+                //
+                // 2026-11-03 (OWNER DECISION: Royal Blue is the default blue) every peak
+                // times 1.25, i.e. the same fit at 12.5 ppma*cm: the medium-dark, vivid royal
+                // blue a fine sapphire is traded as. Swatch (7 mm, D65): L*50 C*44 h=285,
+                // face-up (o-ray) L*39 C*67 h=295. The former 10 ppma*cm strength is the
+                // Medium Blue color variant (`sapphire.medium_blue`).
                 // Calibration record: docs/chromophores/calibration-records.md#sapphire
                 absorption: AbsorptionTensor::uniaxial(
                     vec![
                         // o-ray (E-perp-c)
-                        AbsorptionBand::energy(585.0, 4_878.0, 2.01),
-                        AbsorptionBand::energy(744.0, 3_142.0, 0.887),
-                        AbsorptionBand::energy(457.0, 12_000.0, 0.433),
+                        AbsorptionBand::energy(585.0, 4_878.0, 2.5125),
+                        AbsorptionBand::energy(744.0, 3_142.0, 1.108_75),
+                        AbsorptionBand::energy(457.0, 12_000.0, 0.541_25),
                     ],
                     vec![
                         // e-ray (E-parallel-c)
-                        AbsorptionBand::energy(612.0, 7_466.0, 0.371),
-                        AbsorptionBand::energy(729.0, 4_955.0, 1.03),
-                        AbsorptionBand::energy(467.0, 11_169.0, 0.524),
+                        AbsorptionBand::energy(612.0, 7_466.0, 0.463_75),
+                        AbsorptionBand::energy(729.0, 4_955.0, 1.2875),
+                        AbsorptionBand::energy(467.0, 11_169.0, 0.655),
                     ],
                 ),
                 c_axis: Vec3::Y,
@@ -210,19 +216,46 @@ impl GemMaterial {
                 // carries the measured E-parallel-c near-UV rise. Swatch (7 mm,
                 // D65): L*41 C*67 h=356 (p=1.5: h 4; p=2: h 11), GIA Appendix 2
                 // "both" 38.7/70.8/352 at 750 ppma*cm.
+                //
+                // 2026-11-03 (owner: "make the ruby follow more the clean photo") REPLACED the
+                // pure-Cr3+ 800 ppma*cm set, which rendered a magenta-pink (Pentalume
+                // Sapphire, Light Tent L*30 C*45 h 358) where a clean faceted-ruby photo on
+                // white (WEZ "Ruby cushion") measures L*39 C*52 h 14. Lighter Cr alone only
+                // opens the blue window and turns it pinker; the R-line daylight glow moved
+                // the render by 2 deg (tested, and it is physics-color only). The blue window
+                // is closed by Fe3+, which every ruby but the marble-hosted Mogok kind
+                // carries: now the GIA Cr3+ AND Fe3+ cross sections of the same paper
+                // (`data/reference_spectra/gia_dubinsky2020_corundum_six_chromophores_sigma_1nm.csv`,
+                // Napierian sigma, 1 ppma = 1.178e17 cm^-3) at Cr 400 and Fe 1000 ppma*cm over
+                // the face-up path (about 0.10 wt% Cr and 0.28 wt% Fe: a Mozambique-type,
+                // amphibolite-hosted ruby, today's main source), fitted per ray with seven
+                // energy Gaussians over 380-780 nm (rms of T 1.8 % o / 0.6 % e; the 325 and
+                // 370 nm bands are ultraviolet edge stand-ins). The two densities are
+                // CHOSEN from renders against the photo (Light Tent: Cr 400 / Fe 750 h 8,
+                // Cr 500 / Fe 1000 L*30 h 11; chosen L*32 C*41 h 11, Softbox h 13).
+                // Swatch (7 mm, D65): o L*36 C*58 h 5, e L*60 C*57 h 37, unpolarised L*46
+                // C*53 h 19 (path 2: h 26).
                 // Calibration record: docs/chromophores/calibration-records.md#ruby
                 absorption: AbsorptionTensor::uniaxial(
                     vec![
                         // o-ray (E-perp-c)
-                        AbsorptionBand::energy(562.0, 1_493.0, 10.9),
-                        AbsorptionBand::energy(410.0, 2_767.0, 15.8),
-                        AbsorptionBand::energy(537.0, 2_688.0, 7.06),
+                        AbsorptionBand::energy(324.9, 3_084.4, 61.59),
+                        AbsorptionBand::energy(392.7, 4_765.1, 9.524),
+                        AbsorptionBand::energy(565.2, 1_570.0, 6.776),
+                        AbsorptionBand::energy(529.6, 2_121.2, 3.718),
+                        AbsorptionBand::energy(450.0, 1_379.7, 1.472),
+                        AbsorptionBand::energy(672.1, 3_994.0, 0.309),
+                        AbsorptionBand::energy(472.0, 397.7, 0.220_4),
                     ],
                     vec![
                         // e-ray (E-parallel-c)
-                        AbsorptionBand::energy(553.0, 1_721.0, 3.38),
-                        AbsorptionBand::energy(397.0, 3_445.0, 27.1),
-                        AbsorptionBand::energy(525.0, 2_303.0, 2.56),
+                        AbsorptionBand::energy(370.0, 3_607.5, 13.98),
+                        AbsorptionBand::energy(408.0, 2_362.5, 9.937),
+                        AbsorptionBand::energy(450.0, 1_861.3, 2.819),
+                        AbsorptionBand::energy(553.2, 1_754.6, 2.18),
+                        AbsorptionBand::energy(517.8, 1_971.2, 1.336),
+                        AbsorptionBand::energy(452.4, 402.5, 0.313_2),
+                        AbsorptionBand::energy(665.3, 5_273.2, 0.144_4),
                     ],
                 ),
                 c_axis: Vec3::Y,

@@ -5,11 +5,22 @@ use cudarc::{
     nvrtc::{CompileOptions, compile_ptx_with_opts},
 };
 use glam::DVec3;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex, MutexGuard, TryLockError,
+    atomic::{AtomicU64, AtomicUsize, Ordering},
+};
 
 const TILE: usize = 262_144;
 const MAX_PLANES: usize = 4096;
 const BLOCK: usize = 256;
+/// Independent scratch sets, each with its own stream, so concurrent arrangements overlap
+/// on the device instead of queueing behind one lock. A set is allocated only when every
+/// earlier set is busy, so retained device memory stays bounded by four sets.
+const SCRATCH_SETS: usize = 4;
+/// Compacted candidate coordinates (three per vertex, one tile's worth) whose host
+/// post-processing may wait until the scratch set is released. A larger arrangement
+/// processes the excess under the lock, in the same order, keeping host memory bounded.
+const DEFERRED_VALUES: usize = 3 * TILE;
 
 pub(super) struct Runtime {
     context: Arc<CudaContext>,
@@ -20,7 +31,11 @@ pub(super) struct Runtime {
     vertices: CudaFunction,
     prefix: CudaFunction,
     compact: CudaFunction,
-    scratch: Mutex<Option<Scratch>>,
+    scratch: [Mutex<Option<Scratch>>; SCRATCH_SETS],
+    /// Rotation for callers that find every scratch set busy.
+    next_set: AtomicUsize,
+    /// Device bytes currently held by all scratch sets.
+    retained: AtomicU64,
 }
 
 pub(super) struct Enumeration {
@@ -136,8 +151,27 @@ impl Runtime {
                 .map_err(|e| e.to_string())?,
             compact: module.load_function("compact").map_err(|e| e.to_string())?,
             context,
-            scratch: Mutex::new(None),
+            scratch: std::array::from_fn(|_| Mutex::new(None)),
+            next_set: AtomicUsize::new(0),
+            retained: AtomicU64::new(0),
         })
+    }
+
+    /// The first idle scratch set, else one in rotation once its holder releases it.
+    ///
+    /// Which set serves a request never changes its result: every set runs the same
+    /// kernels on the same inputs, and each owns its buffers and stream.
+    fn scratch_set(&self) -> Result<MutexGuard<'_, Option<Scratch>>, String> {
+        for set in &self.scratch {
+            let attempt = set.try_lock();
+            match attempt {
+                Ok(guard) => return Ok(guard),
+                Err(TryLockError::WouldBlock) => {}
+                Err(TryLockError::Poisoned(error)) => return Err(error.to_string()),
+            }
+        }
+        let index = self.next_set.fetch_add(1, Ordering::Relaxed) % SCRATCH_SETS;
+        self.scratch[index].lock().map_err(|e| e.to_string())
     }
 
     pub fn tool_faces(
@@ -186,12 +220,17 @@ impl Runtime {
         ] {
             input.extend([n.x, n.y, n.z, 64.0]);
         }
-        // Submission, readback and incremental vertex dedup share this scratch
-        // lock. Face rings, calipers and mesh construction run after its release.
-        let mut guard = self.scratch.lock().map_err(|e| e.to_string())?;
+        // Submission and readback hold one scratch set. Host copies of the compacted
+        // tiles are post-processed in tile order after its release (or under it, only
+        // beyond DEFERRED_VALUES); face rings, calipers and meshes follow later still.
+        let mut guard = self.scratch_set()?;
         if guard.as_ref().is_none_or(|s| s.capacity < count) {
-            *guard = None;
-            *guard = Some(Scratch::new(&self.context, count.next_power_of_two())?);
+            // Release the old buffers before allocating their replacement.
+            let released = guard.take().map_or(0, |s| s.bytes());
+            self.retained.fetch_sub(released, Ordering::Relaxed);
+            let scratch = Scratch::new(&self.context, count.next_power_of_two())?;
+            self.retained.fetch_add(scratch.bytes(), Ordering::Relaxed);
+            *guard = Some(scratch);
         }
         let s = guard.as_mut().ok_or("missing CUDA solid scratch")?;
         let (surviving, pair_blocks) = self.prepare_pairs(s, &input, count)?;
@@ -200,11 +239,14 @@ impl Runtime {
             triples,
             surviving,
             readback_bytes: 8,
-            scratch_bytes: s.bytes(),
+            scratch_bytes: self.retained.load(Ordering::Relaxed),
             ..Work::default()
         };
-        let mut acc = VertexAccumulator::default();
-        let mut captured = Vec::new();
+        let mut host = HostCandidates {
+            count,
+            collect_triples,
+            ..HostCandidates::default()
+        };
         let mut start = 0;
         while start < surviving {
             let n = (surviving - start).min(TILE as u64) as u32;
@@ -214,24 +256,21 @@ impl Runtime {
             work.candidates += total as u64;
             work.readback_bytes += 8;
             if total > 0 && !escaped {
-                read_candidates(
-                    s,
-                    total,
-                    count,
-                    collect_triples,
-                    &mut acc,
-                    &mut captured,
-                    &mut work,
-                )?;
+                host.read(s, total, &mut work)?;
+                if host.values.len() > DEFERRED_VALUES {
+                    host.process()?;
+                }
             }
             start += u64::from(n);
         }
         let escaping = read_escaping(s, planes.len(), &mut work)?;
+        drop(guard);
+        host.process()?;
         Ok(Enumeration {
-            verts: acc.verts,
+            verts: host.acc.verts,
             escaping,
             work,
-            triples: captured,
+            triples: host.captured,
         })
     }
     fn prepare_pairs(
@@ -358,43 +397,75 @@ impl Runtime {
     }
 }
 
-fn read_candidates(
-    s: &Scratch,
-    total: usize,
+/// Host copies of compacted tiles and the stable products built from them in tile order.
+///
+/// Copies are taken under the scratch lock; deduplication and triple capture need only
+/// these copies, so they run after the lock is released (see [`DEFERRED_VALUES`]).
+#[derive(Default)]
+struct HostCandidates {
     count: usize,
     collect_triples: bool,
-    acc: &mut VertexAccumulator,
-    captured: &mut Vec<([usize; 3], DVec3)>,
-    work: &mut Work,
-) -> Result<(), String> {
-    let output = s
-        .stream
-        .clone_dtoh(&s.output.slice(..total * 3))
-        .map_err(|e| e.to_string())?;
-    work.readback_bytes += (output.len() * 8) as u64;
-    if collect_triples {
-        let ids = s
+    /// Unprocessed candidate coordinates, three per vertex, in compaction order.
+    values: Vec<f64>,
+    /// Unprocessed lexicographic triple ranks, one per vertex, when capturing triples.
+    ordinals: Vec<u64>,
+    acc: VertexAccumulator,
+    captured: Vec<([usize; 3], DVec3)>,
+}
+
+impl HostCandidates {
+    /// Copy one compacted tile out of the scratch set.
+    fn read(&mut self, s: &Scratch, total: usize, work: &mut Work) -> Result<(), String> {
+        let output = s
             .stream
-            .clone_dtoh(&s.ordinals.slice(..total))
+            .clone_dtoh(&s.output.slice(..total * 3))
             .map_err(|e| e.to_string())?;
-        work.readback_bytes += (ids.len() * 8) as u64;
-        for (v, id) in output.as_chunks::<3>().0.iter().zip(ids) {
-            let triple = unrank(id, count);
-            if triple[2] < count - 6 {
-                if captured.len() == 2_000_000 {
-                    return Err(
-                        "CUDA solid triple capture exceeds two-million-entry host budget".into(),
-                    );
-                }
-                captured.push((triple, DVec3::new(v[0], v[1], v[2])));
+        work.readback_bytes += (output.len() * 8) as u64;
+        if self.values.is_empty() {
+            self.values = output;
+        } else {
+            self.values.extend_from_slice(&output);
+        }
+        if self.collect_triples {
+            let ids = s
+                .stream
+                .clone_dtoh(&s.ordinals.slice(..total))
+                .map_err(|e| e.to_string())?;
+            work.readback_bytes += (ids.len() * 8) as u64;
+            if self.ordinals.is_empty() {
+                self.ordinals = ids;
+            } else {
+                self.ordinals.extend_from_slice(&ids);
             }
         }
-    } else {
-        for v in output.as_chunks::<3>().0.iter() {
-            acc.insert_if_new(DVec3::new(v[0], v[1], v[2]));
-        }
+        Ok(())
     }
-    Ok(())
+
+    /// Deduplicate or capture every copied candidate in order, then drop the copies.
+    fn process(&mut self) -> Result<(), String> {
+        let vertices = self.values.as_chunks::<3>().0;
+        if self.collect_triples {
+            for (v, &id) in vertices.iter().zip(&self.ordinals) {
+                let triple = unrank(id, self.count);
+                if triple[2] < self.count - 6 {
+                    if self.captured.len() == 2_000_000 {
+                        return Err(
+                            "CUDA solid triple capture exceeds two-million-entry host budget"
+                                .into(),
+                        );
+                    }
+                    self.captured.push((triple, DVec3::new(v[0], v[1], v[2])));
+                }
+            }
+        } else {
+            for v in vertices {
+                self.acc.insert_if_new(DVec3::new(v[0], v[1], v[2]));
+            }
+        }
+        self.values.clear();
+        self.ordinals.clear();
+        Ok(())
+    }
 }
 
 fn read_escaping(

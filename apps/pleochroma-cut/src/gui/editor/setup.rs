@@ -75,6 +75,11 @@ pub(super) fn setup_solve_cancel_callback(ui: &MainWindow) {
 /// never saved at all. An ordinary recent file can always be reopened later from
 /// File > Open Recent; the autosave is deleted by the next successful save.
 ///
+/// The recent file offered is the most recent one still on disk: a file that has gone (a
+/// design opened from an archive's temporary folder, a drive that is not plugged in) could
+/// only fail to reopen. It stays under File > Open Recent. The offer's Discard removes the
+/// offered file from that list, so it is not offered again; the file itself is never deleted.
+///
 /// A design named on the command line (`pleochroma-cut <file>`, what an OS double-click
 /// association runs) outranks both: the cutter asked for that file, so it opens at
 /// once and no offer is made. A leftover autosave stays on disk and is offered at the
@@ -102,8 +107,8 @@ pub(super) fn setup_startup_restore(
     let offer = autosave.clone().or_else(|| {
         ui.get_recent_native_files()
             .iter()
-            .next()
             .map(|path| std::path::PathBuf::from(path.as_str()))
+            .find(|path| path.is_file())
     });
     let Some(offer) = offer else {
         return;
@@ -166,6 +171,23 @@ pub(super) fn setup_startup_restore(
             ui.global::<crate::EditorModel>()
                 .set_startup_restore_path(String::new().into());
             native_io::delete_leftover_autosave(std::path::Path::new(path.as_str()));
+        });
+
+    // "Discard": only ever shown for an ordinary recent file, the counterpart of the
+    // autosave's Delete. The file is the cutter's own save, so it stays on disk; only the
+    // offer goes, by removing the file from the recent list it was taken from.
+    let ui_weak_forget = ui.as_weak();
+    ui.global::<crate::EditorModel>()
+        .on_startup_restore_forget(move || {
+            let Some(ui) = ui_weak_forget.upgrade() else {
+                return;
+            };
+            let path = ui.global::<crate::EditorModel>().get_startup_restore_path();
+            ui.global::<crate::EditorModel>()
+                .set_startup_restore_path(String::new().into());
+            if !path.is_empty() {
+                native_io::forget_recent_native_file(&ui, path.as_str());
+            }
         });
 }
 

@@ -437,6 +437,17 @@ rotation sense.
   below the girdle for the grading dome, the ISO convention), bit for bit as before. An
   HDR map ignores the backdrop. The metrics, tilt curves and the optical overlay do not
   read it.
+- **Metered exposure.** The presets give very different amounts of light: `E_rig / pi` is
+  about 0.18 for the daylight sky, 0.27 for the window, 0.51 for the light tent, 1 for the
+  grading dome and 4 to 9 for the Studio rigs (key plus ring sparks). The apps therefore
+  hand the tracer `tray.rs::metered_exposure(exposure, preset, yaw, pitch)` =
+  `exposure * METERED_PAPER_RADIANCE / (0.90 * E_rig / pi)`, an incident-light meter:
+  white paper under any preset at any light pose gets the radiance the grading dome gives
+  it (0.90, an off-white sheet after the ACES curve), and the user's exposure is a
+  compensation on top. The dome's own reading is 1, so the grading tray looks as before.
+  The UV lamps and HDR maps are not metered. Render jobs and the wire scene carry the
+  metered value, so a worker or the CLI reproduces the picture without knowing about the
+  meter. Scores never read it (the metrics classify light against the rig's own ambient).
 
 ### 5.3 HDR panoramas
 
@@ -473,10 +484,19 @@ inverses, so running it at scale one would not be the identity in `f32`).
 
 `color/space.rs::ColorSpace::encode` with `ToneMap::AcesFilmic`: the ACES curve
 (`color.rs::aces_tonemap`) is applied to **luminance only**, the XYZ vector is rescaled by
-that one ratio, any channel above 1.0 is brought back with the bounded radial gamut walk
-toward the white point (`color/gamut.rs::project_to_gamut_bounded`), then the true
-piecewise transfer function is applied and each channel is quantised by rounding to the
+that one ratio, any channel above 1.0 is brought back by the highlight rule (below), then the
+true piecewise transfer function is applied and each channel is quantised by rounding to the
 nearest code value (`mul_add(255.0, 0.5)`).
+
+The default rule, `HighlightRule::KeepColor` (`color/gamut.rs::fit_keeping_color`), keeps a
+too-bright color's chromaticity and dims it; it blends toward white only for tone-mapped
+luminance above 0.8 (diffuse white), fully from 1.0. `HighlightRule::Whiten` (the bounded
+radial gamut walk toward the white point, `color/gamut.rs::project_to_gamut_bounded`, selected
+per process with `color::set_highlight_rule`, on the command line `--highlights whiten`)
+keeps the luminance instead, so a bright saturated red, blue or violet turns pale (red to
+pink): those hues carry little luminance for their channel values and reach the ceiling
+first. Keep-color became the default on 2026-11-03 after a three-design comparison: the same
+lightness and hue, and up to 60 % more chroma on a bright sapphire.
 
 ## 7. The metrics model
 

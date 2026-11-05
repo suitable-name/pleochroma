@@ -52,8 +52,6 @@ fn whitted_layout_and_storage_budget_match_the_host() {
         ("modes", offset_of!(GpuWhittedParams, modes)),
         ("values", offset_of!(GpuWhittedParams, values)),
         ("indices", offset_of!(GpuWhittedParams, indices)),
-        ("alpha_o", offset_of!(GpuWhittedParams, alpha_o)),
-        ("alpha_e", offset_of!(GpuWhittedParams, alpha_e)),
         ("axis", offset_of!(GpuWhittedParams, axis)),
         ("masks", offset_of!(GpuWhittedParams, masks)),
         ("rgb_to_xyz", offset_of!(GpuWhittedParams, rgb_to_xyz)),
@@ -67,6 +65,9 @@ fn whitted_layout_and_storage_budget_match_the_host() {
         ("extra", offset_of!(GpuWhittedParams, extra)),
         ("aa", offset_of!(GpuWhittedParams, aa)),
         ("ring_dirs", offset_of!(GpuWhittedParams, ring_dirs)),
+        ("depth_p", offset_of!(GpuWhittedParams, depth_p)),
+        ("depth_q", offset_of!(GpuWhittedParams, depth_q)),
+        ("bin_weights", offset_of!(GpuWhittedParams, bin_weights)),
     ];
     for (name, offset) in fields {
         assert_eq!(

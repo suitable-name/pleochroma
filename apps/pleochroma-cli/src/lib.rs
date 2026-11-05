@@ -143,7 +143,7 @@ pub fn run(args: &[String]) -> Outcome {
     }
     let mut unwritten = false;
     for file in &outcome.files {
-        match std::fs::write(&file.path, &file.text) {
+        match std::fs::write(&file.path, file.contents()) {
             Ok(()) => {
                 let _ = writeln!(outcome.stderr, "wrote {}", file.path.display());
             }

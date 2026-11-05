@@ -91,8 +91,12 @@ mod pool;
 pub mod progress;
 #[path = "runner_recovery.rs"]
 mod recovery;
+#[path = "runner_recovery_identity.rs"]
+mod recovery_identity;
 #[path = "runner_rollout.rs"]
 mod rollout;
+#[path = "runner_rollout_stream.rs"]
+mod rollout_stream;
 #[path = "runner_setters.rs"]
 mod setters;
 #[path = "runner_teacher.rs"]
@@ -188,6 +192,8 @@ pub const GPU_LABEL: &str = "GPU (WGPU)";
 pub const CUDA_LABEL: &str = "GPU (CUDA)";
 /// Backend label of the CPU trainer.
 pub const CPU_LABEL: &str = "CPU (Flex SIMD)";
+/// Environment arithmetic of every run without native CUDA environments (CPU and WGPU).
+const CPU_ENVIRONMENT_MATH: &str = "cpu-env-v1";
 
 /// Reward history length kept for the bar chart.
 const REWARD_HISTORY_LEN: usize = 60;
@@ -362,6 +368,13 @@ pub struct TrainingRunner {
     execution: Option<Arc<EnvExecution>>,
     /// Shared read-only snapshots for a CLI observer or other caller.
     progress: progress::TrainingProgress,
+    /// False while an iteration or recovery install can leave partially mutated state.
+    /// Errors and unwinding retain this latch until a complete recovery is restored or the run
+    /// is re-synchronised ([`Self::resync_after_failure`], a reset, a weight load).
+    recovery_safe: bool,
+    /// Whether [`Self::restore_recovery`] may discard labels made with other environment
+    /// arithmetic (another device or revision) and relabel; refused by default.
+    allow_environment_relabel: bool,
 }
 
 impl TrainingRunner {
@@ -420,7 +433,10 @@ impl TrainingRunner {
         let rollout_model = rollout_trainer.rollout_model();
         let runner = Self {
             rng: Prng::from_stream(cfg.seed, 1),
-            aggregate: LabelledStates::new(cfg.label_capacity),
+            aggregate: LabelledStates::with_budget(
+                cfg.label_capacity,
+                cfg.label_memory_mib * 1024 * 1024,
+            ),
             cfg,
             split,
             updater,
@@ -441,6 +457,8 @@ impl TrainingRunner {
             device_label,
             execution,
             progress,
+            recovery_safe: true,
+            allow_environment_relabel: false,
         };
         Ok(runner)
     }
@@ -507,6 +525,48 @@ impl TrainingRunner {
     /// Warnings raised since the last call (skipped designs, device fallback).
     pub fn take_warnings(&mut self) -> Vec<String> {
         std::mem::take(&mut self.warnings)
+    }
+
+    /// Whether a failed iteration, a failed update or an interrupted recovery install left the
+    /// run inconsistent. [`Self::iterate`] and [`Self::save_recovery`] refuse such a run until
+    /// [`Self::restore_recovery`], [`Self::resync_after_failure`], [`Self::reset`] or
+    /// [`Self::load_checkpoint`] makes it consistent again.
+    #[must_use]
+    pub const fn needs_resync(&self) -> bool {
+        !self.recovery_safe
+    }
+
+    /// Makes a failed run trainable again without a recovery bundle (the GUI keeps none).
+    ///
+    /// The update in flight is drained (a failed one is dropped with a warning), the update
+    /// thread's trainer is reloaded from `net`, the weights of the last installed update (steps
+    /// a failed update applied are dropped and the Adam moments start over), the rollout copy
+    /// follows, and fresh environments replace the episodes the failed iteration may have left
+    /// half-stepped. Statistics, iteration count and the labelled aggregate (every label is
+    /// exact for its state) are kept. A no-op on a consistent run.
+    ///
+    /// # Errors
+    ///
+    /// [`RunnerError`] when the trainers cannot be reloaded or no environment builds (a latched
+    /// accelerator failure, for example); the run then stays failed.
+    pub fn resync_after_failure(&mut self) -> Result<(), RunnerError> {
+        if self.recovery_safe {
+            return Ok(());
+        }
+        self.resync_trainers()?;
+        self.rebuild_slots()?;
+        self.recovery_safe = true;
+        Ok(())
+    }
+
+    /// The arithmetic the environments score with: native CUDA math, or the CPU math that the
+    /// CPU and WGPU trainers share. Labels made with one are never reused with another.
+    const fn environment_math(&self) -> &'static str {
+        if self.execution.is_some() {
+            pleochroma_ai::env::CUDA_ENVIRONMENT_MATH
+        } else {
+            CPU_ENVIRONMENT_MATH
+        }
     }
 
     /// The editable hyperparameters in effect (the imitation settings in imitation mode).
@@ -682,19 +742,41 @@ impl TrainingRunner {
         Ok(())
     }
 
+    /// Drains the update thread and points both trainers at `net`. A failed update in flight is
+    /// consumed; its error becomes a warning, since `net` never received its weights.
+    fn resync_trainers(&mut self) -> Result<(), RunnerError> {
+        if let Err(error) = self.sync_update() {
+            self.warnings.push(format!(
+                "the update in flight failed and was discarded: {error}"
+            ));
+        }
+        self.updater.load_weights(self.net.clone())?;
+        self.refresh_rollout_model()
+    }
+
     /// Rebuilds the environments, then starts the statistics over and empties the labelled
     /// aggregate. The update in flight finishes first and is installed (the weights are kept);
     /// its figures belong to the statistics that start over and are dropped. When no
     /// environment can be built nothing changes (statistics and aggregate included).
+    ///
+    /// After a failure ([`Self::needs_resync`]) the trainers are re-synchronised first (a
+    /// failed update in flight is dropped, the update thread is reloaded from `net` and its
+    /// Adam moments start over), and a successful restart makes the run trainable again. When
+    /// the environments then fail to build, the reloaded trainers stay and the run stays failed.
     fn restart_run(&mut self) -> Result<(), RunnerError> {
-        self.sync_update()?;
-        self.refresh_rollout_model()?;
+        if self.recovery_safe {
+            self.sync_update()?;
+            self.refresh_rollout_model()?;
+        } else {
+            self.resync_trainers()?;
+        }
         let previous = std::mem::replace(&mut self.stats, RunnerStats::new());
         self.rebuild_slots().inspect_err(|_| {
             self.stats = previous;
         })?;
         self.aggregate.clear();
         self.installed_update = None;
+        self.recovery_safe = true;
         Ok(())
     }
 }

@@ -76,26 +76,45 @@ impl GemMaterial {
                 // Fe3+, Mn3+ (viridine) and V3+ / Cr3+, which are colour variants, not
                 // this Fe-Ti default.
                 // Calibration record: docs/chromophores/calibration-records.md#andalusite
+                // 2026-11-03 (owner: "match the pictures of actual gemstones"): REPLACED the Fe-Ti
+                // crystal alone by 0.65 x it plus 0.35 x the Greener variant (the same crystal with
+                // an estimated Mn3+ part), refitted to at most eight bands a ray. Twenty-three
+                // dealer photos (GemSelect) have a median hue of 71 and six faceted stones on white
+                // (Commons, W.carter) 64; the crystal alone rendered h 51, this mix h 75 (Light
+                // Tent). Beta and gamma are now a pale yellow-green (swatch C* 29 / 22, h 116 /
+                // 122), the trade's red-brown and green trichroism; alpha L*49 C*48 h 46.
                 absorption: AbsorptionTensor::biaxial(
                     vec![
-                        // alpha (E par c): the Fe2+-Ti4+ ray, brownish red
-                        AbsorptionBand::energy(308.1, 7_382.0, 4.87),
-                        AbsorptionBand::energy(430.0, 4_867.0, 0.745),
-                        AbsorptionBand::energy(496.8, 4_718.0, 2.02),
-                        AbsorptionBand::energy(620.0, 2_151.0, 0.197),
-                        AbsorptionBand::energy(700.0, 3_631.0, 0.272),
+                        // alpha
+                        AbsorptionBand::energy(277.1, 7_353.4, 14.26),
+                        AbsorptionBand::energy(289.0, 12_290.1, 4.635),
+                        AbsorptionBand::energy(505.4, 3_645.4, 2.464),
+                        AbsorptionBand::energy(449.5, 4_034.4, 2.04),
+                        AbsorptionBand::energy(658.0, 4_708.3, 0.733),
+                        AbsorptionBand::energy(562.2, 2_648.0, 0.233_6),
+                        AbsorptionBand::energy(613.1, 1_726.2, 0.084_76),
                     ],
                     vec![
-                        // beta (E par b): pale yellow, UV edge
-                        AbsorptionBand::energy(300.0, 7_180.0, 6.42),
-                        AbsorptionBand::energy(380.0, 6_522.0, 0.306),
-                        AbsorptionBand::energy(520.0, 12_000.0, 0.0422),
+                        // beta
+                        AbsorptionBand::energy(300.0, 7_180.0, 4.173),
+                        AbsorptionBand::energy(297.8, 10_224.9, 2.6),
+                        AbsorptionBand::energy(455.0, 2_001.6, 0.368_5),
+                        AbsorptionBand::energy(702.0, 2_496.1, 0.353_6),
+                        AbsorptionBand::energy(426.0, 1_789.7, 0.294_8),
+                        AbsorptionBand::energy(380.0, 6_522.0, 0.198_9),
+                        AbsorptionBand::energy(480.0, 10_596.7, 0.037_82),
+                        AbsorptionBand::energy(520.0, 12_000.0, 0.027_43),
                     ],
                     vec![
-                        // gamma (E par a): nearly colorless
-                        AbsorptionBand::energy(370.0, 5_253.0, 0.221),
-                        AbsorptionBand::energy(423.6, 4_330.0, 0.0417),
-                        AbsorptionBand::energy(520.0, 12_000.0, 0.0226),
+                        // gamma
+                        AbsorptionBand::energy(702.0, 2_496.1, 0.442_4),
+                        AbsorptionBand::energy(340.0, 8_805.8, 0.296),
+                        AbsorptionBand::energy(455.0, 2_001.6, 0.294_8),
+                        AbsorptionBand::energy(426.0, 1_789.7, 0.235_8),
+                        AbsorptionBand::energy(370.0, 5_253.0, 0.143_6),
+                        AbsorptionBand::energy(423.6, 4_330.0, 0.027_11),
+                        AbsorptionBand::energy(480.0, 10_596.7, 0.020_23),
+                        AbsorptionBand::energy(520.0, 12_000.0, 0.014_69),
                     ],
                 ),
                 c_axis: Vec3::Y,

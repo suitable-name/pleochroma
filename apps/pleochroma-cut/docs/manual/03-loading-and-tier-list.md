@@ -29,10 +29,11 @@ the manual. The groups, left to right:
   for adapting a design to a different material (Chapter 6).
 - **Set Baseline, Compare** (Advanced interface, Chapter 17).
 - **File** — a menu with New Design..., Open..., Load Selected, Save, Export .asc...,
-  Export Cutting Sheet (HTML)..., Export Diagram (PNG)... and, in the Advanced
-  interface, Export as Gem Cut Studio (.gcs).... When the design will ask before it
-  saves, **Will Ask Before Saving** sits beside the button. See Chapter 11 for
-  what each item actually writes.
+  Export Cutting Sheet (HTML)..., Export Cutting Sheet (PDF)..., Export Diagram
+  (PNG)... and, in the Advanced interface, Export as Gem Cut Studio (.gcs).... When
+  the design will ask before it saves, **Will Ask Before Saving** sits beside the
+  button. See Chapter 11 for what each item actually writes, and for how the HTML
+  and PDF cutting sheets differ.
 
 The tier actions are not on the command bar. **+ Add Tier** and **+ Add
 Concave Tier** are in the tier list's header, each row has its own Move,

@@ -11,7 +11,7 @@ use crate::{
     renderer::{engine::RayOptions, frame_scene::FrameScene},
 };
 
-use super::{WhittedDecline, env::WhittedEnv, frost, tint};
+use super::{WhittedDecline, env::WhittedEnv, frost, tint::BinnedAbsorption};
 
 /// A refractive-index chain and the RGB channels its radiance contributes to.
 #[derive(Clone, Copy, Debug)]
@@ -22,43 +22,14 @@ pub struct Chain {
     pub mask: Vec3,
 }
 
-/// Direction-dependent RGB absorption coefficients, per model unit.
-#[derive(Clone, Copy, Debug)]
-pub enum AlphaModel {
-    /// Isotropic coefficient, also used for the three-mode biaxial mean.
-    Isotropic(Vec3),
-    /// Ordinary and extraordinary coefficients about the optical axis.
-    Uniaxial { o: Vec3, e: Vec3, axis: Vec3 },
-}
-
-impl AlphaModel {
-    /// Coefficient for the ray's unit propagation direction.
-    #[must_use]
-    #[expect(
-        clippy::suspicious_operation_groupings,
-        reason = "false positive: `(o - e) * cosine^2` is the intended uniaxial mix, bit-pinned to the WGSL twin"
-    )]
-    pub fn at(&self, dir: Vec3) -> Vec3 {
-        match *self {
-            Self::Isotropic(alpha) => alpha,
-            Self::Uniaxial { o, e, axis } => {
-                // Plain glam `dot` on purpose: the WGSL twin (`00_bindings.wgsl`) uses a
-                // plain `dot` here too, so the twins agree (unlike the fused chain `dot`).
-                let cosine = dir.dot(axis);
-                (o + e + (o - e) * (cosine * cosine)) * 0.5
-            }
-        }
-    }
-}
-
 /// All expensive tint, light and frost preparation, cached once per scene.
 pub struct WhittedPrep<'a> {
     /// The fixed one- or three-index chains.
     pub chains: [Chain; 3],
     /// Number of active entries in `chains`.
     pub chain_count: u8,
-    /// Beer-Lambert coefficients.
-    pub alpha: AlphaModel,
+    /// The material's spectral absorption, binned (see [`BinnedAbsorption`]).
+    pub absorption: BinnedAbsorption,
     /// Deterministic environment sampler.
     pub env: WhittedEnv<'a>,
     /// Scale of polished primary reflection only.
@@ -110,33 +81,37 @@ impl<'a> WhittedPrep<'a> {
                 mask: Vec3::ONE,
             }; 3]
         };
-        let absorption = &material.absorption;
-        let coefficient =
-            |bands: &[_]| tint::alpha(bands, material.absorption_path_scale, scene.environment);
-        let o = coefficient(&absorption.o_ray);
-        let alpha = absorption.beta_ray.as_ref().map_or_else(
-            || {
-                if absorption.is_pleochroic {
-                    let normalized = material.c_axis.normalize_or_zero();
-                    AlphaModel::Uniaxial {
-                        o,
-                        e: coefficient(&absorption.e_ray),
-                        axis: if normalized == Vec3::ZERO {
-                            Vec3::Y
-                        } else {
-                            normalized
-                        },
-                    }
+        let bands = &material.absorption;
+        let absorption = match &bands.beta_ray {
+            // The three principal waves, each isotropic: the biaxial direction dependence is
+            // left to the spectral renderer, as before.
+            Some(beta) => BinnedAbsorption::new(
+                &[&bands.o_ray, beta, &bands.e_ray],
+                None,
+                material.absorption_path_scale,
+                scene.environment,
+            ),
+            None if bands.is_pleochroic => {
+                let normalized = material.c_axis.normalize_or_zero();
+                let axis = if normalized == Vec3::ZERO {
+                    Vec3::Y
                 } else {
-                    AlphaModel::Isotropic(o)
-                }
-            },
-            |beta| {
-                AlphaModel::Isotropic(
-                    (o + coefficient(&absorption.e_ray) + coefficient(beta)) / 3.0,
+                    normalized
+                };
+                BinnedAbsorption::new(
+                    &[&bands.o_ray, &bands.e_ray],
+                    Some(axis),
+                    material.absorption_path_scale,
+                    scene.environment,
                 )
-            },
-        );
+            }
+            None => BinnedAbsorption::new(
+                &[&bands.o_ray],
+                None,
+                material.absorption_path_scale,
+                scene.environment,
+            ),
+        };
         let env = WhittedEnv::new(scene.environment);
         let frost = frost::prepare(scene, &env);
         let white_balance = match scene.environment {
@@ -148,7 +123,7 @@ impl<'a> WhittedPrep<'a> {
         Ok(Self {
             chains,
             chain_count: if three { 3 } else { 1 },
-            alpha,
+            absorption,
             env,
             glare: scene.environment.surface_glare(),
             frost,
@@ -176,7 +151,7 @@ impl<'a> WhittedPrep<'a> {
         WhittedPrep {
             chains: self.chains,
             chain_count: self.chain_count,
-            alpha: self.alpha,
+            absorption: self.absorption,
             env: self.env.into_owned_with_hdr(shared),
             glare: self.glare,
             frost: self.frost,
@@ -192,7 +167,7 @@ impl<'a> WhittedPrep<'a> {
         Self {
             chains: [Chain { n, mask: Vec3::ONE }; 3],
             chain_count: 1,
-            alpha: AlphaModel::Isotropic(alpha),
+            absorption: BinnedAbsorption::rgb_for_tests(alpha),
             env: WhittedEnv::for_tests(env_rgb),
             glare: 1.0,
             frost: Vec::new(),

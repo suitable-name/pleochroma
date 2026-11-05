@@ -108,6 +108,7 @@ fn zero_updates_per_round_is_the_old_epoch_loop() {
             let stats = by_hand
                 .imitation_update(&prepared, &local_rows, &config)
                 .unwrap()
+                .stepped()
                 .unwrap();
             add_stats(&mut sum, &stats);
             updates += 1;

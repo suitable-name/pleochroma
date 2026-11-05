@@ -49,7 +49,10 @@ pub use convert::{
     rows_carry_tensor, rows_from_bands,
 };
 pub use error::{PatternError, ZoneProblem};
-pub use follow::{crystal_axis_frame, follow_c_axis, follow_noted_pattern, layers_across_axis};
+pub use follow::{
+    crystal_axis_frame, follow_c_axis, follow_noted_pattern, layers_across_axis,
+    wants_axis_through_table,
+};
 pub use templates::template;
 pub use typical::{OwnColor, TypicalPattern, typical_index, typical_patterns};
 pub use variant::{

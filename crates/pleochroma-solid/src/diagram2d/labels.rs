@@ -24,8 +24,11 @@ pub fn draw_panel_labels(
     style: &DiagramStyle,
     label_spots: Vec<(usize, f32, f32, f32, f32)>,
 ) {
+    // The labels' pixel multiple; the room a label needs and its leader grow with it.
+    let scale = style.label_scale.max(1);
+    let grow = scale as f32;
     for (facet_id, cx, cy, w, h) in label_spots {
-        if w < LEADER_LINE_MIN_SPAN || h < LEADER_LINE_MIN_SPAN {
+        if w < LEADER_LINE_MIN_SPAN * grow || h < LEADER_LINE_MIN_SPAN * grow {
             continue;
         }
         let Some(label) = style.facet_labels.get(facet_id) else {
@@ -46,15 +49,15 @@ pub fn draw_panel_labels(
         // label, so a cutter can still trace it back to its facet. Reuses the
         // facet's own depth so the leader is occluded by anything truly in front
         // of it but always wins against the (f32::INFINITY) background.
-        let (label_mid_x, label_mid_y) = if w < MIN_LABEL_SPAN || h < MIN_LABEL_SPAN {
+        let (label_mid_x, label_mid_y) = if w < MIN_LABEL_SPAN * grow || h < MIN_LABEL_SPAN * grow {
             let (dir_x, dir_y) = {
                 let (dx, dy) = (cx - layout.center_x, cy - layout.center_y);
                 let dist = dx.hypot(dy).max(1e-3);
                 (dx / dist, dy / dist)
             };
             let leader_end = (
-                dir_x.mul_add(LEADER_LINE_LENGTH, cx),
-                dir_y.mul_add(LEADER_LINE_LENGTH, cy),
+                dir_x.mul_add(LEADER_LINE_LENGTH * grow, cx),
+                dir_y.mul_add(LEADER_LINE_LENGTH * grow, cy),
             );
             let depth_here = frame.depth[idx];
             draw_edge(
@@ -70,13 +73,13 @@ pub fn draw_panel_labels(
             (cx, cy)
         };
 
-        let (label_w, label_h) = text_size(label, 1);
+        let (label_w, label_h) = text_size(label, scale);
         draw_text(
             frame,
             label_mid_x - label_w as f32 / 2.0,
             label_mid_y - label_h as f32 / 2.0,
             label,
-            1,
+            scale,
             style.edge_color,
             Some(layout.clip),
         );

@@ -207,6 +207,7 @@ const CAPTION_GAP: f32 = 8.0;
 /// The pixel multiple the panel captions and tooth numbers are drawn at in a frame
 /// `height` pixels tall: `1` (the original 5x7 glyphs) below [`LARGE_FRAME_MIN_HEIGHT`] and
 /// up to 799, `2` from 800.
+#[must_use]
 pub fn text_scale(height: u32) -> u32 {
     if height < LARGE_FRAME_MIN_HEIGHT {
         1

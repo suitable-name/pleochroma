@@ -6,7 +6,7 @@ import { IconButton } from "icon_button.slint";
 import { TipButton } from "compact_controls.slint";
 import { ToggleRow } from "toggle_switch.slint";
 
-// "Import" popup: brings the user's own `.asc`/`.gem`/`.gcs` file(s) into the local library.
+// "Import" popup: brings the user's own `.psdd`/`.asc`/`.gem`/`.gcs` file(s) into the local library.
 // Picking a file or folder runs the import immediately -- there is no path field to
 // edit and no separate "Import" button to confirm through; `pick_asc_file`/
 // `pick_asc_folder` (handled in Rust with `rfd::FileDialog`, see
@@ -157,7 +157,7 @@ export component ImportDialog inherits PopupWindow {
             }
 
             Text {
-                text: "Pick a single .asc, .gem or .gcs file, or a folder of them -- the import runs immediately.";
+                text: "Pick a single .psdd, .asc, .gem or .gcs file, or a folder of them -- the import runs immediately.";
                 font-size: 11px;
                 color: Theme.text-muted;
                 wrap: word-wrap;
@@ -192,14 +192,14 @@ export component ImportDialog inherits PopupWindow {
                 spacing: 6px;
                 TipButton {
                     text: "Choose File...";
-                    hint: "Pick one .asc, .gem or .gcs file. It is imported as soon as you pick it.";
+                    hint: "Pick one .psdd, .asc, .gem or .gcs file. It is imported as soon as you pick it.";
                     icon: @image-url("../icons/page.svg");
                     enabled: !root.importing;
                     clicked => { root.pick_asc_file(); }
                 }
                 TipButton {
                     text: "Choose Folder...";
-                    hint: "Pick a folder. Every .asc, .gem and .gcs file in it is imported as soon as you pick it.";
+                    hint: "Pick a folder. Every .psdd, .asc, .gem and .gcs file in it is imported as soon as you pick it.";
                     icon: @image-url("../icons/folder.svg");
                     enabled: !root.importing;
                     clicked => { root.pick_asc_folder(root.recurse_subfolders); }

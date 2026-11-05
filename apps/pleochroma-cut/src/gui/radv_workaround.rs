@@ -206,7 +206,7 @@ static DISPATCHING: AtomicBool = AtomicBool::new(false);
 /// never starts a process (`harness_support::take_radv_restart_request` reads it).
 pub(super) fn request_restart(ui: &MainWindow) {
     RESTART_PENDING.store(true, Ordering::SeqCst);
-    if cfg!(feature = "ui-harness") {
+    if crate::harness_seams_active() {
         return;
     }
     DISPATCHING.store(true, Ordering::SeqCst);
@@ -348,7 +348,7 @@ pub(super) fn setup_radv_workaround(ui: &MainWindow, settings_store: &Arc<Settin
 /// question is raised. Never in the UI harness (its profile and GPU are not the user's) and
 /// never in a build without the `gpu` feature (no adapter is ever acquired).
 fn start_adapter_watch(ui: &MainWindow, settings_store: &Arc<SettingsPersister>) {
-    if !cfg!(feature = "gpu") || cfg!(feature = "ui-harness") || !cfg!(target_os = "linux") {
+    if !cfg!(feature = "gpu") || crate::harness_seams_active() || !cfg!(target_os = "linux") {
         return;
     }
     let ui_weak = ui.as_weak();

@@ -201,8 +201,10 @@ impl Worker<'_> {
     pub(super) fn handle(&mut self, command: TrainerCommand) -> Flow {
         match command {
             TrainerCommand::Start => {
-                self.is_active.store(true, Ordering::SeqCst);
-                self.log("INFO", "Training started");
+                if self.resync_if_failed() {
+                    self.is_active.store(true, Ordering::SeqCst);
+                    self.log("INFO", "Training started");
+                }
                 self.send_snapshot();
             }
             TrainerCommand::Pause => {
@@ -210,7 +212,13 @@ impl Worker<'_> {
                 self.log("INFO", "Training paused");
                 self.send_snapshot();
             }
-            TrainerCommand::StepOnce => self.step_once = true,
+            TrainerCommand::StepOnce => {
+                if self.resync_if_failed() {
+                    self.step_once = true;
+                } else {
+                    self.send_snapshot();
+                }
+            }
             TrainerCommand::Reset => self.busy(REBUILD, Self::reset),
             TrainerCommand::SaveWeights(path) => {
                 self.busy("Saving weights…", |w| w.save_weights(&path));
@@ -367,6 +375,35 @@ impl Worker<'_> {
                 self.send_snapshot();
             }
         }
+    }
+
+    /// A failed iteration pauses training and leaves the run inconsistent (half-stepped
+    /// episodes, an update thread that may hold steps the installed weights never received).
+    /// The GUI keeps no recovery bundle, so starting again re-synchronises instead: fresh
+    /// environments, both trainers reloaded from the installed weights (the optimizer moments
+    /// start over); statistics and labels stay. Returns whether training may start.
+    fn resync_if_failed(&mut self) -> bool {
+        if !self.runner.needs_resync() {
+            return true;
+        }
+        let resynced = self.busy(REBUILD, |w| w.runner.resync_after_failure());
+        let ready = match resynced {
+            Ok(()) => {
+                self.log(
+                    "RECOVER",
+                    "Recovered from the failed iteration: environments rebuilt and the trainer \
+                     reloaded with the last installed weights (optimizer moments restarted); \
+                     statistics and labels kept",
+                );
+                true
+            }
+            Err(e) => {
+                self.report_error("Cannot resume after the failed iteration", &e);
+                false
+            }
+        };
+        self.flush_warnings();
+        ready
     }
 
     fn reset(&mut self) {

@@ -39,6 +39,9 @@ impl TrainingRunner {
             log_std.iter().map(|&raw| bounded_log_std(raw)).sum::<f32>() / log_std.len() as f32;
         IterationMetricPoint {
             diagnostics: s.diagnostics,
+            replay_rows: Some(self.aggregate.len()),
+            replay_bytes: Some(self.aggregate.retained_bytes()),
+            replay_budget_bytes: Some(self.cfg.label_memory_mib * 1024 * 1024),
             iteration: s.iteration,
             episode: s.episodes,
             total_steps: s.total_steps,
@@ -79,11 +82,15 @@ impl TrainingRunner {
             rej_manufacturability: s.rej_manufacturability,
             rej_not_improved: s.rej_not_improved,
             imitation_loss: imitation.loss,
+            imitation_objective_revision: last_imitation
+                .filter(|metrics| metrics.updates > 0 && metrics.objective_revision == 2)
+                .map(|_| "balanced-action-vector-v2".to_owned()),
             sens_mse: imitation.sens_mse,
             train_cosine: last_imitation.filter(|m| m.updates > 0).map(|m| m.cosine),
             action_loss: imitation.action_loss,
             action_samples: imitation.action_samples,
             gain_loss: imitation.gain_loss,
+            skipped_minibatches: imitation.skipped_minibatches,
             labelled_samples: s.labelled_samples,
             component_support: imitation.component_support,
             labels_this_round: s.labels_this_round,
@@ -110,6 +117,7 @@ impl TrainingRunner {
             },
             weight_export_ms: weight_export_secs * 1_000.0,
             rollout_forward_ms: s.rollout_forward_ms,
+            rollout_scheduling: s.rollout_scheduling.clone(),
             update_wait_secs: s.update_wait_secs,
             update_of_iteration,
             evaluations_this_round: s.evaluations_this_round,
@@ -259,6 +267,11 @@ impl TrainingRunner {
     /// environments are rebuilt so that no episode mixes the two models. A differing
     /// `max_tiers` or seed is raised as a warning.
     ///
+    /// Loading weights also re-synchronises a failed run ([`Self::needs_resync`]): both trainers
+    /// take the loaded weights, a failed update in flight is dropped with a warning, and once the
+    /// environments rebuild the run is trainable again. Should they not rebuild, the weights are
+    /// loaded but the run stays failed (the failed iteration's episodes cannot continue).
+    ///
     /// # Errors
     ///
     /// [`RunnerError`] for any mismatch or an unreadable file; nothing changes then.
@@ -273,8 +286,18 @@ impl TrainingRunner {
             )));
         }
         // The update in flight trains the weights that are about to be replaced: let it finish
-        // so the load is the last word on the trainer.
-        self.sync_update()?;
+        // so the load is the last word on the trainer. In a failed run the update thread is
+        // reloaded below anyway, so an update that fails now is only reported.
+        let failed = !self.recovery_safe;
+        if failed {
+            if let Err(error) = self.sync_update() {
+                self.warnings.push(format!(
+                    "the update in flight failed and was discarded: {error}"
+                ));
+            }
+        } else {
+            self.sync_update()?;
+        }
         self.updater.load_weights(checkpoint.network.clone())?;
         self.net = checkpoint.network;
         self.refresh_rollout_model()?;
@@ -292,12 +315,22 @@ impl TrainingRunner {
         };
         // Fresh environments, so no episode mixes the previous weights with the loaded ones. The
         // rebuild is transactional: on failure the old slots stay usable and only a warning is
-        // raised, because the cause is unrelated to the checkpoint.
-        if let Err(e) = self.rebuild_slots() {
-            self.warnings.push(format!(
+        // raised, because the cause is unrelated to the checkpoint. The episodes of a failed
+        // iteration may be half-stepped, so a failed run becomes trainable only after a rebuild.
+        match self.rebuild_slots() {
+            Ok(()) => self.recovery_safe = true,
+            Err(e) if failed => {
+                self.clear_rollout();
+                self.warnings.push(format!(
+                    "environments could not be rebuilt after loading weights ({e}); the failed \
+                     iteration's episodes cannot continue, so training stays blocked until the \
+                     environments rebuild (start or reset again)"
+                ));
+            }
+            Err(e) => self.warnings.push(format!(
                 "environments could not be rebuilt after loading weights ({e}); the current \
                  episodes finish under the loaded model"
-            ));
+            )),
         }
         // The reward scale is not part of a checkpoint (review TQ-21): the resumed run
         // re-estimates it from its own first rollout, which its first update already uses. The

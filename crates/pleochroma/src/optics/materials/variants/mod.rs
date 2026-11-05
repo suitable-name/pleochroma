@@ -260,4 +260,39 @@ impl GemMaterial {
     pub fn with_color_variant(self, variant: &ColorVariant) -> Self {
         self.with_color_variant_tensor(variant.absorption.clone(), variant.unit)
     }
+
+    /// [`Self::with_color_variant`] on a material already sized for its stone: the variant
+    /// shows at the same stone width.
+    ///
+    /// A sized material (a frozen render job's scene, where `render_setup` has set
+    /// `absorption_path_scale` from the stone width and the design's `model_width`) carries its
+    /// width only inside that scale. A variant of the same unit keeps the scale as it is; one of
+    /// the other unit gets the scale `render_setup` gives that unit for the width the old scale
+    /// stands for ([`crate::render_setup::stone_width_for_scale`], then
+    /// [`crate::render_setup::absorption_path_scale_for`]), which is the scale the app renders
+    /// the variant at for the same stone.
+    ///
+    /// `None` when the units differ and no width can be recovered (a non-positive scale, or a
+    /// per-millimetre side without a measurable `model_width`).
+    #[must_use]
+    pub fn with_color_variant_resized(
+        self,
+        variant: &ColorVariant,
+        model_width: Option<f64>,
+    ) -> Option<Self> {
+        if variant.unit == self.absorption_unit {
+            return Some(self.with_color_variant(variant));
+        }
+        let width_mm = crate::render_setup::stone_width_for_scale(
+            self.absorption_unit,
+            self.absorption_path_scale,
+            model_width,
+        )?;
+        let scale =
+            crate::render_setup::absorption_path_scale_for(variant.unit, width_mm, model_width)?;
+        Some(
+            self.with_color_variant(variant)
+                .with_absorption_path_scale(scale),
+        )
+    }
 }

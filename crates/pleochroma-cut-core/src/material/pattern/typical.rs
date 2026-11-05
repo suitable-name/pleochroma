@@ -55,10 +55,14 @@ use std::f64::consts::{FRAC_PI_3, TAU};
 /// blue sapphire.
 pub(super) const DEFAULT_OWN_COLOR: [f64; 3] = [40.0, 45.0, 265.0];
 
-/// Amethyst purple, as the Ametrine preset has it.
-const AMETHYST: [f64; 3] = [48.0, 42.0, 305.0];
-/// Citrine yellow, as the Ametrine preset has it.
-const CITRINE: [f64; 3] = [82.0, 72.0, 88.0];
+/// Amethyst purple, as the Color Pattern window's Ametrine preset has it. Deeper since 2026-11-03
+/// (it was L* 48 C* 42): dealer photos of ametrine show a lavender half more saturated than the
+/// yellow one, 40-45 % of the stone, where the Split rendered 21 % purple in a mostly yellow
+/// stone (L* 44 C* 48 with the citrine at L* 86 C* 45 overshot to 69 %).
+const AMETHYST: [f64; 3] = [46.0, 45.0, 305.0];
+/// Citrine yellow, as the Color Pattern window's Ametrine preset has it. Softer and more golden
+/// since 2026-11-03 (it was L* 82 C* 72 h 88), the yellow half of the dealer photos.
+const CITRINE: [f64; 3] = [84.0, 58.0, 85.0];
 /// The yellow rim of a parti-color sapphire.
 const PARTI_YELLOW: [f64; 3] = [80.0, 60.0, 90.0];
 /// The blue core of a parti-color sapphire that is yellow itself.
@@ -86,8 +90,11 @@ enum Shade {
     Verdelite,
     /// The blue of a parti-color sapphire.
     Blue,
-    /// The yellow of a parti-color sapphire.
+    /// The yellow of a yellow sapphire (the core of a parti-color stone that is yellow itself).
     Yellow,
+    /// The yellow rim of a parti-color sapphire: a deeper yellow than a yellow stone's, since the
+    /// rim is a thin outer zone that light crosses for a few millimetres only.
+    PartiYellow,
     /// The purple of an ametrine.
     Amethyst,
     /// The yellow of an ametrine.
@@ -100,11 +107,15 @@ enum Shade {
 /// Default (`sapphire.default`). The Ametrine has no body-color variants (its color is its zones),
 /// so its two rows only match variants a caller supplies; a variant that is not there leaves its
 /// zone on the `[L*, C*, h]` seed.
-const SHADE_VARIANTS: [(Shade, &str); 6] = [
+const SHADE_VARIANTS: [(Shade, &str); 8] = [
     (Shade::Rubellite, "tourmaline.rubellite"),
     (Shade::Verdelite, "tourmaline.verdelite"),
     (Shade::Blue, "sapphire.default"),
     (Shade::Yellow, "sapphire.yellow"),
+    // The Yellow variant over a parti rim reads a faint cream (Light Tent C* 4), where real parti
+    // sapphires show clear yellow, and green where it overlaps the blue (2026-11-03).
+    (Shade::PartiYellow, "sapphire.golden_yellow"),
+    (Shade::PartiYellow, "sapphire.yellow"),
     (Shade::Amethyst, "ametrine.amethyst"),
     (Shade::Citrine, "ametrine.citrine"),
 ];
@@ -284,10 +295,19 @@ static RUBY: [TypicalPattern; 1] = [TypicalPattern::new(
     TemplateId::HexagonalBanding,
     hexagonal_banding,
 )];
-static BERYL: [TypicalPattern; 2] = [
+/// Emerald grows in documented six-sided color zones (the Swat and Zhen'an basal slices, the
+/// trapiche type), so it keeps Hexagonal Banding.
+static EMERALD: [TypicalPattern; 2] = [
     TypicalPattern::new(TemplateId::HexagonalBanding, hexagonal_banding),
     TypicalPattern::new(TemplateId::CoreAndRim, hexagonal_core_and_rim),
 ];
+/// The other beryls (aquamarine, morganite, heliodor): no Hexagonal Banding. Their crystals zone
+/// from core to rim (morganite cores in aquamarine rims, the Erongo aquamarines), but no
+/// six-sided color bands were found in their stones or crystals.
+static BERYL: [TypicalPattern; 1] = [TypicalPattern::new(
+    TemplateId::CoreAndRim,
+    hexagonal_core_and_rim,
+)];
 static TOURMALINE: [TypicalPattern; 4] = [
     TypicalPattern::new(TemplateId::Watermelon, tourmaline_watermelon),
     TypicalPattern::new(TemplateId::ReverseWatermelon, tourmaline_reverse_watermelon),
@@ -315,7 +335,8 @@ static TOPAZ: [TypicalPattern; 1] = [TypicalPattern::new(TemplateId::Bicolor, to
 /// |---|---|
 /// | Sapphire | Hexagonal Banding, Parti Color, Color Band |
 /// | Ruby | Hexagonal Banding |
-/// | Beryl (Emerald, Aquamarine, Morganite, Heliodor, ...) | Hexagonal Banding, Core and Rim |
+/// | Emerald | Hexagonal Banding, Core and Rim |
+/// | Other beryls (Aquamarine, Morganite, Heliodor, ...) | Core and Rim |
 /// | Tourmaline | Watermelon, Reverse Watermelon, Bicolor, Tricolor |
 /// | Amethyst | Sectors, Split |
 /// | Citrine, Ametrine | Split, Sectors |
@@ -326,7 +347,8 @@ pub fn typical_patterns(material_name: &str) -> &'static [TypicalPattern] {
     match material_name.trim().to_ascii_lowercase().as_str() {
         "sapphire" | "padparadscha" => &CORUNDUM,
         "ruby" => &RUBY,
-        "emerald" | "aquamarine" | "morganite" | "heliodor" | "goshenite" | "beryl" => &BERYL,
+        "emerald" => &EMERALD,
+        "aquamarine" | "morganite" | "heliodor" | "goshenite" | "beryl" => &BERYL,
         "tourmaline" => &TOURMALINE,
         "amethyst" => &AMETHYST_PATTERNS,
         "citrine" | "ametrine" => &CITRINE_PATTERNS,
@@ -550,7 +572,7 @@ fn parti_color(own: &OwnColor, variants: &[ColorVariant], axis: PatternAxis) -> 
         (Shade::Blue, Some(Shade::Yellow))
     } else {
         (
-            Shade::Yellow,
+            Shade::PartiYellow,
             has_hue(lch, 230.0, 300.0).then_some(Shade::Blue),
         )
     };

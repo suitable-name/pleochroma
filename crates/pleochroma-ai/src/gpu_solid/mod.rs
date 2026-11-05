@@ -104,6 +104,8 @@ pub struct GpuSolid {
     failure: Mutex<Option<String>>,
     #[cfg(feature = "cuda")]
     widths: Mutex<VecDeque<WidthEntry>>,
+    #[cfg(feature = "cuda")]
+    build_widths: Mutex<VecDeque<WidthEntry>>,
 }
 
 #[cfg(feature = "cuda")]
@@ -143,6 +145,7 @@ impl GpuSolid {
                 counters: Counters::default(),
                 failure: Mutex::default(),
                 widths: Mutex::default(),
+                build_widths: Mutex::default(),
             }))
         }
         #[cfg(not(feature = "cuda"))]
@@ -377,7 +380,7 @@ impl GpuSolid {
         let arr = match self.arrange(planes)? {
             Ok(arr) => arr,
             Err(status) => {
-                self.cache_width(planes, None);
+                Self::cache_width(&self.build_widths, planes, None);
                 return Ok(SolidResult {
                     status,
                     metrics: None,
@@ -402,7 +405,7 @@ impl GpuSolid {
         if !matches!(status, SolidStatus::Closed(_)) {
             metrics = None;
         }
-        self.cache_width(planes, planar_width);
+        Self::cache_width(&self.build_widths, planes, planar_width);
         Ok(SolidResult {
             status,
             metrics,
@@ -413,15 +416,19 @@ impl GpuSolid {
     #[cfg(feature = "cuda")]
     fn width_inner(&self, planes: &[(DVec3, f64)]) -> Result<Option<f64>, String> {
         let key = plane_key(planes);
-        if let Some(width) = self
-            .widths
-            .lock()
-            .map_err(|e| e.to_string())?
-            .iter()
-            .find_map(|entry| (entry.key == key).then_some(entry.width))
-        {
-            self.counters.width_hits.fetch_add(1, Ordering::Relaxed);
-            return Ok(width);
+        // Optical requests own their working set; exact build results are a separate
+        // reuse opportunity and cannot evict it.
+        for cache in [&self.widths, &self.build_widths] {
+            let hit = cache
+                .lock()
+                .map_err(|e| e.to_string())?
+                .iter()
+                .find_map(|entry| (entry.key == key).then_some(entry.width));
+            if let Some(width) = hit {
+                self.counters.width_hits.fetch_add(1, Ordering::Relaxed);
+                Self::cache_width(&self.widths, planes, width);
+                return Ok(width);
+            }
         }
         let width = match self.arrange(planes)? {
             Err(_) => None,
@@ -430,19 +437,23 @@ impl GpuSolid {
                 topology::measure_from_arrangement(&arr, &rings).map(|(m, _)| m.width_axis)
             }
         };
-        self.cache_width(planes, width);
+        Self::cache_width(&self.widths, planes, width);
         Ok(width)
     }
 
     #[cfg(feature = "cuda")]
-    fn cache_width(&self, planes: &[(DVec3, f64)], width: Option<f64>) {
-        if let Ok(mut cache) = self.widths.lock() {
+    fn cache_width(
+        cache: &Mutex<VecDeque<WidthEntry>>,
+        planes: &[(DVec3, f64)],
+        width: Option<f64>,
+    ) {
+        if let Ok(mut cache) = cache.lock() {
             let key = plane_key(planes);
             if let Some(existing) = cache.iter_mut().find(|entry| entry.key == key) {
                 existing.width = width;
                 return;
             }
-            if cache.len() == 4 {
+            if cache.len() == 64 {
                 cache.pop_front();
             }
             cache.push_back(WidthEntry { key, width });

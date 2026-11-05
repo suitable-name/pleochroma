@@ -27,6 +27,7 @@ const LIBRARY_MAIN_FRESH: &[Row] = rows!(MainWindow, Main, Library, true;
     LibraryModel.invoke_copy_cutting_table();
     LibraryModel.invoke_copy_text("harness text".into());
     LibraryModel.invoke_delete_diagram();
+    LibraryModel.invoke_delete_entry(1, "Harness Design".into());
     LibraryModel.invoke_export_asc();
     LibraryModel.invoke_export_file(slint::SharedString::default());
     LibraryModel.invoke_export_gcs();

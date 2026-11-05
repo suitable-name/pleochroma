@@ -36,7 +36,7 @@ and silhouette boundaries. Off uses one central tap; 4×, 8× and 16× use fixed
 of the same deterministic sequence. AA does not add missing optical physics.
 
 **Ray-Traced** — The deterministic lightweight renderer: Fresnel-weighted RGB
-reflection/refraction chains, calibrated absorption tint, optional three-index Fire,
+reflection/refraction chains, spectral absorption tint in 10 nm bands, optional three-index Fire,
 and approximate frost. It finishes after its fixed taps without denoising and omits
 polarization, birefringent doubling, haze, zoning, edge rounding, oriented inclusions, surface finish and play-of-color.
 Path-Traced remains the spectral engine; metrics keep a separate analytic tracer.
@@ -316,7 +316,7 @@ dialog before anything is applied (Chapter 6).
 
 **Saved lighting** — A named, complete lighting look: the lighting rig, light
 direction, exposure, surface glare, backdrop (a lit tray), head shadow, the HDR environment map if
-any and optionally the camera pose. Seven come with the app; your own are added to the
+any and optionally the camera pose. Eight come with the app; your own are added to the
 list and can be marked "usable for" export (Chapters 2 and 9). Formerly "Lighting
 Presets".
 

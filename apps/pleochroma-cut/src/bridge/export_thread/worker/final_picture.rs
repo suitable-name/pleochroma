@@ -206,14 +206,45 @@ fn full_data(
         AccumulationOutcome::Completed(Accumulation {
             accum,
             samples_per_pixel,
-        }) => RenderedImage::Rgba(tonemap_accumulation(
-            params.width,
-            params.height,
-            samples_per_pixel,
-            &accum,
-            color_space,
-        )),
+        }) => {
+            dump_linear_xyz(params.width, params.height, samples_per_pixel, &accum);
+            RenderedImage::Rgba(tonemap_accumulation(
+                params.width,
+                params.height,
+                samples_per_pixel,
+                &accum,
+                color_space,
+            ))
+        }
     }
+}
+
+/// The environment variable naming a file for [`dump_linear_xyz`].
+const LINEAR_XYZ_OUT_VAR: &str = "PLEOCHROMA_LINEAR_XYZ_OUT";
+
+/// Color diagnostics: with `PLEOCHROMA_LINEAR_XYZ_OUT` set to a file path, writes the finished
+/// full-data accumulation's per-pixel mean XYZ there, before any tone mapping.
+///
+/// The layout is `b"PXYZ"`, the width and the height as little-endian `u32`, then
+/// `width * height` pixels of three little-endian `f32` (X, Y, Z) in row order. It is what
+/// [`tonemap_accumulation`] encodes, so a display transform can be studied outside the
+/// program on the same data. Nothing is written when the variable is unset, and a failed
+/// write is ignored: the export itself never depends on it.
+fn dump_linear_xyz(width: u32, height: u32, samples_per_pixel: u32, accum: &[glam::Vec3]) {
+    let Some(path) = std::env::var_os(LINEAR_XYZ_OUT_VAR) else {
+        return;
+    };
+    let inv_samples = 1.0 / samples_per_pixel.max(1) as f32;
+    let mut bytes = Vec::with_capacity(12 + accum.len() * 12);
+    bytes.extend_from_slice(b"PXYZ");
+    bytes.extend_from_slice(&width.to_le_bytes());
+    bytes.extend_from_slice(&height.to_le_bytes());
+    for v in accum {
+        for c in [v.x, v.y, v.z] {
+            bytes.extend_from_slice(&(c * inv_samples).to_le_bytes());
+        }
+    }
+    let _ = std::fs::write(path, bytes);
 }
 
 /// The final-picture transfer: one `FinalImageRequest`, progress from the remote's

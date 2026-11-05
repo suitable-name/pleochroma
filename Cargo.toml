@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "apps/pleochroma-cli",
+    "apps/pleochroma-converter",
     "apps/pleochroma-cut",
     "apps/pleochroma-mobile-android",
     "apps/pleochroma-web",
@@ -45,7 +46,7 @@ exclude = ["vendor"]
 # `crates/pleochroma-mobile-core`, its UI-free core (app state, compute threads, platform trait).
 
 [workspace.package]
-version = "0.10.0"
+version = "0.10.1"
 edition = "2024"
 rust-version = "1.95"
 authors = ["Suitable-Name"]
@@ -59,7 +60,11 @@ anyhow = "1.0.104"
 # Benchmark harness for the `benches/` directories (`harness = false` targets); lighter than
 # criterion (no plotting stack). Dev-dependency only.
 divan = "0.1.21"
-bytemuck = { version = "1.25", features = ["derive"] }
+# `min_const_generics`: `Pod`/`Zeroable` for arrays of every length. Without it bytemuck covers
+# only 0-32 and a few powers of two, and the Ray-Traced uniform's 40-bin weight array
+# (`GpuWhittedParams::bin_weights`) compiled only where `wgpu` happened to turn the feature on
+# (a `pleochroma` build without `gpu`, e.g. `pleochroma-net`'s tests, failed).
+bytemuck = { version = "1.25", features = ["derive", "min_const_generics"] }
 # Pinned exactly: crates/pleochroma's SIMD twins (simd/triple_solve.rs, used by
 # geometry/meet_solver/candidates.rs) follow glam 0.34.1's scalar DMat3 sequence
 # (determinant = x_axis.dot(y_axis.cross(z_axis)); inverse = cofactor columns scaled
@@ -72,6 +77,10 @@ glam = "=0.34.1"
 # Each member declares the one image format it actually uses.
 image = { version = "0.25", default-features = false }
 pollster = { version = "1.0.1" }
+# The cutting sheet's PDF export (`pleochroma-editor`'s `cut_sheet::pdf`): a low-level PDF
+# writer (MIT/Apache-2.0, no font or image stack). The sheet uses the standard 14 fonts
+# (Helvetica, Helvetica-Bold) and vector paths only, so nothing is embedded.
+pdf-writer = "0.12"
 # Wire-format serializer for pleochroma-net's `SceneState` (sent once per camera change --
 # a few KB, serialisation cost irrelevant, compactness is what matters). NOT used for
 # the per-sample radiance buffer, which goes over the wire as raw `bytemuck` POD bytes
@@ -94,7 +103,7 @@ rfd = "0.17.2"
 # transitive dependency, no Cargo.lock change) is needed by pleochroma-vault's
 # `fold()` SQL scalar function (case-/typography-insensitive title/designer search,
 # see `crates/pleochroma-vault/src/db/sqlite/search/predicate.rs::register_fold_function`).
-rusqlite = { version = "0.40.2", features = ["bundled", "functions"] }
+rusqlite = { version = "0.41.1", features = ["bundled", "functions"] }
 # Mutual-TLS stack for pleochroma-net/pleochroma-worker (see crates/pleochroma-net's `tls` module
 # and apps/pleochroma-worker's `pki` module). `ring` is pinned explicitly as the crypto
 # provider across rustls/rcgen -- it's already resolved in this workspace's dependency
@@ -114,7 +123,7 @@ serde_json = { version = "1.0.154", features = ["float_roundtrip"] }
 semver = "1.0.28"
 # The new-version check's one HTTPS GET. `rustls` = rustls on `ring` (the provider pinned
 # above) with the bundled webpki roots: no system TLS library, no cmake/NASM.
-ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
+ureq = { version = "3.5.1", default-features = false, features = ["rustls"] }
 sha2 = "0.11.1"
 # `SockRef::set_tcp_keepalive`/`TcpStream::set_nodelay` tuning for `apps/pleochroma-worker`'s
 # accepted connections (see that crate's `serve` module) -- `std::net::TcpStream` has no
@@ -160,19 +169,19 @@ log = "0.4"
 log-panics = { version = "2", features = ["with-backtrace"] }
 
 # Workspace members
-pleochroma-vault = { path = "crates/pleochroma-vault", version = "0.10.0" }
-pleochroma = { path = "crates/pleochroma", version = "0.10.0" }
-pleochroma-net = { path = "crates/pleochroma-net", version = "0.10.0" }
-pleochroma-dispatch = { path = "crates/pleochroma-dispatch", version = "0.10.0" }
-pleochroma-formats = { path = "crates/pleochroma-formats", version = "0.10.0" }
-pleochroma-cut-core = { path = "crates/pleochroma-cut-core", version = "0.10.0" }
-pleochroma-solid = { path = "crates/pleochroma-solid", version = "0.10.0" }
-pleochroma-editor = { path = "crates/pleochroma-editor", version = "0.10.0" }
-pleochroma-web-core = { path = "crates/pleochroma-web-core", version = "0.10.0" }
-pleochroma-update = { path = "crates/pleochroma-update", version = "0.10.0" }
-pleochroma-render-jobs = { path = "crates/pleochroma-render-jobs", version = "0.10.0" }
-pleochroma-cut = { path = "apps/pleochroma-cut", version = "0.10.0" }
-pleochroma-mobile-core = { path = "crates/pleochroma-mobile-core", version = "0.10.0" }
+pleochroma-vault = { path = "crates/pleochroma-vault", version = "0.10.1" }
+pleochroma = { path = "crates/pleochroma", version = "0.10.1" }
+pleochroma-net = { path = "crates/pleochroma-net", version = "0.10.1" }
+pleochroma-dispatch = { path = "crates/pleochroma-dispatch", version = "0.10.1" }
+pleochroma-formats = { path = "crates/pleochroma-formats", version = "0.10.1" }
+pleochroma-cut-core = { path = "crates/pleochroma-cut-core", version = "0.10.1" }
+pleochroma-solid = { path = "crates/pleochroma-solid", version = "0.10.1" }
+pleochroma-editor = { path = "crates/pleochroma-editor", version = "0.10.1" }
+pleochroma-web-core = { path = "crates/pleochroma-web-core", version = "0.10.1" }
+pleochroma-update = { path = "crates/pleochroma-update", version = "0.10.1" }
+pleochroma-render-jobs = { path = "crates/pleochroma-render-jobs", version = "0.10.1" }
+pleochroma-cut = { path = "apps/pleochroma-cut", version = "0.10.1" }
+pleochroma-mobile-core = { path = "crates/pleochroma-mobile-core", version = "0.10.1" }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
@@ -309,6 +318,18 @@ lto = false
 codegen-units = 16
 debug = "line-tables-only"
 strip = false
+
+# A release build that builds quickly: `cargo build --profile quick-release` (output in
+# `target/quick-release/`). Release optimisation (opt-level 3, no debug assertions or overflow
+# checks, symbols stripped) without what makes `[profile.release]` slow to build: no LTO at all,
+# parallel codegen, incremental rebuilds and no line tables. The binaries run somewhat slower
+# than a real release, so measurements and shipped builds keep `release` (and PGO/BOLT).
+[profile.quick-release]
+inherits = "release"
+lto = "off"
+codegen-units = 256
+incremental = true
+debug = false
 
 # The rough planner and the tracer are pure arithmetic, and their tests run them at
 # length: the cancel sweep alone plans some sixty roughs, the desktop driver tests plan

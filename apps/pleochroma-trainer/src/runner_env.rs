@@ -183,6 +183,27 @@ impl EnvKind {
         }
     }
 
+    pub(super) fn snapshot_episode(&self) -> Result<EpisodeSnapshot, EnvError> {
+        match self {
+            Self::Optimizer(env) => env.snapshot_episode(),
+            Self::Retarget(env) => env.snapshot_episode(),
+        }
+    }
+
+    pub(super) fn restore_episode(&mut self, snapshot: &EpisodeSnapshot) -> Result<(), EnvError> {
+        match self {
+            Self::Optimizer(env) => env.restore_episode(snapshot),
+            Self::Retarget(env) => env.restore_episode(snapshot),
+        }
+    }
+
+    pub(super) fn step_count(&self) -> usize {
+        match self {
+            Self::Optimizer(env) => env.step_count(),
+            Self::Retarget(env) => env.step_count(),
+        }
+    }
+
     pub(super) fn base_score(&self) -> f32 {
         match self {
             Self::Optimizer(e) => e.base_score(),
@@ -271,7 +292,8 @@ pub(super) fn sampled_material(
     mut material: ResolvedMaterial,
     seed: u64,
 ) -> (ResolvedMaterial, String) {
-    if material.gem.optical_character == pleochroma::optics::materials::OpticalCharacter::Isotropic {
+    if material.gem.optical_character == pleochroma::optics::materials::OpticalCharacter::Isotropic
+    {
         return (material, "[catalogue preset]".to_owned());
     }
     let mut rng = pleochroma_ai::model::Prng::from_stream(seed, 0x4D41_5445_5249_414C);
@@ -293,8 +315,11 @@ pub(super) fn sampled_material(
     )
 }
 
-/// Native entries always retain their material; legacy entries include their actual imported
-/// index in one quarter of episodes and full catalogue materials in the remaining episodes.
+/// Explicitly authored materials and material-dependent context are retained unchanged.
+///
+/// Entries without either (ASC or native) use their recorded index in one quarter of episodes
+/// and catalogue materials in the remainder. The loader decides authoring from actual fields,
+/// not from the file format; these sampled properties are never written into the source file.
 pub(super) fn sampled_source_material(
     seed: u64,
     design: &Design,
@@ -371,8 +396,38 @@ pub(super) fn build_env_from_episode(
         weights,
         context_seed,
         authored,
-        EpisodeStart::Recovery(snapshot),
+        EpisodeStart::Recovery(snapshot, None),
     )
+}
+
+/// Reconstructs validation with its own fidelity, retaining saved baseline measurements.
+/// Training's per-episode fidelity mixture must never select validation's scoring settings.
+pub(super) fn build_eval_env_from_episode(
+    cfg: &RunConfig,
+    design: &Design,
+    target: Option<&Target>,
+    weights: ObjectiveWeights,
+    context_seed: u64,
+    authored: Option<&ResolvedMaterial>,
+    snapshot: &EpisodeSnapshot,
+    evaluation: (
+        ObjectiveFidelity,
+        Option<&std::sync::Arc<pleochroma_ai::env::EnvExecution>>,
+    ),
+) -> Result<EnvKind, EnvError> {
+    let mut env = build_env_with_start(
+        cfg,
+        design,
+        target,
+        weights,
+        context_seed,
+        authored,
+        EpisodeStart::Recovery(snapshot, Some(evaluation.0)),
+    )?;
+    if let Some(execution) = evaluation.1 {
+        env.set_execution(std::sync::Arc::clone(execution));
+    }
+    Ok(env)
 }
 
 #[derive(Clone, Copy)]
@@ -381,7 +436,7 @@ enum EpisodeStart<'a> {
         Option<ObjectiveFidelity>,
         Option<&'a std::sync::Arc<pleochroma_ai::env::EnvExecution>>,
     ),
-    Recovery(&'a EpisodeSnapshot),
+    Recovery(&'a EpisodeSnapshot, Option<ObjectiveFidelity>),
 }
 
 fn build_env_with_start(
@@ -395,7 +450,9 @@ fn build_env_with_start(
 ) -> Result<EnvKind, EnvError> {
     let fidelity = match start {
         EpisodeStart::Fresh(fidelity, _) => fidelity.unwrap_or(cfg.train_fidelity),
-        EpisodeStart::Recovery(_) => super::config::training_fidelity(cfg, context_seed),
+        EpisodeStart::Recovery(_, fidelity) => {
+            fidelity.unwrap_or_else(|| super::config::training_fidelity(cfg, context_seed))
+        }
     };
     let (shape_target, lighting) = sampled_context(context_seed);
     if let (TrainingMode::Retarget, Some(target)) = (cfg.mode, target) {
@@ -419,7 +476,7 @@ fn build_env_with_start(
             EpisodeStart::Fresh(_, execution) => {
                 RetargetEnv::new_with_execution(design.clone(), config, execution.cloned())
             }
-            EpisodeStart::Recovery(saved) => {
+            EpisodeStart::Recovery(saved, _) => {
                 RetargetEnv::from_episode(design.clone(), config, saved)
             }
         }
@@ -447,7 +504,7 @@ fn build_env_with_start(
             EpisodeStart::Fresh(_, execution) => {
                 OptimizerEnv::new_with_execution(design.clone(), config, execution.cloned())
             }
-            EpisodeStart::Recovery(saved) => {
+            EpisodeStart::Recovery(saved, _) => {
                 OptimizerEnv::from_episode(design.clone(), config, saved)
             }
         }
@@ -512,3 +569,7 @@ pub(super) struct Slot {
     pub(super) tgt: MaterialLabel,
     pub(super) obs: GemstoneObservation,
 }
+
+#[cfg(test)]
+#[path = "runner_env_tests.rs"]
+mod tests;

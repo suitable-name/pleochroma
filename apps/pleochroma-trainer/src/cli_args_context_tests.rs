@@ -19,6 +19,44 @@ fn full_recovery_and_weight_warm_start_are_distinct() {
 }
 
 #[test]
+fn relabel_is_a_resume_permission_that_is_never_saved() {
+    let resume = run_args(&["--resume", "run", "--relabel"]);
+    assert!(resume.relabel);
+    assert!(
+        parse(&["--relabel"])
+            .unwrap_err()
+            .contains("--relabel applies only to --resume")
+    );
+    let saved: CliArgs = serde_json::from_value(serde_json::to_value(&*resume).unwrap()).unwrap();
+    assert!(!saved.relabel);
+    assert!(HELP.contains("Ctrl-C (SIGINT) or SIGTERM"));
+}
+
+#[test]
+fn the_imitation_gradient_clip_is_range_checked_and_reaches_the_configuration() {
+    assert_eq!(build_config(&run_args(&[])).imitation.max_grad_norm, 1.0);
+    let args = run_args(&["--max-grad-norm", "0.25"]);
+    assert_eq!(args.max_grad_norm, Some(0.25));
+    let config = build_config(&args);
+    assert_eq!(config.imitation.max_grad_norm, 0.25);
+    assert_eq!(config.ppo.max_grad_norm, PpoConfig::default().max_grad_norm);
+    for value in ["0", "-1", "nan", "inf", "x"] {
+        assert!(parse(&["--max-grad-norm", value]).is_err(), "{value}");
+    }
+    assert!(parse(&["--max-grad-norm"]).is_err());
+    let notes = run_args(&["--algo", "ppo", "--max-grad-norm", "0.5"]).ignored_flag_notes();
+    assert_eq!(
+        notes,
+        ["--max-grad-norm applies to --algo imitation only and is ignored"]
+    );
+    // Runs saved before the flag existed resume with the built-in clip.
+    let mut saved = serde_json::to_value(&*run_args(&[])).unwrap();
+    saved.as_object_mut().unwrap().remove("max_grad_norm");
+    let restored: CliArgs = serde_json::from_value(saved).unwrap();
+    assert_eq!(restored.max_grad_norm, None);
+}
+
+#[test]
 fn saved_cli_settings_round_trip_without_reapplying_machine_defaults() {
     let args = run_args(&[
         "--mode",

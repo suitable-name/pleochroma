@@ -167,22 +167,24 @@ fn format_progress(snapshot: &ProgressSnapshot, total_iterations: usize) -> Vec<
     } else {
         snapshot.total_tasks.to_string()
     };
-    let steps_total = if snapshot.total_steps == 0 {
-        "unknown".to_owned()
+    let rollout = if snapshot.total_steps == 0 {
+        "rollout: none expected during this phase".to_owned()
     } else {
-        snapshot.total_steps.to_string()
-    };
-    let percent = if snapshot.total_steps == 0 {
-        String::new()
-    } else {
+        let eta = rollout_eta(snapshot).map_or_else(String::new, |seconds| {
+            format!(" | rollout ETA ~{} (estimate)", human_time(seconds))
+        });
         format!(
-            " ({:.1}%)",
+            "rollout {}/{} ({:.1}%){eta}",
+            snapshot.completed_steps,
+            snapshot.total_steps,
             100.0 * snapshot.completed_steps as f64 / snapshot.total_steps as f64
         )
     };
-    let eta = rollout_eta(snapshot).map_or_else(String::new, |seconds| {
-        format!(" | rollout ETA ~{} (estimate)", human_time(seconds))
-    });
+    let task_kind = if snapshot.phase.starts_with("validation:") {
+        "cases"
+    } else {
+        "tasks"
+    };
     let mut rows = vec![
         format!(
             "iter {}/{} [{}] | iteration elapsed {}",
@@ -191,12 +193,9 @@ fn format_progress(snapshot: &ProgressSnapshot, total_iterations: usize) -> Vec<
             snapshot.status,
             human_time(snapshot.elapsed_seconds)
         ),
+        rollout,
         format!(
-            "rollout {}/{steps_total}{percent}{eta}",
-            snapshot.completed_steps
-        ),
-        format!(
-            "{} | tasks {}/{task_total} | phase {}",
+            "{} | {task_kind} {}/{task_total} | phase {}",
             snapshot.phase,
             snapshot.completed_tasks,
             human_time(snapshot.phase_elapsed_seconds)
@@ -207,23 +206,41 @@ fn format_progress(snapshot: &ProgressSnapshot, total_iterations: usize) -> Vec<
         snapshot.oldest_active_task_seconds,
     ) {
         (Some(detail), Some(seconds)) => {
-            rows.push(format!("active {detail} | age {}", human_time(seconds)));
+            let detail_age = snapshot
+                .oldest_active_detail_seconds
+                .map_or_else(|| "unknown".to_owned(), human_time);
+            rows.push(format!(
+                "active {detail} | detail age {detail_age} | task age {}",
+                human_time(seconds)
+            ));
         }
         _ => rows.push(snapshot.seconds_since_task_completion.map_or_else(
             || "active task: none reported".to_owned(),
             |seconds| format!("last task completed {} ago", human_time(seconds)),
         )),
     }
-    rows.push(format!(
-        "label requests: {} fresh / {} cached",
-        snapshot.fresh_labels, snapshot.reused_labels
-    ));
+    if snapshot.total_steps > 0 {
+        rows.push(format!(
+            "label requests: {} fresh / {} cached",
+            snapshot.fresh_labels, snapshot.reused_labels
+        ));
+    }
     if let Some(environment) = &snapshot.environment {
         rows.push(format!(
             "CUDA: {} optical scores | {} solid arrangements | {} projection probes",
             environment.cuda_optical_requests,
             environment.solid.cuda_arrangements,
             environment.geometry.cuda_probes,
+        ));
+        rows.push(format!(
+            "CUDA meet proofs: {} | triples {} | capacity bypasses {}",
+            environment.geometry.arrangement_probes,
+            environment.geometry.arrangement_triples,
+            environment.geometry.arrangement_capacity_bypasses,
+        ));
+        rows.push(format!(
+            "Proof service: {:.1}s cumulative call wall; overlaps, not kernel time",
+            environment.geometry.arrangement_service_ms / 1_000.0,
         ));
         rows.push(format!(
             "CPU preservation: {} checks, {:.1}s cumulative wall time | {} cached certificates",
@@ -358,7 +375,7 @@ mod tests {
         assert!(rows.contains("iter 101/300"));
         assert!(rows.contains("rollout 0/4096 (0.0%)"));
         assert!(rows.contains("teacher probes | tasks 0/512"));
-        assert!(rows.contains("active slot 7 entry 2 tier 4 | age"));
+        assert!(rows.contains("active slot 7 entry 2 tier 4 | detail age"));
         assert!(!rows.contains("ETA"));
         drop(task);
         assert!(
@@ -366,5 +383,42 @@ mod tests {
                 .join(" | ")
                 .contains("tasks 1/512")
         );
+    }
+
+    #[test]
+    fn resumed_validation_shows_cases_and_proof_work_without_an_expected_rollout() {
+        let progress = TrainingProgress::default();
+        progress.begin(5, 0);
+        progress.phase("validation: CUDA policy/physics; host search control", 112);
+        let mut snapshot = progress.snapshot();
+        snapshot.completed_tasks = 2;
+        snapshot.environment = Some(pleochroma_ai::env::ExecutionSnapshot {
+            revision: pleochroma_ai::env::CUDA_ENVIRONMENT_MATH,
+            cuda_optical_requests: 211,
+            cpu_optical_fallbacks: 0,
+            last_fallback: None,
+            failure: None,
+            optics: Default::default(),
+            geometry: pleochroma_ai::gpu_geometry::GeometryDiagnostics {
+                arrangement_probes: 321_030,
+                arrangement_triples: 254_506_874_708,
+                arrangement_capacity_bypasses: 7,
+                arrangement_service_ms: 18_528_000.0,
+                ..Default::default()
+            },
+            solid: Default::default(),
+        });
+        let rows = format_progress(&snapshot, 300).join(" | ");
+        assert!(rows.contains("iter 5/300"));
+        assert!(rows.contains("rollout: none expected during this phase"));
+        assert!(
+            rows.contains("validation: CUDA policy/physics; host search control | cases 2/112")
+        );
+        assert!(
+            rows.contains("CUDA meet proofs: 321030 | triples 254506874708 | capacity bypasses 7")
+        );
+        assert!(rows.contains("18528.0s cumulative call wall; overlaps, not kernel time"));
+        assert!(!rows.contains("rollout 0/unknown"));
+        assert!(!rows.contains("ETA"));
     }
 }

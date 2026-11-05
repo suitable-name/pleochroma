@@ -73,48 +73,39 @@ fn unchanged_diagnostic_describes_the_first_proposal_when_no_scale_is_accepted()
 }
 
 #[test]
-fn adaptive_search_rechecks_capacity_and_uses_the_installed_pool() {
+fn adaptive_search_never_speculates_even_with_spare_pool_capacity() {
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(2)
         .build()
         .expect("test pool");
-    let mut sequential = fixture_env();
-    let mut adaptive = fixture_env();
-    let action = ContinuousTierAction::new(vec![0.0; sequential.base_design().tiers.len()]);
-    let expected = sequential.step_scaled(&action, &DEFAULT_LINE_SEARCH);
-    let checks = AtomicUsize::new(0);
-    let actual = pool.install(|| {
-        adaptive.step_scaled_adaptive(&action, &DEFAULT_LINE_SEARCH, &|| {
-            assert_eq!(rayon::current_num_threads(), 2);
-            checks.fetch_add(1, Ordering::Relaxed) > 0
-        })
-    });
-    assert_eq!(actual, expected);
-    // First scale ran serially; the second check enabled the remaining two scales.
-    assert_eq!(checks.load(Ordering::Relaxed), 2);
+    for spare in [true, false] {
+        let mut sequential = fixture_env();
+        let mut adaptive = fixture_env();
+        let action = ContinuousTierAction::new(vec![0.0; sequential.base_design().tiers.len()]);
+        let expected = sequential.step_scaled(&action, &DEFAULT_LINE_SEARCH);
+        let checks = AtomicUsize::new(0);
+        let actual = pool.install(|| {
+            adaptive.step_scaled_adaptive(&action, &DEFAULT_LINE_SEARCH, &|| {
+                checks.fetch_add(1, Ordering::Relaxed);
+                spare
+            })
+        });
+        assert_eq!(actual, expected);
+        // Smaller scales run only after a rejection, never on spare capacity.
+        assert_eq!(checks.load(Ordering::Relaxed), 0);
+    }
 }
 
 #[test]
-fn adaptive_search_keeps_checking_when_capacity_stays_busy() {
-    let mut env = fixture_env();
-    let action = ContinuousTierAction::new(vec![0.0; env.base_design().tiers.len()]);
-    let checks = AtomicUsize::new(0);
-    let _ = env.step_scaled_adaptive(&action, &DEFAULT_LINE_SEARCH, &|| {
-        checks.fetch_add(1, Ordering::Relaxed);
-        false
-    });
-    assert_eq!(checks.load(Ordering::Relaxed), DEFAULT_LINE_SEARCH.len());
-}
-
-#[test]
-fn adaptive_oracle_matches_serial_search_when_capacity_appears_mid_search() {
+fn adaptive_oracle_is_the_serial_search_without_consulting_capacity() {
     let env = fixture_env();
     let slopes = vec![Some(0.0); env.base_design().tiers.len()];
     let expected = env.oracle_outcome(&slopes, &DEFAULT_LINE_SEARCH);
     let checks = AtomicUsize::new(0);
     let actual = env.oracle_outcome_adaptive(&slopes, &DEFAULT_LINE_SEARCH, &|| {
-        checks.fetch_add(1, Ordering::Relaxed) > 0
+        checks.fetch_add(1, Ordering::Relaxed);
+        true
     });
     assert_eq!(actual, expected);
-    assert_eq!(checks.load(Ordering::Relaxed), 2);
+    assert_eq!(checks.load(Ordering::Relaxed), 0);
 }

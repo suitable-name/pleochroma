@@ -13,29 +13,34 @@ Every fact below is taken from the preset's own comment in `crates/pleochroma/sr
 | Source | Dubinsky, Stone-Sundberg & Emmett, Gems & Gemology Spring 2020 ([S1] in the code comment); CSV `gia_v3plus_fe2plus_ti4plus_sigma_5nm.csv` (1.98e-18 cm^2 at 580 nm E perpendicular to c, 1.25e-18 at 700 nm E parallel to c) |
 | Orientation / rays | o-ray (E perpendicular to c) and e-ray (E parallel to c), three energy-Gaussian bands each |
 | Temperature | Room (not stated in the comment) |
-| Thickness as used | A density of 10 ppma*cm of the pair, not a stone thickness |
+| Thickness as used | A density of 12.5 ppma*cm of the pair, not a stone thickness (10 ppma*cm until 2026-11-03, now the Medium Blue variant) |
 | Ordinate convention | Not stated |
 | Baseline / reflection treatment | Not stated |
 | Fit domain | Not stated for this entry (bounded 3-band energy-Gaussian fits) |
-| Deliberate strength adjustments | None applied. The comment notes that a factor 1.2 would give L* 51 instead of L* 57 |
-| Not known | The chemistry of any particular stone; the finished-stone color (the comment gives only the computed swatch, 7 mm, D65: L* 57, C* 40, h 283) |
+| Deliberate strength adjustments | One factor, 1.25 on every peak (owner decision 2026-11-03: the royal blue a fine sapphire is traded as is the default blue). Before it the comment noted that a factor 1.2 would give L* 51 instead of L* 57 |
+| Not known | The chemistry of any particular stone; the finished-stone color (the comment gives only the computed swatch, 7 mm, D65: L* 50, C* 44, h 285; face-up o-ray L* 39, C* 67, h 295; at 10 ppma*cm it was L* 57, C* 40, h 283) |
 | Where the bands live | `diamond_through_emerald.rs`, the Sapphire entry's `AbsorptionTensor::uniaxial` (inline bands; no named constant) |
 
 ## Ruby
 
+Since 2026-11-03 (owner: "make the ruby follow more the clean photo").
+
 | Field | Record |
 |---|---|
-| Sample id | GIA sample 1110 (Cr3+ cross sections) |
-| Source | Dubinsky, Stone-Sundberg & Emmett, Gems & Gemology Spring 2020 ([S1]); CSV `gia_cr3plus_sample1110_sigma.csv`; 1 ppma = 1.178e17 cm^-3 [S1] |
-| Orientation / rays | o-ray (E perpendicular to c) and e-ray (E parallel to c), three bands each (the o-ray is the stronger absorber; the e-ray's 397 nm band carries the measured E-parallel-c near-UV rise) |
-| Temperature | Room (not stated in the comment) |
-| Thickness as used | Scaled to 800 ppma*cm Cr (about 900 ppma over the 8.8 mm face-up path) |
-| Ordinate convention | Not stated |
-| Baseline / reflection treatment | Not stated |
-| Fit domain | Not stated for this entry (bounded 3-band energy-Gaussian fits) |
-| Deliberate strength adjustments | The density 800 ppma*cm is the owner's choice (decision 2026-10-19); 600 ppma*cm would be these peaks times 0.75 |
-| Not known | The chemistry of sample 1110 beyond Cr3+ (not stated); the finished-stone color. For comparison the comment gives the swatch (7 mm, D65) L* 41, C* 67, h 356 and GIA Appendix 2 "both" 38.7 / 70.8 / 352 at 750 ppma*cm |
-| Where the bands live | `diamond_through_emerald.rs`, the Ruby entry's `AbsorptionTensor::uniaxial` (inline bands; no named constant) |
+| Sample id | The GIA corundum chromophore cross sections, Cr3+ and Fe3+ (synthetic Czochralski crystals, SIMS / LA-ICP-MS analysed) |
+| Source | Dubinsky, Stone-Sundberg & Emmett, Gems & Gemology 56(1) 2-28 (2020) ([S1]), supplementary data; CSV `gia_dubinsky2020_corundum_six_chromophores_sigma_1nm.csv` (Napierian sigma, 1 nm); 1 ppma = 1.178e17 cm^-3 [S1] |
+| Orientation / rays | o-ray (E perpendicular to c, the `perp` columns) and e-ray (E parallel to c, `par`), seven energy Gaussians each |
+| Temperature | Room |
+| Thickness as used | Cr 400 and Fe 1000 ppma*cm over the face-up path (one model unit at 7 mm); about 0.10 wt% Cr and 0.28 wt% Fe, a Mozambique-type (amphibolite-hosted) ruby |
+| Ordinate convention | Napierian absorption coefficient, alpha = sigma N; the band peaks are absorbance per model unit |
+| Baseline / reflection treatment | As published (reflection-corrected cross sections); negative noise-floor values clipped to 0 |
+| Fit domain | 380-780 nm, least squares on transmittance plus a log-absorbance term; rms of T 1.8 % (o) / 0.6 % (e); dE2000 of the fitted swatch against the cross-section spectrum below 0.1. The 325 nm (o) and 370 nm (e) bands are ultraviolet edge stand-ins |
+| Deliberate strength adjustments | The two densities, chosen from renders of the Pentalume Sapphire design against a clean faceted-ruby photo on white (WEZ "Ruby cushion", L* 39 C* 52 h 14). Light Tent: Cr 800 alone (the former default) L* 30 C* 45 h 358; Cr 400 / Fe 750 L* 33 h 8; Cr 500 / Fe 1000 L* 30 h 11; chosen Cr 400 / Fe 1000 L* 32 C* 41 h 11 (Studio Softbox h 13). The measured Thai ruby GRR 1843 at its own strength renders h 9 but L* 27 |
+| Swatch (7 mm, D65) | o L* 36 C* 58 h 5; e L* 60 C* 57 h 37; unpolarised L* 46 C* 53 h 19 (two paths: h 26) |
+| Not known | The photo stone's origin and chemistry; the camera's rendering. The daylight R-line glow was tested (quantum yield 0.9): +3 L*, +2 deg of hue, so it does not explain the gap (and it is physics-color only) |
+| Where the bands live | `diamond_through_emerald.rs`, the Ruby entry's `AbsorptionTensor::uniaxial` |
+
+Replaced: the GIA sample 1110 Cr3+ cross sections alone at 800 ppma*cm (owner decision 2026-10-19), three bands per ray; swatch L* 41 C* 67 h 356, a magenta-pink face-up (Light Tent h 358). Lighter Cr alone opens the blue window and turns the stone pinker, so it cannot follow the photo; Fe3+ closes that window.
 
 ## Emerald
 
@@ -197,7 +202,7 @@ An unresolved data question, recorded rather than settled; no factor is applied.
 | Ordinate convention | Decadic absorbance (net amplitudes) |
 | Baseline / reflection treatment | Linear baseline plus one Gaussian, fitted together; net amplitudes used. Baseline offset about 0.46 absorbance |
 | Fit domain | 420-1600 nm (the file runs 300-2599 nm); rms residual 0.042 absorbance |
-| Deliberate strength adjustments | Strength is tuned: the measured net 2.73 over 0.997 mm gives A = 19 (decadic) along c over 7 mm, opaque, and a dark-blue zone is not a gem; no concentration is published. The e-ray peak stays at 2.0 model units (the swatch depth of the earlier entry); the o-ray peak follows the measured ratio, 2.0 x 0.053, written 0.11. Only the SHAPE is fitted |
+| Deliberate strength adjustments | Strength is tuned: the measured net 2.73 over 0.997 mm gives A = 19 (decadic) along c over 7 mm, opaque, and a dark-blue zone is not a gem; no concentration is published. The e-ray peak was 2.0 model units (the swatch depth of the earlier entry) and the o-ray peak followed the measured ratio, 2.0 x 0.053, written 0.11. 2026-11-03 (owner: "a bit more saturated") both x 2, 4.0 and 0.22, chosen from renders of the Pentalume Sapphire design (Light Tent C* 17 at x 1, 22 at x 1.5, 27 at x 2, 33 at x 3; chosen L* 61 C* 27 h 274); swatch e-ray L* 53 C* 70 h 278, o-ray L* 93 C* 8. The c axis lies in the table (2026-11-03). Only the SHAPE is fitted |
 | Fitted shape | e-ray centre 698 nm (1.776 eV), FWHM 0.88 eV (7100 cm^-1); o-ray centre 603 nm (2.057 eV), FWHM 1.07 eV (8630 cm^-1), net amplitude 0.146 against 2.73 for the e-ray (ratio 0.053, poorly defined). The measured e-ray band is asymmetric (half-maximum at 559 and 929 nm; 1.47 absorbance at 1000 nm); one Gaussian is the model's simplification |
 | Not known | The chemistry of the sample and the gem-grade concentration; the cause of color (Fe2+-Ti4+ or Fe2+-Fe3+ charge transfer and Zr in the Ti site have been proposed, none confirmed); the ultraviolet edge (0.62 absorbance at 350 nm, both rays) is not modelled. The earlier 635 nm / sigma 60 nm band and its Fe2+-Ti4+ attribution were tuned, not measured |
 | Where the bands live | `peridot_through_benitoite.rs`, the Benitoite entry's `AbsorptionTensor::uniaxial` (inline bands; no named constant) |
@@ -216,7 +221,7 @@ The color-chemistry guide `garnet_peridot_zircon_benitoite.md` (section 7) still
 | Ordinate convention | Absorbance |
 | Baseline / reflection treatment | The file is "corrected for baseline"; no further treatment |
 | Fit domain | Gaussians in energy with a quadratic baseline over 330-800 nm for the read of the measured widths and centres; the preset itself uses wavelength-domain Gaussians (`AbsorptionBand::new`) |
-| Deliberate strength adjustments | 540 nm band: centre cited (measured 538 nm), width (sigma 55 nm) and peak (2.4) stay tuned; the measured FWHM is 77 nm (sigma 33 nm), narrower, and narrowing it changes the look, a separate owner decision. 395 nm band added: centre 395 nm (fit 398 nm, raw maximum 391 nm, +-10 nm), sigma 27 nm (FWHM 0.48 eV, about 60-65 nm), peak 1.6 x 2.4 = 3.84. The peak ratio is 1.62 raw (natural) and 1.61 (synthetic); the baseline-subtracted ratio is 2.1 and the Gaussian-amplitude ratio 1.37, so the range is 1.4-2.1 |
+| Deliberate strength adjustments | SUPERSEDED 2026-11-03 (the dealer-photo round): the measured JQ-13 spectrum itself (the Pink variant's four energy Gaussians) at 4 x that variant, swatch L* 41 C* 67 h 18, Light Tent about h 18 against eleven red spinel photos at 27. Before: 540 nm band: centre cited (measured 538 nm), width (sigma 55 nm) and peak (2.4) stay tuned; the measured FWHM is 77 nm (sigma 33 nm), narrower, and narrowing it changes the look, a separate owner decision. 395 nm band added: centre 395 nm (fit 398 nm, raw maximum 391 nm, +-10 nm), sigma 27 nm (FWHM 0.48 eV, about 60-65 nm), peak 1.6 x 2.4 = 3.84. The peak ratio is 1.62 raw (natural) and 1.61 (synthetic); the baseline-subtracted ratio is 2.1 and the Gaussian-amplitude ratio 1.37, so the range is 1.4-2.1 |
 | Not known | The chemistry of JQ-13; the ultraviolet edge below 380 nm (0.65 absorbance at 350 nm) is not modelled; published peak tables (Taran, Andreozzi, Malsy and Klemm) were not compared; the width of the 395 nm band is uncertain because its ultraviolet side is entangled with the edge. Blue spinel (Co2+) is a different chromophore and is not modelled |
 | Where the bands live | `spinel_through_tourmaline.rs`, the Spinel entry's `AbsorptionTensor::isotropic` (inline bands; no named constant) |
 
@@ -303,6 +308,8 @@ The Ametrine's citrine zone is the catalogue recipe, not this entry (see Amethys
 
 ### Chrysoberyl (Yellow)
 
+Superseded 2026-11-03 (0.5 x the Greenish Yellow tensor plus 0.15 x the Alexandrite Cr3+; see the dealer-photo round below).
+
 | Field | Record |
 |---|---|
 | Sample id | Caltech GRR 171, greenish-yellow chrysoberyl, Minas Gerais, Brazil, 1.193 mm (beta and gamma rays) |
@@ -318,6 +325,8 @@ The Ametrine's citrine zone is the catalogue recipe, not this entry (see Amethys
 | Where the bands live | `aquamarine_through_citrine.rs`, the Chrysoberyl (Yellow) entry's `AbsorptionTensor::biaxial` (inline bands; no named constant) |
 
 ### Topaz
+
+Superseded 2026-11-03: the default is now the electron-irradiated GRR 825c (see the dealer-photo round below); this record describes the GRR 1632 fit it replaced.
 
 | Field | Record |
 |---|---|
@@ -350,6 +359,8 @@ The Ametrine's citrine zone is the catalogue recipe, not this entry (see Amethys
 | Where the bands live | `zircon_through_topaz.rs`, the Zircon entry's `AbsorptionTensor::uniaxial` (inline bands; no named constant) |
 
 ### Tourmaline
+
+Strength superseded 2026-11-03 (3.5 x the crystal plus 5.5 x the Yellow variant; see the dealer-photo round below).
 
 | Field | Record |
 |---|---|
@@ -387,11 +398,175 @@ Quartz (rock crystal), Synthetic Moissanite, Labradorite and Moonstone have no v
 
 ### Pyrope (comment fix)
 
-No fit. The entry's comment labelled the 505 nm band Cr3+; since 2026-10-27 it says what R3 found: the 504 / 521 nm bands are Fe2+ (GIA G&G Winter 2015; Caltech GRR 83 and GRR 131), Cr3+ gives 410 and 570 nm. The numbers are unchanged (`garnets_pyrope_through_spessartine.rs`).
+The entry's comment labelled the 505 nm band Cr3+; since 2026-10-27 it says what R3 found: the 504 / 521 nm bands are Fe2+ (GIA G&G Winter 2015; Caltech GRR 83 and GRR 131), Cr3+ gives 410 and 570 nm. Superseded by the fit of 2026-11-03 below.
+
+## Pyrope (2026-11-03)
+
+| Field | Record |
+|---|---|
+| Sample id | Caltech GRR 1055 pyrope, Moses Rock, Utah (Ca0.33 Mn0.02 Mg2.13 Fe0.54 Al1.95 Cr0.07) |
+| Source | Caltech Mineral Spectroscopy Server; CSV `variant_pyrope_chrome_iso.csv` |
+| Orientation / rays | Isotropic (cubic) |
+| Temperature | Room |
+| Thickness as used | Recorded at 0.840 mm; used at k = 0.22 of the sample's chromophores per mm over the 9.905 mm face-up path of a 7 mm stone |
+| Ordinate convention | As fit record F3-02 (docs/color_variants/fit_records/garnet_peridot_zircon_benitoite_tanzanite.md) |
+| Baseline / reflection treatment | As fit record F3-02 |
+| Fit domain | The Chrome Pyrope variant's energy-Gaussian fit (F3-02, per mm at k = 0.17), every peak x 0.22 / 0.17 x 9.905 to model units |
+| Deliberate strength adjustments | k = 0.22, chosen from renders of the Pentalume Sapphire design (Light Tent: k 0.17 L* 29 C* 30 h 12, k 0.3 L* 20 C* 22 h 12) against a faceted pyrope photo on white (L* 27, h 29): a deep Bohemian red, a little deeper than the Chrome Pyrope variant |
+| Not known | A pyrope-rich stone without Cr is nearly colorless; the default stands for the usual Cr- and Fe-bearing red pyrope |
+| Where the bands live | `garnets_pyrope_through_spessartine.rs`, function `pyrope_absorption` |
+
+Replaced: two tuned wavelength bands (505 and 570 nm) with no blue absorption, which rendered every pyrope a hot magenta (Light Tent L* 42 C* 60 h 323).
+
+## Almandine (2026-11-03)
+
+| Field | Record |
+|---|---|
+| Sample id | Caltech GRR 1776 almandine ([Fe2.5 Mg0.3 Mn0.2 Ca0.1]Al2.0(SiO4)3) |
+| Source | Caltech Mineral Spectroscopy Server; CSV `variant_almandine_purplish_iso.csv` |
+| Orientation / rays | Isotropic (cubic) |
+| Temperature | Room |
+| Thickness as used | Recorded at 0.213 mm (merged file); used at k = 0.35 of the sample's Fe per mm over the 9.905 mm face-up path of a 7 mm stone |
+| Ordinate convention | As fit record F3-03 |
+| Baseline / reflection treatment | As fit record F3-03 |
+| Fit domain | The Purplish variant's energy-Gaussian fit (F3-03, per mm at k = 0.3), every peak x 0.35 / 0.3 x 9.905 to model units |
+| Deliberate strength adjustments | k = 0.35, chosen from renders of the Pentalume Sapphire design (Light Tent: k 0.3 L* 25 C* 30 h 13, k 0.5 L* 18 C* 14 h 13) against a faceted almandine photo on white (L* 24, C* 28, h 25): a deep red a touch deeper than the Purplish variant |
+| Not known | The finished-stone color of the sample itself (k = 1 renders nearly black at 7 mm) |
+| Where the bands live | `garnets_pyrope_through_spessartine.rs`, function `almandine_absorption` |
+
+Replaced: three tuned wavelength bands (505, 520, 573 nm) with no blue absorption, which rendered every almandine a hot magenta (Light Tent L* 51 C* 68 h 329).
+
+## Titanite (Sphene) (2026-11-03)
+
+| Field | Record |
+|---|---|
+| Sample id | Caltech titanite Titanite1478, yellow-green, cleavage face of a 4 cm crystal, (Lac Alaotra?) Madagascar |
+| Source | G. R. Rossman, Caltech Mineral Spectroscopy Server, `http://minerals.gps.caltech.edu/FILES/Visible/titanite/Titanite1478.gif` (a figure; no numeric file); digitised 2026-11-03 to CSV `caltech_titanite_1478_digitized_3p91mm.csv` (10 nm steps, about +-0.005 A) |
+| Orientation / rays | E parallel b taken as Y (n_beta), used as measured. E parallel c mixes Z and X (Z ^ c = 51 deg in Dana's setting: about 0.4 Z + 0.6 X); gamma (Z) = 2 x E parallel c and alpha (X) = 0.3 x E parallel c are ESTIMATED (X nearly colorless, Z red-yellow to orange: Dana 1892 after Rosenbusch; Handbook of Mineralogy). 0.4 x 2 + 0.6 x 0.3 = 0.98 rebuilds E parallel c |
+| Temperature | Room (not stated) |
+| Thickness as used | Recorded at 3.91 mm; used at 0.28 times the sample's absorption per mm over the 9.905 mm face-up path (0.7 times until the dealer-photo round, 2026-11-03) |
+| Ordinate convention | Decadic absorbance read off the figure; alpha per mm = ln 10 (A - 0.125) / 3.91 |
+| Baseline / reflection treatment | The plot's flat level near 900 nm, 0.125 in both rays (reflection loss and scatter), removed |
+| Fit domain | 430 (E parallel b) / 460 (E parallel c) to 780 nm; the values above A = 1 are off the plot. Three energy Gaussians per ray: an ultraviolet edge (323.6 nm / 400 nm, the latter on its bound), the 609 nm band of E parallel b, and weak bands at 484-567 nm. Relative rms 3.4 % / 4.1 % |
+| Deliberate strength adjustments | 0.7 times the sample at first, chosen from renders of the Pentalume Sapphire design (Light Tent: 0.5 times L* 65 C* 37 h 96-99, 1.0 times L* 52 C* 33-36 h 91-95): a medium yellow-green. The same day 0.28 times (the dealer photos, median hue 108; render h 101, see the dealer-photo round) |
+| Indices | Busz 1887 (St. Gotthard, no iron in the analysis), via Dana 1892 p. 714, n_alpha / n_beta / n_gamma at 670.8, 589.3 and 535.0 nm; one-pole Sellmeier curves with one shared pole (0.1524 um), largest residual 0.0013. D line: 1.88795 / 1.89415 / 2.01057, birefringence 0.1226, 2V_z 27 deg; B-G 0.057 (alpha, beta), 0.064 (gamma), extrapolated below 535 nm |
+| Not known | Pure X and Z spectra; the cause of the bands (Fe3+, Ti3+, Fe-Ti charge transfer and REE are proposed); the iron and REE of the sample. The gem tables' B-G 0.051 names no ray |
+| Where the bands live | `titanite.rs`, `built_in_material_titanite` |
+
+## Alexandrite (2026-11-03)
+
+| Field | Record |
+|---|---|
+| Sample id | Caltech GRR 874 alexandrite (Lake Manyara, Tanzania, 0.717 mm) for Cr3+; Caltech GRR 171 chrysoberyl (the Chrysoberyl (Yellow) spectra) for Fe3+ |
+| Source | Caltech Mineral Spectroscopy Server, G. R. Rossman, CC BY-NC 4.0; CSV `caltech_chrysoberyl_grr874_beta_ch874a_0p717mm.csv`, `variant_alexandrite_grr874_gamma_0p717mm.csv`, `variant_chrysoberyl_yellow_grr171_*.csv` |
+| Orientation / rays | beta = E parallel a (`beta_ray`), gamma = E parallel b (`e_ray`, along `c_axis`), alpha = E parallel c (`o_ray`). Beta and gamma measured; alpha ESTIMATED from the gamma ray (split at 490 nm, 4T2 half moved 597 to 568 nm at 0.6 x, 4T1 half 415 to 418 nm at 1.0 x, Farrell & Newnham Fig. 4 ratios) |
+| Temperature | Room |
+| Thickness as used | Per mm of the samples, Cr 0.15 x GRR 874 and Fe3+ 0.10 x GRR 171, over the 9.905 mm face-up path of a 7 mm stone (model units: per mm x 9.905) |
+| Ordinate convention, baseline | As the fit record: constants 0.1108 / 0.1552 removed, the Cr3+ R line (672-690 nm) interpolated |
+| Fit domain | Six energy Gaussians per ray, 380-780 nm (the fit record's Alexandrite Material Default section) |
+| Deliberate strength adjustments | The two factors, chosen for a green by daylight and a red to purplish red under 3200 K (three-ray mean L* 54 C* 17 h 132 / L* 53 C* 12 h 20). Renders of the Pentalume Sapphire design: Light Tent h 164, Incandescent h 333 C* 15 |
+| Not known | The alpha ray; GRR 874's own Cr content (a Cr-rich stone, about 1 wt% Cr2O3 by one unverified cross section) |
+| Where the bands live | `zircon_through_topaz.rs`, the Alexandrite entry |
+
+Replaced: the tuned two-band sets after Farrell & Newnham (band positions cited, widths and amplitudes set by hand), whose stone went from a yellowish green (Light Tent h 129) to an orange (Incandescent h 45) and never to red. The fit was the color variant Strong Change, removed when it became the default.
+
+## Dealer-photo round (2026-11-03)
+
+Owner: "I want them to match the pictures of actual gemstones." Reference: about 24 product photos per gem from one dealer (GemSelect; standardised light-grey studio photos), saved in the lead's private comparison folder and never shipped, measured with the render statistics (stone mask on a plane-fitted background, several stones per photo counted) plus the hue of the colored pixels only (C* > 10), which neutral shadows and white glints cannot pull. The source is not biased in hue for the stones checked before: Sapphire renders 2 deg and Ruby 5 deg from its medians. Renders: Pentalume Sapphire design, Light Tent, the colored-pixel hue. These rows supersede the strength rows of the records above for the same entries.
+
+| Entry | Photos (n, median hue) | Before | Change | After |
+|---|---|---|---|---|
+| Zircon | 18, colorless (C* 0.7) | lilac, C* 11 | the U4+ lines x 0.05 (a low-uranium zircon) | swatch C* 1 |
+| Grossular Garnet (Tsavorite) | 22, h 139 | h 152 | x 0.5 (0.25 x the GRR 229 sample's V) | h 143 |
+| Andradite Garnet (Demantoid) | 19, h 117 | h 150 | 0.15 x GIA 2952 plus the Topazolite variant (Fe3+ andradite GRR 48), refitted | h 120 |
+| Andalusite | 23, h 71 (and 6 Commons photos, h 64) | h 51 | 0.65 x the Fe-Ti crystal plus 0.35 x the Greener variant, refitted | h 75 |
+| Aquamarine | 20, h 241 | h 252 | 0.6 x GRR 1488 plus 0.4 x the Greenish variant, refitted | h 240 |
+| Morganite | 16, h 24 | h 348 | 0.35 x the pink set plus 0.65 x the Peach variant | h 20 |
+| Almandine Garnet | 21, h 29 | h 16 | plus the Spessartine built-in's Mn2+ at 0.3, refitted (dE2000 4.9) | h 26 |
+| Pyrope Garnet | 19, h 26 | h 13 | plus the Spessartine built-in's Mn2+ at 0.6, refitted (dE2000 2.5) | h 19 |
+| Tourmaline | 14, h 121, L* 52 | h 146, L* 78 | 3.5 x the elbaite plus 5.5 x the Yellow variant (GRR 1935 yellow); the first step 2 x + 1 x gave h 127, L* 71 | h 125, L* 62 |
+| Chrysoberyl (Yellow) | 23, h 109 | h 76 | 0.5 x the Greenish Yellow variant (0.3 x GRR 171) plus 0.15 x the Alexandrite Cr3+ (traces of Cr in a greenish-yellow chrysoberyl), refitted; the Greenish Yellow tensor alone gave h 93, a pale cream, and more Cr greys it (0.6 x + 0.25 x: h 113, L* 57, a khaki); the 0.7 x default is the Golden variant | h 111, L* 64 (photos L* 64) |
+| Titanite (Sphene) | 24, h 108 | h 94 | x 0.4 (0.28 x the sample); no split of the estimated alpha / gamma rays and no strength goes past h 102 with the one measured crystal | h 101 |
+| Topaz | 22, h 247 | h 231 | the electron-irradiated GRR 825c (Swiss / sky blue type) in place of the neutron-irradiated GRR 1632, without its brown centre (removed by the heating of commercial blue topaz), gamma = beta (estimated), 2 x the crystal | h 245 |
+| Tourmaline (second step) | 14, h 121, L* 52, C* 28.5 | h 125, L* 62, C* 66 (a lime, 2.3 x the photos' chroma where the matched materials sit near 1.4 x) | the elbaite x 1.45 and the yellow part x 0.9 of the first step, plus 0.7 x the Pink variant's Mn3+, which greys the green window; more Pink or Rubellite alone pulls the hue to yellow (Rubellite 0.3 x: h 99), Indicolite pulls it back but adds chroma; refitted to eight bands a ray | h 122, L* 41, C* 50 (swatch L* 52 C* 46 h 124) |
+| Color-Change Garnet (Pyrope-Spessartine) | 24 stones (the common Tanzanian type), day light h 86, L* 59 (4 plain-background day / lamp pairs; 40 day-light views: h 72); under a lamp 16 deg more orange (h 70) | h 299, a violet (hand-tuned bands: a strong 573 nm band between a blue-green and a red window) | the measured Tunduru spectrum (Caltech GRR 2225) with its 581 nm V3+ / Cr3+ band x 0.25, the whole x 1.2 of the variant's strength; at x 1.0 the band gives the rare blue-to-purple type (day h 202, lamp h 302) | day h 86, L* 60, C* 36; lamp h 70 (shift -16) |
+
+Not changed: Peridot (photos 115, render 113), Emerald (159, 164), Spessartine (51, 57), Citrine (87, 91), Sapphire (288, 290), Ruby (7, 12), Tanzanite (289, 298). Amethyst renders h 333 against 316 at every strength and orientation and with both variants; violet-rich stones photograph bluer than the eye sees them (a camera's red channel lacks the eye's second red-cone peak near 445 nm; Tanzanite +9, Amethyst +17, Sapphire +2), so the gap was left (closed on 2026-11-04 by moving the main band: see Remaining dealer-photo gaps). Spinel: eleven red spinels (h 27, quartiles -4 / +11) against the tuned render's 350: the measured JQ-13 spectrum at 4 x the Pink variant (renders h 16 at 3 x, h 20 at 5 x) replaced the tuned bands.
+
+Ametrine (zoning check, same day): the built-in's citrine half went from 14 to 11 ppma iron (`AMETRINE_CITRINE_FE_PPMA`); the amethyst half stays at the Anahi iron. Reference: sixteen dealer photos of ametrine, hue shares of the colored pixels (C* > 8) as purple (h 280-15) / peach blend (h 15-60) / yellow (h 60-120): median 30 / 28 / 34 %, purple quartiles 7 / 30 / 50 %. Renders (Pentalume Sapphire, Light Tent face-up): 14 ppma 21 / 56 / 23, 8 ppma 39 / 42 / 19, 11 ppma 25 / 54 / 21. The large blend share is the half-space geometry (most light crosses both halves), not the iron. The typical Split and Sectors patterns of Citrine and Ametrine, and the Color Pattern window's Ametrine preset, took the seeds amethyst L* 46 C* 45 h 305 and citrine L* 84 C* 58 h 85 (they were L* 48 C* 42 and L* 82 C* 72 h 88): the Split went from 20 / 14 / 65 to 31 / 34 / 33, the Sectors from 25 / 10 / 64 to 33 / 25 / 41.
+
+## Effect-stone bodies (2026-11-04)
+
+Owner: "Fix the white opal and labradorite bodies." Reference: the 23 usable GemSelect labradorite photos and four web photos of white opals (Australian and Ethiopian, private comparison folder), measured for the body (the stone's pixels with C* at most 18 and L* below 92) and the flashes (C* above 18, by hue class). Renders: Pentalume Sapphire design, softbox face-up, effects on, the app's haze asymmetry 0.4.
+
+| Entry | Photos | Before | Change | After |
+|---|---|---|---|---|
+| Precious Opal (White) | a milky, translucent white body with a slight cream (b* +3 to +14); flashes green and yellow-orange | a clear body (haze 0.15, barely visible): glass with flashes | haze 1.2 (switched on with the material) and one weak band at 400 nm (0.15 per model unit) for the cream; 0.8 to 2.5 all read milky, the cream band 0.08 to 0.2 gave b* +2 to +3.4 | a milky cream-white body, b* +3, the play-of-color unchanged |
+| Labradorite | an olive-grey translucent body, median L* 52, a* -1.9, b* +7.4 (body L* 10-90 % about 37-76); flashes mostly blue, some green and gold, almost no violet or red | a clear, colorless body (L* 10-90 % 9-89); a rainbow schiller (470-740 nm) face up | an olive-grey body of three neutral bands (0.4), a 400 nm yellow edge (0.8) and a 950 nm red tail (0.3), the same in all three directions; haze 0.25 (switched on with the material; 0.8 and more scattered the light before the lamellae and the schiller was gone); the lamellae parallel to the table by default (n_gamma = cos 79 Y + sin 79 Z, n_alpha = X: with n_gamma = Y they stood nearly upright, and face up the flash came only from light that had crossed the clear stone many times, which the body absorbs); the default flash range 400-560 nm (a domain's wavelength is Gaussian about the middle of the range, so 470-740 and 430-600 centred on green and flashed green, orange and red face up; larger domains did not help) | body L* 49 (32-75), olive grey; flashes blue 26 %, green 25 %, the rest the yellowish body edge and a little violet |
+
+## Remaining dealer-photo gaps (2026-11-04)
+
+Owner: "Fix the remaining gaps." Same photos and measure as the dealer-photo round (Light Tent face-up, the hue of the colored pixels).
+
+| Entry | Photos | Before | Change | After |
+|---|---|---|---|---|
+| Amethyst | 16+, h 316 | h 333 at every strength (the round above left it as a camera bias) | the main Fe4+ band from the Anahi slab's 537.1 to 549 nm (the literature's 540-550 nm), widths and strengths unchanged; 545 nm gave h 322, 555 nm h 309, a red band at 680 nm h 315-324 at lower chroma. The Ametrine keeps the Anahi recipe: its stones come from that mine and its photos' purple reads h 337 (the half-match test allows 25 deg for the amethyst half) | h about 316 (545: 322, 555: 309); swatch L* 53 C* 36 h 315 |
+| Titanite (Sphene) | 24, h 108 | h 101 | beta's 609 nm band (the yellow-green of E parallel b) x 3, an estimate (gem sphene is greener than the one measured crystal); x 2 gave h 104, gamma's ultraviolet edge x 0.6-0.7 changed nothing | h 108, chroma unchanged; swatch L* 88 C* 35 h 111 |
+| Labradorite (check) | 17 photos with a blue flash: flash hue 252, chroma 23 | | (the body round above) | Light Tent flash hue 261, chroma 22; softbox 272 |
+| Tourmaline Watermelon (check) | slices: pink L* 29-71, C* 16-30, h 348-21; green L* 13-60, C* 12-35, h 93-118. A search for faceted watermelons cut across c found none: faceted pink-and-green stones are cut along c (a pink stripe between green edges, or pink at one end) | the faceted comparison design blended pink and green to orange where light crosses both zones | none to the material: compared on an 18 mm, 4 mm thick slice model instead | pink h 349-350, green h 113-118, the geometry as the slices; lighter (pink L* 67-74, green L* 74-82), since the zone colors are solved for a faceted stone's face-up path and slices are cut from darker material |
+
+## Saturation round (2026-11-04)
+
+Owner, passing on a review: "The render seems to err toward saturated", and "I want photorealism". The earlier rounds matched hue; this one matches saturation.
+
+**Why not the display:** the CLI's linear XYZ dump (`PLEOCHROMA_LINEAR_XYZ_OUT`) fed a Python twin of the encode, which reproduces the PNGs exactly. Whiten, per-channel ACES, a blend and Mantiuk's correction all lower the median chroma, but none removes the spread between materials: s 0.55 needs a 7 deg hue shift. A lens veiling glare of 1-8 % of the frame's mean lowers the median by 0.18 at most and leaves the spread (log sd 0.34) unchanged. So the excess is per material.
+
+**Measure:** exposure-free, since the dealer photos are darker than the Light Tent renders (background L* 74 against 91; colorless diamonds on a light ground L* 28-43):
+- the CIELUV saturation s_uv = 13 |u'v' - D65| of the mean colored pixel (C* > 10), which a scale by black leaves unchanged;
+- only faceted, transparent stones count (90th-percentile Sobel gradient inside the stone at least 0.30; this drops cabochons and milky stones);
+- only photos with a single stone count.
+
+**Renders:** Pentalume Sapphire, Light Tent, each material at x 0.25 / 0.5 / 1 / 2 of its absorption.
+
+**Result:** at x 1 the median render / photo ratio was 1.28 (quartiles 1.01-1.64). The Commons photos of the shareable deck read richer than the dealer's commercial stones for Topaz, Tanzanite and Ruby, and as pale for Aquamarine.
+
+**Rule:**
+- where both photo sources agree, the factor whose render matches the dealer photos;
+- where the Commons photos are richer, half the gap in log terms;
+- for small-stone species, rounded toward 1, since a 4-6 mm stone has a shorter path than the 7 mm reference.
+
+| Entry | Photos s_uv (dealer; Commons) | Render s_uv at x 1 | Factor | After (rendered with the built CLI: s_uv, hue, render / dealer ratio; replica swatch) |
+|---|---|---|---|---|
+| Aquamarine | 0.30; 0.15, 0.31 | 0.57 (h 240) | x 0.3 | 0.32, h 234 (ratio 1.06); swatch L* 92 C* 10 h 233 |
+| Morganite | 0.28; - | 0.45 | x 0.6 | 0.34, h 23 (1.23); swatch L* 89 C* 12 h 18 |
+| Topaz | 0.48 (sky blue); 0.73-0.95 (Swiss blue) | 0.86 | x 0.7 | 0.64, h 242 (1.35); swatch L* 85 C* 29 h 238 |
+| Tanzanite | 0.79; 0.84, 1.76 | 1.57 (L* 30) | x 0.7 | 1.15, h 296, L* 40 (1.45); swatch L* 56 C* 40 h 290 |
+| Peridot | 0.79; 0.54-0.94 | 0.96 | x 0.6 | 0.79, h 114, L* 68 (1.00); swatch L* 84 C* 48 h 113 |
+| Grossular Garnet (Tsavorite) | 0.88 (small stones); - | 1.11 | x 0.7 (x 0.63 matches) | 0.92, h 140 (1.05); swatch L* 80 C* 62 h 137 |
+| Andradite Garnet (Demantoid) | 0.62 (small stones); 0.96 | 0.98 | x 0.35 | 0.79, h 116 (1.28); swatch L* 85 C* 59 h 115 |
+| Pyrope Garnet | 1.12 (L* 41, h 29, brownish); 0.81, 1.76 | 1.94 (L* 22) | x 0.45 | 1.36, h 16, L* 34 (1.21); swatch L* 46 C* 36 h 16 |
+| Spinel | 0.83 (L* 43, h 27, brownish); - | 2.13 (L* 32) | x 0.45 | 1.40, h 12, L* 48 (1.68); swatch L* 61 C* 50 h 7 |
+| Rutile (owner: "way less yellow in the photos"; the measure is the whole stone, as lab rutile has few body-colored pixels between its fire) | lab-rutile dealer 0.08-0.21 (median 0.14, C* 3-10); Commons synthetic round 0.14 | 0.53 (C* 33, a lemon yellow) | x 0.08 (the tuned 350 nm band, peak 8.0 -> 0.64) | about 0.14 (x 0.1: 0.17, x 0.05: 0.10), L* 86 unchanged |
+| Citrine | 0.79; 0.95-1.13 | 0.57 (a pale lemon) | x 2 | 0.80, h 83 (1.01); swatch L* 85 C* 77 h 87 |
+
+**Overall** (all twenty dealer-photo materials, rendered again): the median render / photo saturation went from 1.28 to 1.13 and the spread between materials (log sd) from 0.33 to 0.20; the unchanged entries render identically.
+
+**Left alone:**
+- Amethyst (render / photo 0.99), Almandine (1.02), Spessartine (0.96), Andalusite (1.10) and Emerald (1.17, the Commons photos 0.69-1.10) are already close.
+- Sapphire (1.29, x 0.71 would match) and Ruby (1.54 against two faceted dealer photos; the Commons rubies are as saturated as the render) keep the owner's strengths of 2026-11-03.
+- Tourmaline (1.50) does not fall monotonically with strength, and its photo set mixes colors.
+- Chrysoberyl (Yellow) (0.75) and Titanite (0.82) are under-saturated, but a stronger stone only darkens them: the gap is in the spectrum's shape.
+
+**Remaining gap:** Pyrope and Spinel turn pinker as they get lighter (h 16 and 13 against the photos' 29 and 27). Their photos are brownish, a grey mask under the red that the measured Cr3+ spectra lack. A 330 nm edge band moved Spinel by 4 deg only, and a stronger blue-violet part of Pyrope restored the hue (h 29) but raised the saturation to 2.0. A broad band needs room that the 8-band budget does not have.
+
+**Tests:**
+- the swatch ranges in `built_in_hues.rs` follow the replica values above;
+- the aquamarine orientation test's lightness bound is 5;
+- criterion 6 re-pinned from a run: Tanzanite 2.78 (it was 7.27; the lighter stone now agrees with the V3+ recipe), Peridot 0.10, Aquamarine 0.67, Citrine 1.28, seven of eight agree;
+- the Tsavorite Mint variant (0.18 x the GRR 229 vanadium) had come to sit at the default's strength (0.175 x); owner: "Make Mint paler so it differs from the default": Mint is now half the default (0.0875 x, L* 89 C* 41 h 133, dE2000 8.9 from the default), the scaled-copy test factor 0.5.
+
+Scripts: `sat_analysis.py`, `sat_glare.py`, `sat_purity.py`, `sat_matched.py`, `sat_swatches.py` (private workspace).
 
 ## No record yet
 
-Presets whose entry comment holds no fit to a recorded sample:
-
-- **Alexandrite** (`zircon_through_topaz.rs`): band positions are cited (Farrell & Newnham 1965, polarised absorption at 77 K) and the amplitudes are figure-read and scaled by hand ("tuned"), not fitted to a sample spectrum.
-- **Pyrope Garnet** (`garnets_pyrope_through_spessartine.rs`): widths and peaks are tuned for a deep red, band centres are cited (see the comment fix above).
+None left: Alexandrite, the last preset on this list, has had its record since 2026-11-03.

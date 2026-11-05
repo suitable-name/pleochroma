@@ -4,7 +4,8 @@
 //!
 //! A zoned material serialises WITHOUT its zones (`GemMaterial::zoning` is `serde(skip)`), so
 //! the viewer sends them first, as a [`ZoningPayload`] keyed by the request id, and the
-//! request after. Wherever this worker reads a `ClientMessage` -- the idle request loop
+//! request after. A coordinator does the same for every chunk it gives a joined worker (v36),
+//! whose `join` connection runs the same request loop. Wherever this worker reads a `ClientMessage` -- the idle request loop
 //! (`connection::requests`), the streaming emitter's poll, the HDR asset wait, the batch
 //! session, the tilt-curves poll -- a payload is [`stash`]ed here, and the request that
 //! follows [`take`]s it before it is validated and traced.

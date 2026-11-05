@@ -59,7 +59,8 @@ pub use teacher::{
     COMPONENT_BRILLIANCE_LOSS, COMPONENT_DEEPER_TONE_LOSS, COMPONENT_EXTINCTION,
     COMPONENT_LIGHTER_TONE_LOSS, COMPONENT_SHAPE_DISTANCE, COMPONENT_WINDOWING,
     COMPONENT_YIELD_LOSS, CoordinateProbe, DEFAULT_LINE_SEARCH, MEAN_BOUND, N_COMPONENTS,
-    OracleOutcome, SLOPE_EPS, SLOPE_NORM_FLOOR, TeacherLabel, TierProbe, TierProbeWork,
-    TierSensitivity, action_from_direction, assemble_label, direction_from_slopes, score_slopes,
+    OracleOutcome, SLOPE_EPS, SLOPE_NORM_FLOOR, TEACHER_SEARCH_RECOVERY_REVISION, TeacherLabel,
+    TeacherSearchSnapshot, TierProbe, TierProbeWork, TierSensitivity, action_from_direction,
+    assemble_label, direction_from_slopes, score_slopes,
 };
 pub use traits::{GemstoneRlEnv, Step, StepInfo, StepRejection};

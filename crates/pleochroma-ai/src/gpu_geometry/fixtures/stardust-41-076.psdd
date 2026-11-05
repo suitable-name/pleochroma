@@ -1,0 +1,668 @@
+format = "pleochroma-design"
+version = 1
+
+[meta]
+title = "41.076 Stardust"
+designer = "Durham, Dennis"
+designer_info = "Durham, Dennis; SDMGS Pegmatite, Apr 1996, p26"
+source_citation = "SDMGS Pegmatite, Apr 1996, p26"
+source_url = "https://facetdiagrams.org/diagram/41-076-stardust/"
+source_design_id = "106713"
+shape = "Long Octagon"
+notes = "Converter provenance: the enclosing block was inferred from the recorded cut, with 5% clearance on each axis. It is not measured rough and must not be used as a real yield target. Physical dimensions and material composition were not inferred."
+
+[preform]
+half_width = 0.806108218544485
+length_over_width = 1.302554388814097
+depth = 1.971253402655365
+y_offset = 0.0
+
+[preform.shape]
+kind = "block"
+
+[material]
+
+[schedule]
+gemcad_version = "4.51"
+gear_teeth = 96
+gear_reference_angle = 48.0
+symmetry_order = 2
+mirror = true
+refractive_index = 1.54
+headers = [
+    "PC 41.076 Stardust",
+    "Durham, Dennis: SDMGS Pegmatite, Apr 96, p26",
+]
+footnotes = []
+
+[[tiers]]
+name = "1"
+angle_deg = 55.0
+indices = [
+    34.0,
+    62.0,
+    82.0,
+    14.0,
+]
+original_notes = ""
+tier_id = 0
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.64988
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "2"
+angle_deg = 55.0
+indices = [
+    42.0,
+    54.0,
+    90.0,
+    6.0,
+]
+original_notes = ""
+tier_id = 1
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.58101
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "3"
+angle_deg = 41.5
+indices = [
+    48.0,
+    0.0,
+]
+original_notes = ""
+tier_id = 2
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.50871
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "4"
+angle_deg = 42.5
+indices = [
+    38.0,
+    58.0,
+    86.0,
+    10.0,
+]
+original_notes = ""
+tier_id = 3
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.52549
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "5"
+angle_deg = 36.99
+indices = [
+    72.0,
+    24.0,
+]
+original_notes = ""
+tier_id = 4
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.60168
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "6"
+angle_deg = 38.0
+indices = [
+    45.0,
+    51.0,
+    93.0,
+    3.0,
+]
+original_notes = ""
+tier_id = 5
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.49396
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "7"
+angle_deg = 42.0
+indices = [
+    42.0,
+    54.0,
+    90.0,
+    6.0,
+]
+original_notes = ""
+tier_id = 6
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.51369
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "8"
+angle_deg = 38.5
+indices = [
+    40.0,
+    56.0,
+    88.0,
+    8.0,
+]
+original_notes = ""
+tier_id = 7
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.49821
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "9"
+angle_deg = 23.62
+indices = [
+    42.0,
+    54.0,
+    90.0,
+    6.0,
+]
+original_notes = ""
+tier_id = 8
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.42761
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "10"
+angle_deg = 25.0
+indices = [
+    34.0,
+    62.0,
+    82.0,
+    14.0,
+]
+original_notes = ""
+tier_id = 9
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.46812
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "11"
+angle_deg = 38.66
+indices = [
+    36.0,
+    60.0,
+    84.0,
+    12.0,
+]
+original_notes = ""
+tier_id = 10
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.5253
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "12"
+angle_deg = 40.59
+indices = [
+    34.0,
+    62.0,
+    82.0,
+    14.0,
+]
+original_notes = ""
+tier_id = 11
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.55872
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "13"
+angle_deg = 34.9
+indices = [
+    31.0,
+    65.0,
+    79.0,
+    17.0,
+]
+original_notes = ""
+tier_id = 12
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.55318
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "14"
+angle_deg = 0.0
+indices = [48.0]
+original_notes = ""
+tier_id = 13
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.28805
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "15"
+angle_deg = -90.0
+indices = [62.0]
+original_notes = ""
+tier_id = 14
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.79335
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = ""
+angle_deg = -90.0
+indices = [
+    34.0,
+    14.0,
+    82.0,
+]
+original_notes = ""
+tier_id = 15
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.79335
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "16"
+angle_deg = -90.0
+indices = [
+    54.0,
+    42.0,
+    6.0,
+]
+original_notes = ""
+tier_id = 16
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.70928
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = ""
+angle_deg = -90.0
+indices = [90.0]
+original_notes = ""
+tier_id = 17
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.70928
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "17"
+angle_deg = -63.0
+indices = [
+    54.0,
+    42.0,
+    6.0,
+    90.0,
+]
+original_notes = ""
+tier_id = 18
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.64605
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "18"
+angle_deg = -63.0
+indices = [
+    62.0,
+    34.0,
+    14.0,
+    82.0,
+]
+original_notes = ""
+tier_id = 19
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.72096
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "19"
+angle_deg = -55.0
+indices = [
+    48.0,
+    0.0,
+]
+original_notes = ""
+tier_id = 20
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.64666
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "20"
+angle_deg = -51.38
+indices = [
+    68.0,
+    28.0,
+    20.0,
+    76.0,
+]
+original_notes = ""
+tier_id = 21
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.77401
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "21"
+angle_deg = -56.0
+indices = [
+    58.0,
+    38.0,
+    10.0,
+    86.0,
+]
+original_notes = ""
+tier_id = 22
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.66218
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "22"
+angle_deg = -56.41
+indices = [
+    54.0,
+    42.0,
+    6.0,
+    90.0,
+]
+original_notes = ""
+tier_id = 23
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.64657
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "23"
+angle_deg = -53.0
+indices = [
+    52.0,
+    44.0,
+    4.0,
+    92.0,
+]
+original_notes = ""
+tier_id = 24
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.65159
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "24"
+angle_deg = -48.0
+indices = [
+    54.0,
+    42.0,
+    6.0,
+    90.0,
+]
+original_notes = ""
+tier_id = 25
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.67218
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "25"
+angle_deg = -43.0
+indices = [
+    54.0,
+    42.0,
+    6.0,
+    90.0,
+]
+original_notes = ""
+tier_id = 26
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.69792
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "26"
+angle_deg = -40.0
+indices = [
+    52.0,
+    44.0,
+    4.0,
+    92.0,
+]
+original_notes = ""
+tier_id = 27
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.71908
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "27"
+angle_deg = -54.1
+indices = [
+    56.0,
+    40.0,
+    8.0,
+    88.0,
+]
+original_notes = ""
+tier_id = 28
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.65643
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "28"
+angle_deg = -39.42
+indices = [
+    62.0,
+    34.0,
+    14.0,
+    82.0,
+]
+original_notes = ""
+tier_id = 29
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.76263
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "29"
+angle_deg = -54.83
+indices = [
+    62.0,
+    34.0,
+    14.0,
+    82.0,
+]
+original_notes = ""
+tier_id = 30
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.71027
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "30"
+angle_deg = -54.1
+indices = [
+    60.0,
+    36.0,
+    12.0,
+    84.0,
+]
+original_notes = ""
+tier_id = 31
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.68828
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "31"
+angle_deg = -51.79
+indices = [
+    64.0,
+    32.0,
+    16.0,
+    80.0,
+]
+original_notes = ""
+tier_id = 32
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.73644
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[tiers]]
+name = "32"
+angle_deg = -48.87
+indices = [
+    62.0,
+    34.0,
+    14.0,
+    82.0,
+]
+original_notes = ""
+tier_id = 33
+
+[tiers.constraint]
+kind = "scale_reference"
+mast = 0.72591
+
+[tiers.imported_meet]
+kind = "meet_existing"
+
+[[attachments]]
+name = "source-291.asc"
+role = "asc"
+mime_type = "text/plain"
+url = "https://facetdiagrams.org/wp-content/uploads/diagram-files/pc41076.asc"
+size = 1159
+sha256 = "5368c6e519ac59585a607a232bcd4599458dc6b19a299bc697a28ec09810807a"
+data = "R2VtQ2FkIDQuNTEKZyA5NiA0OC4wCnkgMiB5CkkgMS41NApIIFBDIDQxLjA3NiBTdGFyZHVzdApIIER1cmhhbSwgRGVubmlzOiBTRE1HUyBQZWdtYXRpdGUsIEFwciA5NiwgcDI2CmEgNTUuMDAgMC42NDk4OCAzNCBuIDEgNjIgODIgMTQKYSA1NS4wMCAwLjU4MTAxIDQyIG4gMiA1NCA5MCA2CmEgNDEuNTAgMC41MDg3MSA0OCBuIDMgMAphIDQyLjUwIDAuNTI1NDkgMzggbiA0IDU4IDg2IDEwCmEgMzYuOTkgMC42MDE2OCA3MiBuIDUgMjQKYSAzOC4wMCAwLjQ5Mzk2IDQ1IG4gNiA1MSA5MyAzCmEgNDIuMDAgMC41MTM2OSA0MiBuIDcgNTQgOTAgNgphIDM4LjUwIDAuNDk4MjEgNDAgbiA4IDU2IDg4IDgKYSAyMy42MiAwLjQyNzYxIDQyIG4gOSA1NCA5MCA2CmEgMjUuMDAgMC40NjgxMiAzNCBuIDEwIDYyIDgyIDE0CmEgMzguNjYgMC41MjUzMCAzNiBuIDExIDYwIDg0IDEyCmEgNDAuNTkgMC41NTg3MiAzNCBuIDEyIDYyIDgyIDE0CmEgMzQuOTAgMC41NTMxOCAzMSBuIDEzIDY1IDc5IDE3CmEgMC4wMCAwLjI4ODA1IDQ4IG4gMTQKYSAtOTAuMDAgMC43OTMzNSA2MiBuIDE1CmEgLTkwLjAwIDAuNzkzMzUgMzQgMTQgODIKYSAtOTAuMDAgMC43MDkyOCA1NCBuIDE2IDQyIDYKYSAtOTAuMDAgMC43MDkyOCA5MAphIC02My4wMCAwLjY0NjA1IDU0IG4gMTcgNDIgNiA5MAphIC02My4wMCAwLjcyMDk2IDYyIG4gMTggMzQgMTQgODIKYSAtNTUuMDAgMC42NDY2NiA0OCBuIDE5IDAKYSAtNTEuMzggMC43NzQwMSA2OCBuIDIwIDI4IDIwIDc2CmEgLTU2LjAwIDAuNjYyMTggNTggbiAyMSAzOCAxMCA4NgphIC01Ni40MSAwLjY0NjU3IDU0IG4gMjIgNDIgNiA5MAphIC01My4wMCAwLjY1MTU5IDUyIG4gMjMgNDQgNCA5MgphIC00OC4wMCAwLjY3MjE4IDU0IG4gMjQgNDIgNiA5MAphIC00My4wMCAwLjY5NzkyIDU0IG4gMjUgNDIgNiA5MAphIC00MC4wMCAwLjcxOTA4IDUyIG4gMjYgNDQgNCA5MgphIC01NC4xMCAwLjY1NjQzIDU2IG4gMjcgNDAgOCA4OAphIC0zOS40MiAwLjc2MjYzIDYyIG4gMjggMzQgMTQgODIKYSAtNTQuODMgMC43MTAyNyA2MiBuIDI5IDM0IDE0IDgyCmEgLTU0LjEwIDAuNjg4MjggNjAgbiAzMCAzNiAxMiA4NAphIC01MS43OSAwLjczNjQ0IDY0IG4gMzEgMzIgMTYgODAKYSAtNDguODcgMC43MjU5MSA2MiBuIDMyIDM0IDE0IDgyCg=="

@@ -1,9 +1,10 @@
 //! Training data: the SQLite design library, the train / validation / test split, and the mineral
 //! spectrum the retarget task samples its target material from.
 //!
-//! Native documents retain authored inputs and embedded materials. Legacy ASC files receive
-//! an enclosing inferred rough and a deterministic physical-size augmentation because neither
-//! is recorded by that format. Unusable files are reported, never replaced by fixture designs.
+//! Native documents retain authored inputs and embedded materials. Missing physical sizes
+//! receive deterministic training augmentation unless millimetre targets need an authored scale;
+//! unspecified source materials may be sampled at episode creation. Legacy ASC files also receive
+//! an enclosing inferred rough. Unusable files are reported, never replaced by fixture designs.
 
 use std::{collections::BTreeMap, fmt, path::PathBuf};
 
@@ -12,9 +13,12 @@ use pleochroma_cut_core::{Design, ResolvedMaterial};
 
 #[path = "dataset_family.rs"]
 mod family;
+#[path = "dataset_identity.rs"]
+mod identity;
 #[path = "dataset_inputs.rs"]
 mod inputs;
 use family::normalized_geometry_key;
+pub use identity::CORPUS_IDENTITY_REVISION;
 #[path = "dataset_coverage.rs"]
 mod coverage;
 pub use coverage::DatasetCoverage;
@@ -110,9 +114,19 @@ pub struct DesignEntry {
     pub filename: String,
     /// The parsed design.
     pub design: Design,
-    /// Exact native source material, including an embedded custom-material snapshot.
-    /// `None` marks an ASC import whose unrecorded properties may be augmented.
+    /// Exact authored source material, including an embedded custom-material snapshot.
+    /// `None` permits episode sampling for an ASC or native file without material context.
     pub authored_material: Option<ResolvedMaterial>,
+    /// Whether the physical width was filled in memory for training rather than authored.
+    pub physical_size_augmented: bool,
+}
+
+impl DesignEntry {
+    /// Whether this record came from a native PSDD, independent of authored material fields.
+    #[must_use]
+    pub fn is_native(&self) -> bool {
+        inputs::is_native(&self.filename)
+    }
 }
 
 /// A record that was left out, and why.
@@ -181,14 +195,15 @@ impl DatasetSplit {
         let mut skipped = Vec::new();
         for record in records {
             match inputs::load_design_data(record, cap) {
-                Ok((design, authored_material)) => {
+                Ok(loaded) => {
                     by_record.push(Some(entries.len()));
                     entries.push(DesignEntry {
                         id: record.id,
                         title: record.title.clone(),
                         filename: record.filename.clone(),
-                        design,
-                        authored_material,
+                        design: loaded.design,
+                        authored_material: loaded.authored_material,
+                        physical_size_augmented: loaded.physical_size_augmented,
                     });
                     normalized_contents.push(normalized_geometry_key(
                         &entries.last().expect("just inserted").design,
@@ -280,6 +295,7 @@ impl DatasetSplit {
                 filename: "concave_fixture".to_owned(),
                 design,
                 authored_material: None,
+                physical_size_augmented: false,
             }],
             train: vec![0],
             val: vec![0],
@@ -518,6 +534,7 @@ mod tests {
                 title: "first".into(),
                 filename: "a.asc".into(),
                 authored_material: None,
+                physical_size_augmented: false,
                 design,
             },
             DesignEntry {
@@ -525,6 +542,7 @@ mod tests {
                 title: "renamed".into(),
                 filename: "b.asc".into(),
                 authored_material: None,
+                physical_size_augmented: false,
                 design: duplicate,
             },
         ];
@@ -548,6 +566,7 @@ mod tests {
                 title: "original".into(),
                 filename: "a.asc".into(),
                 authored_material: None,
+                physical_size_augmented: false,
                 design,
             },
             DesignEntry {
@@ -555,6 +574,7 @@ mod tests {
                 title: "attachment".into(),
                 filename: "b.asc".into(),
                 authored_material: None,
+                physical_size_augmented: false,
                 design: changed,
             },
         ];

@@ -29,6 +29,7 @@ pub use handshake::{connect_and_handshake, test_connection};
 pub use one_shot::{spawn_final_image_request, spawn_remote_render};
 pub use payload_setting::set_payload_choice;
 pub use persistent::spawn_remote_connection;
+pub use pool::close_idle as close_idle_connections;
 
 use super::types::{CurrentRequest, RemoteError, RemoteUpdate};
 use pleochroma_net::{client::ApplyOutcome, messages::StreamEvent};

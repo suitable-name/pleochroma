@@ -58,7 +58,38 @@ fn failed(text: &str) -> DesignOutcome {
 const ALL_PASSES: EvalPasses = EvalPasses {
     sampled: true,
     oracle: true,
+    noise: false,
 };
+
+#[test]
+fn evaluation_context_reports_sampled_and_authored_physical_sizes() {
+    let mut split = DatasetSplit::fixture();
+    let entry = &mut split.entries[0];
+    let weights = pleochroma_cut_core::ObjectivePreset::Balanced.weights();
+    entry.design.girdle_diameter_mm = Some(14.0);
+    entry.physical_size_augmented = true;
+    let sampled = new_case(entry, None, weights, 42).unwrap();
+    assert_eq!(sampled.physical_size_mm, Some(14.0));
+    assert!(sampled.physical_size_augmented);
+
+    entry.design.girdle_diameter_mm = Some(9.25);
+    entry.physical_size_augmented = false;
+    let authored = new_case(entry, None, weights, 42).unwrap();
+    assert_eq!(authored.physical_size_mm, Some(9.25));
+    assert!(!authored.physical_size_augmented);
+    assert_eq!(sampled.source_material, authored.source_material);
+
+    // Old case artifacts did not report scale; loading them must not fabricate a width.
+    let mut legacy = serde_json::to_value(&authored).unwrap();
+    legacy.as_object_mut().unwrap().remove("physical_size_mm");
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("physical_size_augmented");
+    let restored: EvalCase = serde_json::from_value(legacy).unwrap();
+    assert_eq!(restored.physical_size_mm, None);
+    assert!(!restored.physical_size_augmented);
+}
 
 #[test]
 fn accelerated_oracle_results_have_a_distinct_cache_key() {
@@ -141,6 +172,7 @@ fn without_the_oracle_figures_there_is_no_oracle_mean() {
         EvalPasses {
             sampled: true,
             oracle: false,
+            noise: false,
         },
         results,
     )
@@ -232,8 +264,138 @@ fn the_oracle_key_changes_with_everything_the_oracle_depends_on() {
         changed(&|c| c.same_material_frac = 0.0),
         "same material"
     );
-    // Settings the oracle does not depend on leave the key alone.
+    // The shared reference key includes the independent exploration baseline as well.
+    assert_ne!(
+        key,
+        changed(&|c| c.explore_std += 0.1),
+        "noise standard deviation"
+    );
+    // Neither reference depends on these training settings.
     assert_eq!(key, changed(&|c| c.workers += 1));
-    assert_eq!(key, changed(&|c| c.explore_std += 0.1));
     assert_eq!(key, changed(&|c| c.corpus_mode = !c.corpus_mode));
+}
+
+#[test]
+fn noise_reference_requires_complete_requested_case_coverage() {
+    let with_noise = |noise: Option<f32>| {
+        let mut outcome = done(&scores(10.0, 9.0, None, None), 0.0, (1, 1));
+        if let Ok(DesignResult::Figures(figures)) = &mut outcome {
+            figures.case.noise_final_score = noise;
+        }
+        outcome
+    };
+    let passes = EvalPasses {
+        noise: true,
+        ..EvalPasses::default()
+    };
+    let complete = reduce(
+        EvalFidelity::Fast,
+        passes,
+        vec![with_noise(Some(8.0)), with_noise(Some(6.0))],
+    )
+    .unwrap();
+    assert_eq!(complete.mean_improvement_noise, Some(3.0));
+    let incomplete = reduce(
+        EvalFidelity::Fast,
+        passes,
+        vec![with_noise(Some(8.0)), with_noise(None)],
+    )
+    .unwrap();
+    assert_eq!(incomplete.mean_improvement_noise, None);
+    let nonfinite = reduce(EvalFidelity::Fast, passes, vec![with_noise(Some(f32::NAN))]).unwrap();
+    assert_eq!(nonfinite.mean_improvement_noise, None);
+    let disabled = reduce(
+        EvalFidelity::Fast,
+        EvalPasses::default(),
+        vec![with_noise(Some(8.0))],
+    )
+    .unwrap();
+    assert_eq!(disabled.mean_improvement_noise, None);
+}
+
+#[test]
+fn legacy_reference_cache_decodes_but_cannot_match_current_key() {
+    let cfg = RunConfig::new(
+        TrainingMode::Optimizer,
+        pleochroma_ai::model::ModelTier::Small,
+    );
+    let key = OracleKey::new(&cfg, &[0], 7, 0.5);
+    let mut legacy_key = serde_json::to_value(&key).unwrap();
+    legacy_key
+        .as_object_mut()
+        .unwrap()
+        .remove("evaluation_revision");
+    legacy_key.as_object_mut().unwrap().remove("noise_std");
+    let legacy = serde_json::json!({ "key": legacy_key, "drop": 3.5 });
+    let restored: OracleCache = serde_json::from_value(legacy.clone()).unwrap();
+    assert_eq!(restored.drop, Some(3.5));
+    assert_eq!(restored.noise_drop, None);
+    assert!(restored.cases.is_empty());
+    assert_ne!(restored.key, key);
+    // Recovery uses MessagePack rather than JSON; a legacy numeric gain must decode in both.
+    let saved = rmp_serde::to_vec_named(&legacy).unwrap();
+    let recovered: OracleCache = rmp_serde::from_slice(&saved).unwrap();
+    assert_eq!(recovered.drop, Some(3.5));
+    assert_eq!(recovered.noise_drop, None);
+    assert!(recovered.cases.is_empty());
+    assert_ne!(recovered.key, key);
+}
+
+#[test]
+fn reference_reduction_distinguishes_partial_and_complete_cache_reuse() {
+    let reference = |oracle_cached: bool, noise_cached: bool| {
+        let mut outcome = done(&scores(10.0, 9.0, None, Some(6.0)), 0.0, (1, 1));
+        if let Ok(DesignResult::Figures(figures)) = &mut outcome {
+            figures.case.noise_final_score = Some(8.0);
+            figures.case.oracle_reference_cached = oracle_cached;
+            figures.case.noise_reference_cached = noise_cached;
+            figures.case.references_cached = oracle_cached || noise_cached;
+        }
+        outcome
+    };
+    let passes = EvalPasses {
+        oracle: true,
+        noise: true,
+        sampled: false,
+    };
+    let mixed = reduce(
+        EvalFidelity::Fast,
+        passes,
+        vec![reference(true, true), reference(false, true)],
+    )
+    .unwrap();
+    assert_eq!(mixed.mean_improvement_oracle, Some(4.0));
+    assert_eq!(mixed.mean_improvement_noise, Some(2.0));
+    assert!(!mixed.oracle_cached);
+    assert!(mixed.noise_cached);
+    assert!(mixed.cases[0].oracle_reference_cached);
+    assert!(!mixed.cases[1].oracle_reference_cached);
+    let restored = reduce(
+        EvalFidelity::Fast,
+        passes,
+        vec![reference(true, true), reference(true, true)],
+    )
+    .unwrap();
+    assert!(restored.oracle_cached && restored.noise_cached);
+}
+
+#[test]
+fn missing_or_nonfinite_oracle_endpoints_never_produce_a_mean() {
+    let passes = EvalPasses {
+        oracle: true,
+        ..EvalPasses::default()
+    };
+    for missing in [None, Some(f32::NAN), Some(f32::INFINITY)] {
+        let report = reduce(
+            EvalFidelity::Fast,
+            passes,
+            vec![
+                done(&scores(10.0, 9.0, None, Some(6.0)), 0.0, (1, 1)),
+                done(&scores(10.0, 9.0, None, missing), 0.0, (1, 1)),
+            ],
+        )
+        .unwrap();
+        assert!(report.mean_improvement_oracle.is_none());
+        assert!(!report.oracle_cached);
+    }
 }

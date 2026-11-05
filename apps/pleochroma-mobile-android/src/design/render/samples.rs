@@ -12,7 +12,7 @@ pub(super) fn remote_ready(app: &AppState) -> bool {
     app.settings.render.backend == RenderBackend::Remote && crate::remote::render_connected(app)
 }
 
-pub(super) fn choices(remote: bool) -> &'static [u32] {
+pub(super) const fn choices(remote: bool) -> &'static [u32] {
     if remote { REMOTE } else { LOCAL }
 }
 
@@ -69,7 +69,7 @@ pub(super) fn export_settings(app: &AppState) -> RenderSettings {
     settings
 }
 
-pub(super) fn local_path_gpu(settings: &RenderSettings) -> bool {
+pub(super) const fn local_path_gpu(settings: &RenderSettings) -> bool {
     !settings.engine_spec().is_ray()
         && matches!(
             settings.backend,

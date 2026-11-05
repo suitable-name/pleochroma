@@ -89,9 +89,9 @@ fn ametrine_is_a_zoned_per_mm_quartz() {
 }
 
 /// The two zone tensors are the quartz host's iron recipes, the amethyst one after irradiation and
-/// the citrine one after irradiation and the 450 C anneal, both of the same iron (the citrine half
-/// is the amethyst half annealed), and that iron is the 80 ppmw of the Anahi amethyst expressed in
-/// ppma of all atoms.
+/// the citrine one after irradiation and the 450 C anneal. The amethyst iron is the 80 ppmw of the
+/// Anahi amethyst expressed in ppma of all atoms; the citrine half holds less (2026-11-03, see
+/// `AMETRINE_CITRINE_FE_PPMA`).
 #[test]
 fn ametrine_zones_follow_the_catalogue_recipes() {
     let catalogue = ChromophoreCatalogue::global();
@@ -107,11 +107,12 @@ fn ametrine_zones_follow_the_catalogue_recipes() {
         (AMETRINE_AMETHYST_FE_PPMA - anahi_ppma).abs() < 0.05,
         "80 ppmw Fe is {anahi_ppma:.2} ppma, the constant is {AMETRINE_AMETHYST_FE_PPMA}"
     );
-    assert_eq!(
-        AMETRINE_CITRINE_FE_PPMA.to_bits(),
-        AMETRINE_AMETHYST_FE_PPMA.to_bits(),
-        "the citrine half is the amethyst half annealed: the same iron"
-    );
+    const {
+        assert!(
+            AMETRINE_CITRINE_FE_PPMA > 0.0 && AMETRINE_CITRINE_FE_PPMA < AMETRINE_AMETHYST_FE_PPMA,
+            "the citrine half holds less iron than the amethyst half"
+        );
+    }
 
     let amethyst = quartz_tensor(AMETRINE_AMETHYST_FE_PPMA, &["gamma_irradiation"]);
     let citrine = quartz_tensor(
@@ -170,6 +171,48 @@ fn ametrine_halves_are_purple_and_yellow() {
             (15.0..=95.0).contains(&lab[0]),
             "{name}: L* {:.1} is black or clear (Lab {lab:.1?})",
             lab[0]
+        );
+    }
+}
+
+/// The citrine half shows the Citrine built-in's color and the amethyst half the Amethyst
+/// built-in's (2026-11-03): an Ametrine is the two materials side by side, not the deep golden
+/// orange the equal-iron citrine half gave, which turned every crossing path orange.
+///
+/// The amethyst half is the Anahi (Bolivia) amethyst its stones come from, which reads redder
+/// than the Amethyst built-in since that moved to the bluer commercial purple (2026-11-04): the
+/// ametrine photos' purple has a median hue of 337, the amethyst photos 316, and the replica gives
+/// the Anahi recipe h 331-333 against the built-in's 315. So its hue may differ by up to 25 deg;
+/// the citrine half keeps 10.
+#[test]
+fn ametrine_halves_match_the_citrine_and_amethyst_built_ins() {
+    let mm_per_unit = f64::from(effective_stone_width_mm(0.0)) / ZONE_SWATCH_FALLBACK_MODEL_WIDTH;
+    let path_mm = f64::from(MODEL_UNIT_FACE_UP_PATH) * mm_per_unit;
+    let zoning = ametrine_zoning();
+    let lch = |lab: [f64; 3]| [lab[0], lab[1].hypot(lab[2]), hue_deg(lab)];
+    let half = |tensor: &AbsorptionTensor| {
+        lch(body_colors(tensor, path_mm, Illuminant::D65)
+            .unpolarised
+            .lab)
+    };
+    // The built-ins are model-unit materials: one unit of path is their face-up swatch.
+    let built_in = |name: &str| {
+        let material = GemMaterial::by_name(name).expect("a built-in");
+        lch(body_colors(&material.absorption, 1.0, Illuminant::D65)
+            .unpolarised
+            .lab)
+    };
+    for (zone, name, max_dh) in [
+        (&zoning.zones[0].absorption.tensor, "Citrine", 10.0),
+        (&zoning.base.tensor, "Amethyst", 25.0),
+    ] {
+        let [l, _, h] = half(zone);
+        let [l_ref, _, h_ref] = built_in(name);
+        let dh = ((h - h_ref + 180.0).rem_euclid(360.0) - 180.0).abs();
+        assert!(
+            (l - l_ref).abs() <= 7.0 && dh <= max_dh,
+            "the {name} half (L* {l:.1}, h {h:.1}) must read like the {name} \
+             built-in (L* {l_ref:.1}, h {h_ref:.1})"
         );
     }
 }

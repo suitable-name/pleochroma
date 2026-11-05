@@ -274,12 +274,22 @@ enum Request {
     Stage(Box<BuildArgs>),
     Commit,
     Discard,
+    /// The trainer's optimizer-step counter (tests compare resumed runs with it).
+    #[cfg(test)]
+    UpdateCount,
+    /// The trainer's current weights (tests check re-synchronisation with it).
+    #[cfg(test)]
+    ExportWeights,
 }
 
 enum Reply {
     Built(Result<Built, TrainError>),
     Done(Box<Result<UpdateDone, TrainError>>),
     Ack(Result<(), TrainError>),
+    #[cfg(test)]
+    Count(u64),
+    #[cfg(test)]
+    Weights(Box<Result<GemstoneSetAttentionNetwork, TrainError>>),
 }
 
 fn stopped() -> RunnerError {
@@ -405,6 +415,12 @@ fn serve(requests: &Receiver<Request>, replies: &Sender<Reply>, first: &BuildArg
                 staged = None;
                 None
             }
+            #[cfg(test)]
+            Request::UpdateCount => Some(Reply::Count(trainer.update_count())),
+            #[cfg(test)]
+            Request::ExportWeights => Some(Reply::Weights(Box::new(
+                trainer.model.export_to_set_attention(),
+            ))),
         };
         if let Some(reply) = reply
             && replies.send(reply).is_err()
@@ -497,11 +513,16 @@ impl Updater {
     }
 
     /// Waits for the update in flight; `None` when there is none. The update is consumed either
-    /// way: after an error the trainer's weights are those before it.
+    /// way. After an error the thread's trainer is **not** rolled back: an imitation update
+    /// applies its mini-batches one by one, so steps taken before the failure stay on it (and in
+    /// its Adam moments), while the runner's `net` and rollout copy keep the weights before the
+    /// update. The runner therefore marks itself failed until a recovery restore or a
+    /// re-synchronisation reloads this trainer from `net` (see `TrainingRunner::needs_resync`).
     ///
     /// # Errors
     ///
-    /// The update's own [`RunnerError`] (a diverged loss included), or one for a dead thread.
+    /// The update's own [`RunnerError`] (an update whose every labelled mini-batch diverged
+    /// included), or one for a dead thread.
     pub(super) fn wait(&mut self) -> Result<Option<UpdateDone>, RunnerError> {
         if self.in_flight.take().is_none() {
             return Ok(None);
@@ -570,6 +591,30 @@ impl Updater {
         self.state_request(Request::RestoreTrainingState(directory.to_owned()))
     }
 
+    /// The trainer's optimizer-step counter (the learning-rate schedule position).
+    #[cfg(test)]
+    pub(super) fn update_count(&self) -> Result<u64, RunnerError> {
+        self.idle()?;
+        self.send(Request::UpdateCount)?;
+        match self.replies.recv() {
+            Ok(Reply::Count(updates)) => Ok(updates),
+            Ok(_) => Err(out_of_step()),
+            Err(_) => Err(stopped()),
+        }
+    }
+
+    /// The trainer's current weights as the pure-Rust twin.
+    #[cfg(test)]
+    pub(super) fn export_weights(&self) -> Result<GemstoneSetAttentionNetwork, RunnerError> {
+        self.idle()?;
+        self.send(Request::ExportWeights)?;
+        match self.replies.recv() {
+            Ok(Reply::Weights(weights)) => (*weights).map_err(RunnerError::Train),
+            Ok(_) => Err(out_of_step()),
+            Err(_) => Err(stopped()),
+        }
+    }
+
     fn state_request(&self, request: Request) -> Result<(), RunnerError> {
         self.idle()?;
         self.send(request)?;
@@ -597,24 +642,55 @@ impl TrainingRunner {
     /// and the checkpoints read. A no-op when none is in flight. It does **not** change what the
     /// rollouts act with (see the module docs), so calling it at any time leaves a run
     /// reproducible. The figures of the installed update go into the next
-    /// [`super::IterationReport`].
+    /// [`super::IterationReport`]. An imitation update that skipped non-finite mini-batches is
+    /// installed normally and raises a warning naming how many it skipped.
     ///
     /// # Errors
     ///
-    /// The update's own [`RunnerError`] (a diverged loss included; the weights are then those
-    /// before that update).
+    /// The update's own [`RunnerError`] (an update whose every labelled mini-batch diverged
+    /// included). `net` then keeps the weights before that update, but the update thread's
+    /// trainer may hold steps the failed update applied first (see `Updater::wait`), so the run is
+    /// marked failed ([`Self::needs_resync`]) until [`Self::restore_recovery`],
+    /// [`Self::resync_after_failure`], a reset or a weight load reloads that trainer from `net`.
     pub fn sync_update(&mut self) -> Result<(), RunnerError> {
         let _wait = self.updater.in_flight.map(|iteration| {
             self.progress.phase("wait for previous update", 1);
             self.progress
                 .task(format!("optimizer update for iteration {}", iteration + 1))
         });
-        let Some(done) = self.updater.wait()? else {
+        let done = match self.updater.wait() {
+            Ok(done) => done,
+            Err(error) => {
+                self.recovery_safe = false;
+                return Err(error);
+            }
+        };
+        let Some(done) = done else {
             return Ok(());
         };
+        if let Some(metrics) = done.imitation
+            && metrics.skipped_minibatches > 0
+        {
+            self.warnings.push(format!(
+                "the imitation update of iteration #{} skipped {} of {} labelled mini-batches \
+                 whose loss or gradient norm was not finite (no optimizer step for those)",
+                done.iteration,
+                metrics.skipped_minibatches,
+                metrics.skipped_minibatches + metrics.updates,
+            ));
+        }
         if let Some(net) = done.net {
             self.net = net;
         }
+        // A drain is itself an install boundary. Keep final/checkpoint statistics current even
+        // when no subsequent rollout consumes `installed_update` for its lagged report.
+        self.stats.last_train = done.train.clone();
+        if done.imitation.is_some() {
+            self.stats.last_imitation = done.imitation;
+        }
+        self.stats.update_secs = done.secs;
+        self.stats.weight_export_secs = done.export_secs;
+        self.stats.update_of_iteration = Some(done.iteration);
         self.installed_update = Some(InstalledUpdate {
             iteration: done.iteration,
             secs: done.secs,

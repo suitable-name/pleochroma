@@ -376,7 +376,7 @@ export component PreviewBatchDialog inherits Rectangle {
                             }
                             tip-button-from-import-2 := TipButton {
                                 text: root.from_import ? "Full Render" : "Generate";
-                                hint: SettingsModel.thumbnail_renderer_index == 1 ? "Save deterministic Ray Traced front and top thumbnails using approximate RGB base glass. Enter does the same." : "Render a front and a top picture of each design. This takes longer but looks best. Enter does the same.";
+                                hint: SettingsModel.thumbnail_renderer_index == 1 ? "Save deterministic Ray Traced front and top thumbnails, tinted by the material's spectrum in 10 nm bands. Enter does the same." : "Render a front and a top picture of each design. This takes longer but looks best. Enter does the same.";
                                 primary: true;
                                 enabled: root.can_start;
                                 clicked => { root.generate_confirmed(); }

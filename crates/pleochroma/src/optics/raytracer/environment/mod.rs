@@ -59,8 +59,8 @@ pub use source::{BACKDROP_GREY, EnvironmentSource};
 
 // tray.rs
 pub use tray::{
-    TRAY_ALBEDO_BLACK, TRAY_ALBEDO_GREY, TRAY_ALBEDO_WHITE, TRAY_MODEL_VERSION,
-    rig_irradiance_over_pi, tray_radiance,
+    METERED_PAPER_RADIANCE, TRAY_ALBEDO_BLACK, TRAY_ALBEDO_GREY, TRAY_ALBEDO_WHITE,
+    TRAY_MODEL_VERSION, metered_exposure, rig_irradiance_over_pi, tray_radiance,
 };
 
 // nee.rs, rig.rs

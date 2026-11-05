@@ -226,7 +226,8 @@ fn execute_video(
 ) -> JobOutcome {
     let dir = output_of(job, ctx);
     let total = video.total_frames as usize;
-    if params::frame_count(video.start_deg, video.end_deg, video.step_deg) != total {
+    let axes: Vec<usize> = video.axes().into_iter().map(|axis| axis as usize).collect();
+    if params::pose_count(&axes, video.start_deg, video.end_deg, video.step_deg) != total {
         return failed(
             FailureKind::Input,
             "The tilt range and step do not give the number of frames the job names.".to_string(),
@@ -254,6 +255,7 @@ fn execute_video(
         sink,
         eta: EtaEstimator::default(),
         frames_done: frames_on_disk,
+        work: None,
     };
     // A resumed video shows where it continues from before its first frame is done.
     reporter.report(
@@ -349,6 +351,10 @@ struct SinkReporter<'a> {
     eta: EtaEstimator,
     /// Frames on disk, including the ones that were there before this run.
     frames_done: usize,
+    /// This run's rendering work done as of the next saved frame
+    /// (`frames::FrameReporter::work_done`): the time estimate follows it, since copied
+    /// frames cost nothing.
+    work: Option<f64>,
 }
 
 impl SinkReporter<'_> {
@@ -372,8 +378,9 @@ impl FrameReporter for SinkReporter<'_> {
 
     fn frame_saved(&mut self, _index: usize, frames_done: usize, total: usize, _secs: f32) {
         self.frames_done = frames_done;
-        self.eta
-            .observe(Instant::now(), frames_done as f64 / total.max(1) as f64);
+        let by_count = frames_done as f64 / total.max(1) as f64;
+        let work = self.work.take().unwrap_or(by_count);
+        self.eta.observe(Instant::now(), work);
         self.report(
             frames_done,
             total,
@@ -382,5 +389,9 @@ impl FrameReporter for SinkReporter<'_> {
         );
         self.sink
             .frame_finished(count_u32(frames_done), count_u32(total));
+    }
+
+    fn work_done(&mut self, fraction: f64) {
+        self.work = Some(fraction);
     }
 }

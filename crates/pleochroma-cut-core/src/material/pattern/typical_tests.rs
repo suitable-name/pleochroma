@@ -79,9 +79,10 @@ fn every_built_in_species_resolves_to_its_typical_list() {
         Banded, Bicolor, ColorBand, CoreAndRim, HexagonalBanding, PartiColor, ReverseWatermelon,
         Sectors, Split, Tricolor, Watermelon,
     };
-    let expected: [(&str, &[TemplateId]); 7] = [
+    let expected: [(&str, &[TemplateId]); 8] = [
         ("Sapphire", &[HexagonalBanding, PartiColor, ColorBand]),
         ("Ruby", &[HexagonalBanding]),
+        ("Emerald", &[HexagonalBanding, CoreAndRim]),
         (
             "Tourmaline",
             &[Watermelon, ReverseWatermelon, Bicolor, Tricolor],
@@ -91,13 +92,14 @@ fn every_built_in_species_resolves_to_its_typical_list() {
         ("Ametrine", &[Split, Sectors]),
         ("Topaz", &[Bicolor]),
     ];
-    let beryls = ["Emerald", "Aquamarine", "Morganite", "Heliodor", "Beryl"];
+    // The other beryls have no six-sided color bands, only a core and a rim.
+    let beryls = ["Aquamarine", "Morganite", "Heliodor", "Beryl"];
     let none: &[TemplateId] = &[];
     let mut resolved = 0;
     for material in GemMaterial::all_materials() {
         let name = material.name.as_str();
         let want: &[TemplateId] = if beryls.contains(&name) {
-            &[HexagonalBanding, CoreAndRim]
+            &[CoreAndRim]
         } else {
             expected
                 .iter()
@@ -112,7 +114,8 @@ fn every_built_in_species_resolves_to_its_typical_list() {
     assert_eq!(resolved, 10);
     // The names that are not in the table resolve too (a custom material of that name).
     assert_eq!(ids("fluorite"), [Banded, Tricolor]);
-    assert_eq!(ids("Heliodor"), [HexagonalBanding, CoreAndRim]);
+    assert_eq!(ids("Heliodor"), [CoreAndRim]);
+    assert_eq!(ids("Goshenite"), [CoreAndRim]);
 }
 
 #[test]
@@ -321,7 +324,11 @@ fn a_color_band_runs_along_the_axis_and_sits_off_center() {
 
 #[test]
 fn a_beryl_has_a_stronger_hexagonal_core_in_a_paler_rim() {
-    let entry = &typical_patterns("Aquamarine")[1];
+    assert_eq!(
+        typical_patterns("Emerald")[1].template,
+        TemplateId::CoreAndRim
+    );
+    let entry = &typical_patterns("Aquamarine")[0];
     assert_eq!(entry.template, TemplateId::CoreAndRim);
     let own = [75.0, 30.0, 220.0];
     let pattern = built(entry, own, follows());
@@ -429,8 +436,9 @@ fn citrine_and_ametrine_split_in_purple_and_yellow_and_amethyst_in_strong_and_pa
     for name in ["Citrine", "Ametrine"] {
         let pattern = built(&typical_patterns(name)[0], [95.0, 0.0, 0.0], follows());
         assert_eq!(pattern.template, Some(TemplateId::Split));
-        assert_eq!(single_lch(&pattern, 0), [48.0, 42.0, 305.0], "{name}");
-        assert_eq!(single_lch(&pattern, 1), [82.0, 72.0, 88.0], "{name}");
+        // The seeds since 2026-11-03: a deeper purple and a softer, more golden yellow.
+        assert_eq!(single_lch(&pattern, 0), [46.0, 45.0, 305.0], "{name}");
+        assert_eq!(single_lch(&pattern, 1), [84.0, 58.0, 85.0], "{name}");
     }
     let own = [48.0, 42.0, 305.0];
     let pattern = built(&typical_patterns("Amethyst")[1], own, follows());
@@ -601,6 +609,27 @@ fn a_parti_color_sapphire_takes_the_yellow_variant_for_its_rim() {
         plain,
         "only the table's keys are used"
     );
+}
+
+#[test]
+fn a_parti_color_rim_prefers_the_golden_yellow_and_a_yellow_core_keeps_the_yellow() {
+    // 2026-11-03: the Yellow variant over a thin rim reads a faint cream; the Golden Yellow (the same
+    // h.-Fe3+ spectrum, three times as dense) is the rim's first choice, Yellow its fallback.
+    let yellow = sapphire_yellow();
+    let golden = built_in_variants("Sapphire")
+        .into_iter()
+        .find(|variant| variant.key == "sapphire.golden_yellow")
+        .expect("the data file lists the golden yellow sapphire");
+    let entry = &typical_patterns("Sapphire")[1];
+    let pattern = entry.for_stone([40.0, 45.0, 265.0], &[yellow.clone(), golden.clone()]);
+    assert_eq!(
+        variant_key(&pattern, 0).as_deref(),
+        Some("sapphire.golden_yellow")
+    );
+    // A yellow stone's core is still the Yellow variant (its own color), not the rim's yellow.
+    let blue = variant("Sapphire", "sapphire.default", 0.2);
+    let pattern = entry.for_stone([80.0, 60.0, 90.0], &[yellow, golden, blue]);
+    assert_eq!(variant_key(&pattern, 1).as_deref(), Some("sapphire.yellow"));
 }
 
 #[test]

@@ -163,12 +163,13 @@ Keys written by the Parameters dock (Stone / Lighting & Environment / Render & O
 | `migrated_stone_effects` | `true` / `false` | `false` for a file without the key, `true` on a brand-new install |
 | `[settings.update_check]` | `enabled` (`true` / `false`; absent = not asked yet), `last_check_unix` (seconds), `skipped_version` (`"0.7.3"`) | not asked, never checked, none skipped |
 | `[settings.output.still]` | `size_preset`, `custom_width`, `custom_height`, `sample_exponent`, `bounces`, `color_space_index`, `compute`, `transfer` | the still export's defaults |
-| `[settings.output.tilt_video]` | `resolution_preset`, `custom_width`, `custom_height`, `sample_exponent`, `bounces`, `color_space_index`, `transfer`, `filename_template` | the tilt video's defaults |
+| `[settings.output.tilt_video]` | `resolution_preset`, `custom_width`, `custom_height`, `sample_exponent`, `bounces`, `color_space_index`, `transfer`, `filename_template`, `start_angle_deg` / `end_angle_deg` (-90..90), `step_hundredths_deg` (1..500, so 0.01°..5°), `fps_index` (`0` 24, `1` 30, `2` 60), `axes` (chosen axes `0`..`3`; empty = the chart's axis), `quarter_turn`, `show_values`, `metric_brilliance`, `metric_windowing`, `metric_extinction`, `metric_tilt_brilliance`, `metric_angle`, `keep_frames` | the tilt video's defaults |
 
 **Output defaults.** `[settings.output]` is what the Export and Tilt Video dialogs open
 with. Both tables and every field are optional (a file without them loads the defaults),
 and the values are limited to what their controls allow when read. Starting an export or
-a tilt video writes the values it used back, so the dialogs open with the last run. A
+a tilt video, adding one to the queue, and closing the Export or Tilt Performance dialog
+write the values back, so the dialogs open as you left them. A
 `transfer` of nothing follows the remote endpoint's `export_transfer`. The tilt video's
 compute pill stays in `tilt_video_compute_target`.
 
@@ -356,7 +357,7 @@ only `[settings.remote]`.
 
 Ray-Traced is an explicit view choice; startup still opens the Live Render tab in Solid. The existing `solid_view_mode` stores 0 Solid, 1 Path-Traced, 2 Solid + Path-Traced, 3 Diagram, 4 Ray-Traced or 5 Solid + Ray-Traced. `live_view_mode` stores 0 Solid, 1 Path-Traced or 2 Ray-Traced. Both saved mode values track the session but are deliberately not restored at startup.
 
-`[settings.ray_trace]` stores `live_taps = 8` (fixed anti-aliasing taps, snapped to 1, 4, 8 or 16) and `fire = true` (three dispersion chains). These controls appear under Ray-Traced View in Advanced Render & Output and reset with that tab. They do not change the Path-Traced sample target or denoise preference. Ray-Traced itself never denoises. Its averaged absorption tint, approximate frost and omitted optical effects are described beside the controls.
+`[settings.ray_trace]` stores `live_taps = 8` (fixed anti-aliasing taps, snapped to 1, 4, 8 or 16) and `fire = true` (three dispersion chains). These controls appear under Ray-Traced View in Advanced Render & Output and reset with that tab. They do not change the Path-Traced sample target or denoise preference. Ray-Traced itself never denoises. Its banded spectral tint, approximate frost and omitted optical effects are described beside the controls.
 
 
 ## Thumbnail and output renderers

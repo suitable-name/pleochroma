@@ -56,10 +56,12 @@ fn wire_scene_preserves_resolved_tools_material_pose_and_lighting() {
     assert_eq!(wire.material, *built.material());
     assert_eq!(wire.planes, built.planes());
     assert_eq!((wire.yaw, wire.pitch, wire.distance), (0.25, 0.75, 3.25));
+    // The studio rig travels at its metered exposure, the one the phone renders with.
     assert_eq!(
         (wire.exposure, wire.surface_glare, wire.head_shadow_deg),
-        (1.25, 0.6, 12.0)
+        (spec.scene.lighting.metered_exposure(), 0.6, 12.0)
     );
+    assert_ne!(wire.exposure.to_bits(), 1.25_f32.to_bits());
     assert_eq!(wire.environment, SceneEnvironment::Studio);
     assert!(wire.engine.is_default());
 }

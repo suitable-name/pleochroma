@@ -1,7 +1,7 @@
 //! Share spare validation capacity without changing the ordered teacher or step results.
 
 use pleochroma_ai::env::{
-    ContinuousTierAction, GemstoneObservation, Step, TeacherLabel, TierProbe,
+    ContinuousTierAction, GemstoneObservation, Step, TeacherLabel, TeacherSearchSnapshot, TierProbe,
 };
 use rayon::prelude::*;
 
@@ -12,12 +12,7 @@ use super::{EnvKind, pool};
 /// The caller obtains `tail` inside `run_items_ranked`, which installs the trainer's
 /// persistent pool even for a single case. Nested Rayon work therefore never creates a
 /// global pool. Indexed collection and finalization preserve the serial arithmetic order.
-pub(super) fn oracle(
-    env: &EnvKind,
-    h_deg: f64,
-    scales: &[f64],
-    tail: &pool::Tail,
-) -> TeacherLabel {
+pub(super) fn oracle(env: &EnvKind, h_deg: f64, scales: &[f64], tail: &pool::Tail) -> TeacherLabel {
     if pool::pool_threads() == 1 {
         return env.teacher_label(h_deg, scales);
     }
@@ -37,25 +32,38 @@ pub(super) fn oracle(
         probes[tier] = env.probe_tier(tier, h_deg);
     }
     match env {
-        EnvKind::Optimizer(env) => env.teacher_label_from_probes_adaptive(
-            h_deg,
-            &probes,
-            scales,
-            &|| tail.is_active(),
-        ),
-        EnvKind::Retarget(env) => env.teacher_label_from_probes_adaptive(
-            h_deg,
-            &probes,
-            scales,
-            &|| tail.is_active(),
-        ),
+        EnvKind::Optimizer(env) => {
+            env.teacher_label_from_probes_adaptive(h_deg, &probes, scales, &|| tail.is_active())
+        }
+        EnvKind::Retarget(env) => {
+            env.teacher_label_from_probes_adaptive(h_deg, &probes, scales, &|| tail.is_active())
+        }
     }
 }
 
-/// Share a line-search suffix only while validation leaves spare pool capacity.
-///
-/// The environment retains its original first-accepted ordering and sequential evaluation
-/// count; speculative candidates cannot change the selected state or reported metrics.
+/// Restore completed teacher units while committing new results before advancing the search.
+pub(super) fn oracle_with_recovery(
+    env: &EnvKind,
+    h_deg: f64,
+    scales: &[f64],
+    tail: &pool::Tail,
+    saved: Option<TeacherSearchSnapshot>,
+    checkpoint: &(dyn Fn(&TeacherSearchSnapshot) -> Result<(), String> + Sync),
+) -> Result<TeacherLabel, String> {
+    let parallel = || pool::pool_threads() > 1 && tail.is_active();
+    match env {
+        EnvKind::Optimizer(env) => {
+            env.teacher_label_with_recovery_adaptive(h_deg, scales, saved, &parallel, checkpoint)
+        }
+        EnvKind::Retarget(env) => {
+            env.teacher_label_with_recovery_adaptive(h_deg, scales, saved, &parallel, checkpoint)
+        }
+    }
+}
+
+/// One validation step. The environment's line search runs its scales strictly in order
+/// (a smaller scale only after a rejection), so the capacity check passed here is kept for
+/// the adaptive API but never consulted.
 pub(super) fn step(
     env: &mut EnvKind,
     action: &ContinuousTierAction,
@@ -66,11 +74,7 @@ pub(super) fn step(
         return env.step_scaled(action, scales);
     }
     match env {
-        EnvKind::Optimizer(env) => {
-            env.step_scaled_adaptive(action, scales, &|| tail.is_active())
-        }
-        EnvKind::Retarget(env) => {
-            env.step_scaled_adaptive(action, scales, &|| tail.is_active())
-        }
+        EnvKind::Optimizer(env) => env.step_scaled_adaptive(action, scales, &|| tail.is_active()),
+        EnvKind::Retarget(env) => env.step_scaled_adaptive(action, scales, &|| tail.is_active()),
     }
 }

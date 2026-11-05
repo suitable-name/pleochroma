@@ -164,7 +164,8 @@ pub use crystal_axis::{
 pub use cutting_sheet::{
     ConcaveRowInfo, ConcaveTierDelta, CutSheetRow, CuttingSheet, SHEET_NAME_WIDTH,
     SheetOrientation, SheetRuleCheck, TierDelta, diff_concave_tiers, diff_tiers,
-    format_sheet_index, format_sheet_indices,
+    format_sheet_index, format_sheet_index_on_gear, format_sheet_indices,
+    format_sheet_indices_on_gear,
 };
 pub use design::{
     ConstraintTier, Design, DesignSolveError, DesignTierCodes, EdgeAbrasionEffects,

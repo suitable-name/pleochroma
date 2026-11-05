@@ -146,7 +146,9 @@ mod tests {
         let original = GemMaterial::ametrine();
         let pattern = seed_stone_pattern(&original, 7.0, None).expect("per-mm zones");
         assert!(!pattern.relative_to_stone);
-        assert_eq!(pattern.axis, PatternAxis::TABLE_NORMAL);
+        // Ametrine's boundary follows the Crystal Axis, so its pattern does too; the stored
+        // frame is the table normal, which the stone's axis turns at render time.
+        assert_eq!(pattern.axis, PatternAxis::FollowsCrystalAxis);
         assert_eq!(
             pattern.axis.frame(),
             original.zoning.as_ref().unwrap().frame
@@ -246,7 +248,11 @@ mod tests {
     #[test]
     fn an_imported_offset_frame_is_preserved_instead_of_reinterpreted_as_a_preset() {
         let mut material = GemMaterial::ametrine();
-        material.zoning.as_mut().unwrap().frame.translation.x = 1.25;
+        let zoning = material.zoning.as_mut().unwrap();
+        // Imported zones (the Rough Color wizard's) carry their own frame and never follow the
+        // Crystal Axis; a following zoning's frame is replaced by the axis frame when it renders.
+        zoning.follows_axis = false;
+        zoning.frame.translation.x = 1.25;
         let pattern = seed_stone_pattern(&material, 7.0, None).expect("imported zones");
         assert!(matches!(pattern.axis, PatternAxis::Frame { .. }));
         assert_eq!(pattern.to_zoned().unwrap(), material.zoning);

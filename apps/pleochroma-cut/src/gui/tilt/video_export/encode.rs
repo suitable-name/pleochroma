@@ -63,7 +63,10 @@ pub fn ffmpeg_command_line(digits: usize, fps: u32, out_name: &str) -> String {
 /// `params::frame_file_name`) into an H.264 MP4 at `fps`, written to `out_path`.
 /// Writes to a `.partial` sibling first and renames on success only, so a run that
 /// fails partway through (or is killed) never leaves a broken/incomplete file at the
-/// final `.mp4` name.
+/// final `.mp4` name. ffmpeg chooses the container from the output file's extension and
+/// knows no `.partial`, so the container is named with `-f mp4`; without it every run
+/// failed with "Error opening output files: Invalid argument" (exit -22, EINVAL) and the
+/// export fell back to a GIF.
 ///
 /// # Errors
 ///
@@ -84,6 +87,8 @@ pub fn mux_mp4(frame_dir: &Path, digits: usize, fps: u32, out_path: &Path) -> Re
         .arg("-i")
         .arg(&pattern)
         .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18"])
+        // The `.partial` name has no extension ffmpeg can read a container from.
+        .args(["-f", "mp4"])
         .arg(&partial)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

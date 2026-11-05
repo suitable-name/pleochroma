@@ -25,6 +25,7 @@ fn only_biaxial_materials_expose_a_biaxial_indicatrix() {
         "Andalusite",
         "Labradorite",
         "Moonstone",
+        "Titanite (Sphene)",
     ];
     for material in GemMaterial::all_materials() {
         let indicatrix = material.biaxial_indicatrix(589.3);
@@ -140,7 +141,7 @@ fn biaxial_sign_matches_optical_character() {
 }
 /// Trichroism convention pin for Alexandrite's own shipped data (the same
 /// discipline `birefringence::biaxial_reduction_tests` applies with synthetic
-/// coefficients, applied here to the real Farrell & Newnham-derived entry):
+/// coefficients, applied here to the real entry, measured GRR 874 rays in Farrell & Newnham's axes):
 /// each principal direction's band set must carry the qualitative amplitude
 /// pattern the cited pleochroic colors dictate, and feeding the shipped band
 /// sums through the REAL `AbsorptionTensor3::biaxial` constructor must land each
@@ -167,10 +168,11 @@ fn alexandrite_trichroic_band_sets_follow_the_cited_pleochroic_pattern() {
     let sum_at =
         |bands: &[AbsorptionBand], nm: f32| -> f32 { bands.iter().map(|b| b.evaluate(nm)).sum() };
 
-    // 4T2 system (yellow-to-red region, evaluated at gamma's cited 595nm centre):
+    // 4T2 system (yellow-to-red region, evaluated at F&N's 595nm gamma centre):
     // gamma (crystal b, GREEN -- absorbs "both red and yellow") strongest, alpha
     // (crystal c, RED) intermediate, beta (crystal a, YELLOW -- red/yellow left
-    // open) weakest, per the figure-read Fig. 4 amplitudes in the entry's comment.
+    // open) weakest, the order of F&N's Fig. 4 and of the measured data (2026-11-03:
+    // about 7.4, 3.3 and 1.0 per model unit).
     let (t2_alpha, t2_beta, t2_gamma) = (
         sum_at(bands_alpha, 595.0),
         sum_at(bands_beta, 595.0),

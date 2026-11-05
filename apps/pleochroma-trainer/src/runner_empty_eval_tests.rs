@@ -8,6 +8,7 @@ fn evaluating_no_designs_builds_nothing_and_reports_nothing() {
     let all = EvalPasses {
         sampled: true,
         oracle: true,
+        noise: false,
     };
     let report = runner.evaluate(&[], EvalFidelity::Fast, 7, all).unwrap();
     assert_eq!((report.designs, report.failed), (0, 0));

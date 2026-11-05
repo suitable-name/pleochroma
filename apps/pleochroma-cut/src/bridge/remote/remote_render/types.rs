@@ -12,13 +12,95 @@ use pleochroma_net::{
 };
 use std::{
     fmt,
-    net::TcpStream,
+    io::{Read, Write},
+    net::{Shutdown, TcpStream},
+    ops::{Deref, DerefMut},
     sync::{Arc, Mutex, mpsc},
     time::Duration,
 };
 
-/// Buffered TLS stream to a remote worker.
-pub type RemoteStream = rustls::StreamOwned<rustls::ClientConnection, TcpStream>;
+/// Buffered TLS stream to a remote worker, closed cleanly when dropped.
+///
+/// Derefs to the `rustls::StreamOwned` it wraps (`.sock`, `.conn`), and reads and writes
+/// through it. Dropping it says goodbye instead of vanishing (see the `Drop` impl): the
+/// coordinator used to log every finished CLI render and every evicted pooled connection
+/// as "connection reset by peer".
+pub struct RemoteStream(rustls::StreamOwned<rustls::ClientConnection, TcpStream>);
+
+impl RemoteStream {
+    /// Wraps a handshaken TLS stream.
+    #[must_use]
+    pub(super) const fn new(
+        stream: rustls::StreamOwned<rustls::ClientConnection, TcpStream>,
+    ) -> Self {
+        Self(stream)
+    }
+}
+
+impl Deref for RemoteStream {
+    type Target = rustls::StreamOwned<rustls::ClientConnection, TcpStream>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for RemoteStream {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Read for RemoteStream {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buf)
+    }
+}
+
+impl Write for RemoteStream {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
+
+/// How many bytes the close reads away at most: the heartbeats and `DONE` of a finished
+/// request that nobody read. More than that is a peer still streaming, which a close
+/// cannot help.
+const CLOSE_DRAIN_LIMIT: usize = 64 * 1024;
+
+impl Drop for RemoteStream {
+    /// Ends the connection cleanly: the TLS `close_notify` alert, then a TCP FIN, so the
+    /// other side reads an orderly end of stream. What the peer already sent and nobody
+    /// read is drained first: closing a socket with unread data makes the operating system
+    /// answer with a reset instead. Never blocks: the socket goes non-blocking first, and
+    /// whatever cannot be written or read at once is given up.
+    fn drop(&mut self) {
+        let rustls::StreamOwned { conn, sock } = &mut self.0;
+        if sock.set_nonblocking(true).is_err() {
+            return;
+        }
+        conn.send_close_notify();
+        while conn.wants_write() {
+            match conn.write_tls(sock) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+        }
+        let _ = sock.shutdown(Shutdown::Write);
+        let mut scratch = [0u8; 4096];
+        let mut drained = 0;
+        while drained < CLOSE_DRAIN_LIMIT {
+            match sock.read(&mut scratch) {
+                Ok(0) | Err(_) => break,
+                Ok(read) => drained += read,
+            }
+        }
+    }
+}
 
 /// One decoded [`pleochroma_net::messages::StreamEvent`] paired with its raw payload
 /// frame, where it has one (`Frame`/`Preview`) -- the return shape of
@@ -65,7 +147,7 @@ pub enum RemoteError {
     /// would otherwise keep this one-shot thread alive for as long as the socket lives.
     CancelUnacknowledged(Duration),
     /// The scene's material has colour zones but the remote's `WELCOME` does
-    /// not advertise the zoning capability (an older worker, or a coordinator), so the request
+    /// not advertise the zoning capability (a worker without its own render lane), so the request
     /// was not sent -- it would render as its base zone only. The picture renders locally.
     ZoningUnsupported,
 }

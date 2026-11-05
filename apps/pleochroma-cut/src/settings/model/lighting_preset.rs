@@ -103,6 +103,10 @@ impl LightingPreset {
     /// The scene/lighting fields of this preset as the one shared [`LightingValues`] struct
     /// (the HDR map path is the preset's, the camera pose is carried when both halves
     /// are present).
+    ///
+    /// The camera distance travels with the pose only. A lighting-only preset leaves the
+    /// camera where it is, zoom included: a distance saved with the stone that was on
+    /// screen then is the wrong zoom for any other design.
     #[must_use]
     pub fn values(&self) -> LightingValues {
         LightingValues {
@@ -118,7 +122,10 @@ impl LightingPreset {
             camera_yaw: self.camera_yaw,
             camera_pitch: self.camera_pitch,
             camera_roll: self.camera_roll,
-            camera_distance: Some(self.camera_distance),
+            camera_distance: self
+                .camera_yaw
+                .and(self.camera_pitch)
+                .map(|_| self.camera_distance),
         }
     }
 
@@ -157,8 +164,10 @@ impl LightingPreset {
 }
 
 /// The built-in presets shipped with the app, kept to a small set that cannot be
-/// deleted. Two carry their own tray: "Studio Softbox" a grey card and "Dramatic Spotlight"
-/// black velvet (Fable decision 2026-10-20); the others use the default White. Names double as their stable identity -- `SettingsFile::ensure_built_in_presets`
+/// deleted. Three carry their own tray: "Studio Softbox" a grey card, "Dramatic Spotlight"
+/// (Fable decision 2026-10-20) and "Presentation" black velvet; the others use the default
+/// White. Every built-in but "Presentation" is a viewing setup to judge a stone by;
+/// "Presentation" is the showcase look of a jeweler's photo (2026-11-03). Names double as their stable identity -- `SettingsFile::ensure_built_in_presets`
 /// matches on `name` to decide whether a loaded file already has one.
 ///
 /// `env_map_path` is `None` and `export_usable` is `false` for every built-in, and
@@ -166,6 +175,12 @@ impl LightingPreset {
 /// (a view, not just a mood: it recalls the near face-up pose a grader looks from):
 /// applying a lighting mood must only change the lighting, never reposition the camera
 /// or swap in an environment map. They also default out of the export fan-out list.
+///
+/// `exposure` is the compensation on top of the rig's incident-light meter
+/// (`RenderContext::effective_exposure`): `1.0` shows white paper as every rig shows it,
+/// above is brighter, below darker. Each value was chosen from renders of an emerald and a
+/// sapphire under the rig (2026-11-02). `camera_distance` only matters with a camera pose: the
+/// Grading tray frames the stone on screen (Fit) when it is applied, the moods keep the zoom.
 #[must_use]
 #[allow(
     clippy::too_many_lines,
@@ -248,7 +263,12 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
         // The colour-grading view: the D65 hemisphere with the observer's head shadow,
         // seen face-up. The one built-in that carries a camera pose (yaw and pitch must
         // both be `Some`; the apply callback clamps pitch to +-1.48, so 1.48 is the
-        // steepest view it can restore).
+        // steepest view it can restore). Yaw 0 keeps the stone's length along the picture
+        // (0.35 turned it askew for nothing: the dome looks the same from every azimuth).
+        // The head shadow stays the 16 degree default the optimizer scores with: the HUD
+        // figures are scored with the viewport's shadow, and under this view they must be
+        // the standard figures (a 24 degree shadow drew more face-up pattern, 2026-11-02,
+        // but its HUD figures would no longer match Optimize).
         LightingPreset {
             name: "Grading tray".to_string(),
             built_in: true,
@@ -259,7 +279,7 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
                 .label()
                 .to_string(),
             camera_distance: 2.4,
-            camera_yaw: Some(0.35),
+            camera_yaw: Some(0.0),
             camera_pitch: Some(1.48),
             camera_roll: None,
             env_map_path: None,
@@ -268,12 +288,15 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             backdrop: crate::settings::model::Backdrop::default(),
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
         },
+        // Exposure 1.5: metered for the sunlit paper, the stone (which sees mostly the sky)
+        // read dark; half a stop more shows it as a sunlit stone looks, with the paper still
+        // just white.
         LightingPreset {
             name: "Daylight Sun".to_string(),
             built_in: true,
             light_yaw_deg: 30.0,
             light_pitch_deg: 55.0,
-            exposure: 1.0,
+            exposure: 1.5,
             lighting_rig: "Daylight sky + direct sun".to_string(),
             camera_distance: 2.4,
             camera_yaw: None,
@@ -304,6 +327,31 @@ pub fn built_in_presets() -> Vec<LightingPreset> {
             export_usable: false,
             surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
             backdrop: crate::settings::model::Backdrop::default(),
+            head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
+        },
+        // The showcase look of a jeweler's photo, for pictures that show a stone off rather
+        // than judge it: the studio ring lights at their Studio Softbox pose over black
+        // velvet, half a stop above the meter. Chosen 2026-11-03 from renders of an
+        // emerald, a sapphire and a tanzanite: on black the ring lights give the most
+        // saturated color and crisp sparkle (a higher ring flooded the table, a lower one
+        // showed grey windows, shop lights looked flat, the sun rigs were too dark on
+        // velvet), and +0.5 EV lifts a dark stone without clipping a light one. A mood: the
+        // camera stays where it is.
+        LightingPreset {
+            name: "Presentation".to_string(),
+            built_in: true,
+            light_yaw_deg: 48.0,
+            light_pitch_deg: 54.0,
+            exposure: 1.4,
+            lighting_rig: "Gem Studio Ring Lights".to_string(),
+            camera_distance: 2.4,
+            camera_yaw: None,
+            camera_pitch: None,
+            camera_roll: None,
+            env_map_path: None,
+            export_usable: false,
+            surface_glare: crate::settings::model::DEFAULT_SURFACE_GLARE,
+            backdrop: crate::settings::model::Backdrop::Black,
             head_shadow_deg: crate::settings::model::DEFAULT_HEAD_SHADOW_DEG,
         },
     ]
@@ -374,6 +422,26 @@ mod tests {
         assert_eq!(values.camera_distance, Some(2.4));
     }
 
+    /// The zoom belongs to a captured view: a preset with a camera pose carries its distance,
+    /// a lighting-only one (every built-in mood) carries none, so applying it keeps the zoom.
+    #[test]
+    fn the_distance_travels_with_the_camera_pose_only() {
+        for preset in built_in_presets() {
+            let values = preset.values();
+            assert_eq!(
+                values.camera_distance.is_some(),
+                values.camera_pose().is_some(),
+                "{}",
+                preset.name
+            );
+        }
+        let mut shot = built_in_presets().remove(0);
+        shot.camera_yaw = Some(0.2);
+        shot.camera_pitch = Some(0.4);
+        shot.camera_distance = 3.1;
+        assert_eq!(shot.values().camera_distance, Some(3.1));
+    }
+
     /// The whole look goes into a preset and comes back out of it through `LightingValues`.
     #[test]
     fn a_saved_lighting_carries_the_whole_look_through_lighting_values() {
@@ -432,6 +500,24 @@ mod tests {
         assert_eq!(preset, round_tripped);
     }
 
+    /// The "Presentation" built-in shows a stone off: the studio ring lights over black velvet,
+    /// brighter than the meter, without moving the camera.
+    #[test]
+    fn the_presentation_view_is_ring_lights_on_black_velvet_above_the_meter() {
+        let preset = built_in_presets()
+            .into_iter()
+            .find(|p| p.name == "Presentation")
+            .expect("the Presentation built-in must exist");
+        assert!(preset.built_in);
+        assert_eq!(
+            preset.lighting_rig,
+            pleochroma::optics::raytracer::LightingPreset::RingLights.label()
+        );
+        assert_eq!(preset.backdrop, Backdrop::Black);
+        assert!(preset.exposure > 1.0, "exposure {}", preset.exposure);
+        assert!(preset.values().camera_pose().is_none());
+    }
+
     /// The "Window daylight" built-in exists, selects the window rig and keeps the key low
     /// (0.45 to 0.6 rad, i.e. 25 to 35 degrees).
     #[test]
@@ -458,8 +544,13 @@ mod tests {
     fn built_in_presets_carry_no_camera_or_env_data_and_are_not_export_usable() {
         for preset in built_in_presets() {
             if preset.name == "Grading tray" {
-                assert_eq!(preset.camera_yaw, Some(0.35));
+                assert_eq!(preset.camera_yaw, Some(0.0));
                 assert_eq!(preset.camera_pitch, Some(1.48));
+                assert_eq!(
+                    preset.head_shadow_deg.to_bits(),
+                    crate::settings::model::DEFAULT_HEAD_SHADOW_DEG.to_bits(),
+                    "the grading view shows the figures the optimizer scores"
+                );
                 assert_eq!(
                     preset.lighting_rig,
                     pleochroma::optics::raytracer::LightingPreset::IsoHemisphere.label()
@@ -488,7 +579,7 @@ mod tests {
             );
             let tray = match preset.name.as_str() {
                 "Studio Softbox" => Backdrop::Grey,
-                "Dramatic Spotlight" => Backdrop::Black,
+                "Dramatic Spotlight" | "Presentation" => Backdrop::Black,
                 _ => Backdrop::White,
             };
             assert_eq!(preset.backdrop, tray, "{}: built-in tray", preset.name);

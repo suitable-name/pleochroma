@@ -126,6 +126,7 @@ const HAZE_ONLY: &[&str] = &[
     "Glass (F2)",
     "Opal",
     "Rutile",
+    "Titanite (Sphene)",
     // Their color is the domain structure of `bragg`, not an oriented family.
     "Precious Opal (White)",
     "Precious Opal (Black)",
