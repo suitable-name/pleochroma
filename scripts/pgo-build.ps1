@@ -1,0 +1,1034 @@
+<#
+.SYNOPSIS
+  Profile-guided-optimization (PGO) release builds of pleochroma-cut and/or pleochroma-worker
+  on Windows, over CPU axes.
+
+    CPU:  avx512 -> -C target-cpu=x86-64-v4 (AVX-512; Zen 4 / Skylake-X or newer). Opt-in:
+                    this host's native CPU support is probed before an avx512 build is
+                    attempted (see Test-Avx512Supported below); an explicit `-Cpu avx512`
+                    on an unsupported host refuses with a clear error instead of crashing
+                    mid-training (0xC000001D, illegal instruction), and the default
+                    `-Cpu all` silently drops avx512 from the tier list on such a host.
+          avx2   -> -C target-cpu=x86-64-v3 (AVX2+FMA+BMI baseline; Haswell/Zen or newer)
+          scalar -> -C target-cpu=x86-64-v2 (SSE4.2 baseline; standard non-AVX fallback)
+          native -> -C target-cpu=native (host CPU instruction set)
+    GPU:  gpu    -> pleochroma-cut/gpu + pleochroma-worker/gpu (wgpu megakernel, CPU fallback per frame)
+          cpu    -> no gpu feature at all (pure CPU tracer binaries)
+
+  The documented default is `-Cpu avx2` and `-Cpu scalar` (two separate invocations) --
+  avx512 remains available but is opt-in and auto-skipped/refused where unsupported.
+
+  Two-run tier training (BLD-1). The shipped binary runs with `PLEOCHROMA_SIMD` unset and
+  dispatches at run time (`simd::simd_level`) to the host's best kernels, so an `avx2` build
+  on an AVX-512 machine runs the AVX-512 slab/feasibility/triple-solve kernels. Training
+  only under the tier's own cap (the old behaviour) left exactly those kernels with zero
+  counts, i.e. cold. Now, per tier build, the instrumented `pgo_train` is asked for the
+  host's native tier (`pgo_train --print-simd-tier`, PLEOCHROMA_SIMD unset) and, when that
+  outranks the build's tier, is run TWICE: once unset (host-native dispatch: the AVX-512
+  kernels) and once capped to the tier (the tier's own kernels); both runs' `.profraw`
+  files merge into the tier's one `.profdata`. A host whose native tier equals the tier gets
+  a single run; `-Cpu native` always gets the single unset run. A scalar-trained binary's
+  avx2 path and an avx2 binary's scalar path are still only trained on a host that runs them.
+  After a run, `llvm-profdata show --topn=20 <profdata>` on an AVX-512 host must list the
+  AVX-512 kernels (slab.rs / feasibility.rs / triple_solve.rs variants) with non-zero counts.
+
+  sccache is switched off (RUSTC_WRAPPER / CARGO_BUILD_RUSTC_WRAPPER empty) for the whole
+  combination, instrumented and -Cprofile-use builds alike: a cache hit would serve objects
+  built without -Cprofile-generate (empty profiles) or stale profile-use objects.
+
+  MSVC code generation disables LLVM machine tail merging in BOTH builds. This is a
+  targeted workaround for the LLVM 23 Windows SEH epilogue failure seen in the final
+  PGO/LTO build of naga's Token::eq ("Missing .seh_endepilogue"). PGO, LTO, the CPU
+  instruction set and exception unwinding remain enabled. It needs a native rebuild
+  to confirm on the affected toolchain; -DisableSehWorkaround restores LLVM defaults
+  when checking a newer compiler. Profiles are isolated by this code-generation choice
+  under pgo-profile\<codegen-mode>\, where <codegen-mode> is msvc-no-tail-merge by
+  default, or msvc-default with -DisableSehWorkaround. Existing legacy or Windows GNU
+  profiles are never reused.
+
+.DESCRIPTION
+  `-Target all` (the default) is ONE combined build per combination, not a worker run plus
+  a cut run: a single instrumented `cargo build` over `pleochroma`, `pleochroma-cut`,
+  `pleochroma-cut-core` and `pleochroma-worker` (both examples, features = the union of the
+  worker and cut strings), both trainers and the scene_roundtrip test run once, ONE merged
+  profile, and ONE optimised build that emits BOTH binaries. Why: one package set means
+  feature unification compiles `pleochroma` (and cut-core) once with one crate hash shared
+  by both apps, so a single profile applies to both -- and the work is done once instead of
+  twice. Trade-off: the worker is compiled with cut's features enabled (additive; behaviour
+  unchanged, binary somewhat larger than a `-Target worker` build). The combined build uses
+  its own target directory (target\pgo-all-<cpu>-<gpu>) and the un-prefixed profile path
+  pgo-profile\<codegen-mode>\windows-<cpu>-<gpu>.profdata; `-Target worker` / `-Target cut`
+  keep separate builds (target\pgo-<cpu>-<gpu>) and profiles below <codegen-mode>\<target>\.
+  Post-checks on the
+  combined build: crate-hash tokens for `pleochroma` AND `pleochroma-cut-core`, hash
+  mismatch must be 0. -SkipTrain reuses the combined profile.
+
+  Per combination, in its own target directory (target\pgo-<cpu>-<gpu>, or
+  target\pgo-all-<cpu>-<gpu> for -Target all):
+    1. build the training examples `pgo_train` (and, for the `cut` target,
+       `pgo_train_cutcore` of `pleochroma-cut-core`), plus every selected app binary, all
+       together in one `cargo build` instrumented with -C profile-generate. Building the
+       app binaries (not just the examples) alongside them in the SAME invocation, with the
+       SAME package set, target, target-dir and feature list as step 4 below, is required
+       so every crate's `-C metadata` fingerprint (and therefore its mangled-symbol crate
+       hash) is identical between this step and step 4: if the two builds select
+       different package sets, every profiled crate gets a different hash, profile-use
+       finds nothing to apply and the binary is optimised as if untrained.
+    2. run the pgo_train.exe produced by that build, once or twice per the two-run tier
+       training above. Stages: tracer (denoised with and without a path signature),
+       lighting (every preset + a procedural 1024x512 HDR map), brep, solver (synthetic AND
+       real designs, CAD-preview mesh extraction), tilt (per-azimuth), guide (path-signature
+       prepass at 800x600 and 1080p), denoise_sig (denoiser with a real signature at
+       800x600), tilt_sweep (the apps' all-axes sweep entry points, parallel and stepped);
+       GPU only under the `gpu` tier and only if an adapter exists
+    2b. (cut target only) run `pleochroma-cut-core`'s OWN `pgo_train_cutcore` example
+       (Design::solve, .asc export, design-file save/load, resolve_after_edit,
+       optimize_design). It is built by step 1's SAME `cargo build` invocation
+       (`pleochroma-cut-core` is in the package list and `--example pgo_train_cutcore` is
+       passed), so the instrumented and optimised builds resolve an identical dependency
+       graph and cut-core's `-C metadata` (and every mangled symbol) matches. The distinct
+       example name is required: two examples named `pgo_train` collide on Cargo's
+       name-keyed example "pretty path" (target\<profile>\examples\<name>.exe). A separate
+       cut-core invocation, as used before 2026-10-06, had a different dependency graph
+       and its profile never applied. The worker target does not link cut-core and skips
+       this step. See `Invoke-CutCoreTraining`.
+    2c. build and run `pleochroma-net`'s `scene_roundtrip` integration test under the same
+       instrumentation (postcard wire-protocol encode/decode of `SceneState`), through
+       `cargo test --no-run --message-format=json` so the hash-suffixed test binary can
+       be located. Same training set as scripts/pgo-bolt-build.sh. See `Invoke-NetTraining`.
+    3. merge the .profraw files with llvm-profdata
+    4. rebuild the SAME packages, target, target-dir and feature list as step 1, with
+       -C profile-use=<merged profile> instead of -C profile-generate (and
+       -C llvm-args=-pgo-warn-missing-function, so a totally-unapplied profile shows up
+       as a flood of "no profile data available" warnings in build.log instead of
+       silently compiling as if untrained again)
+    5. verify the profile actually applied (crate-hash check of `pleochroma`, and for
+       the cut target also `pleochroma-cut-core`, against the merged .profdata, plus a
+       build.log scan for "hash mismatch"/"no profile data available" over documented
+       thresholds -- see Test-ProfileHashApplied/Test-ProfileWarnings)
+    6. copy the executables to <OutDir> as <binary>-win-<cpu>-<gpu>.exe
+
+  Training coverage is a known limitation, not a complete picture. The training binaries
+  do NOT exercise: the `pleochroma-net` payload codecs (shuffle + zstd/lz4; `pleochroma`
+  cannot depend on `pleochroma-net`), the radiance (HDR) image codecs, the solid rasterizer
+  and mesh cache (`pleochroma-solid`), the rough planner, the `pleochroma-vault` database, the desktop editor's event loops and GUI code, or the
+  `GpuBackend` type. The `gpu` tier's `train_gpu` stage trains `render_hybrid`, which no
+  app calls today, so it warms code the shipped binaries do not run. Functions in these
+  areas have zero profile counts and are optimised as cold code. One further limit:
+  `pleochroma-net`'s test build selects only that package; the per-crate hash check in
+  step 5 is what detects it producing a non-matching crate.
+
+.PARAMETER Cpu
+  avx512, avx2, scalar, native, or all (default all; see the CPU axis note above -- avx512
+  is dropped automatically from `all` on a host without AVX-512 support, and refused
+  outright if requested explicitly on such a host).
+.PARAMETER Gpu
+  gpu, cpu, or both (default both).
+.PARAMETER Target
+  worker, cut, or all (default all). Every combination always builds `pleochroma` itself
+  alongside whichever of `pleochroma-cut`/`pleochroma-worker` this selects, all in one
+  `cargo build` (see .DESCRIPTION) -- `pleochroma`'s `hdr` and `serde` features are always
+  both enabled, regardless of -Target, because `pleochroma-cut` depends on `pleochroma`
+  with `features = ["hdr"]` unconditionally and always enables `pleochroma-net/render`
+  (which turns on `pleochroma/serde`), and `pleochroma-worker`'s own `worker` feature does
+  the same. A `cut`-only or `worker`-only build's profile is kept in its own
+  `pgo-profile\<codegen-mode>\cut\` / `pgo-profile\<codegen-mode>\worker\` subdirectory (its package set, and therefore
+  its crate hashes, differ from the combined `all` build), so it never mixes with (or gets
+  silently overwritten by) a profile trained for a different -Target. Building `all` (the
+  default) keeps the original combined layout: one shared profile per combination, feeding
+  both binaries, at `pgo-profile\<codegen-mode>\windows-<cpu>-<gpu>.profdata`.
+.PARAMETER OutDir
+  Where the renamed executables are copied (default <repo>\bin).
+.PARAMETER SkipTrain
+  Reuse an existing windows-<cpu>-<gpu>.profdata from the selected codegen-mode/target
+  directory. A missing profile is trained normally, including the first run after migration.
+.PARAMETER Parallel
+  Execute all requested target combinations concurrently using background jobs.
+.PARAMETER Native
+  Build ONLY the host-CPU tier (-C target-cpu=native), replacing whatever -Cpu selected --
+  a quick "build for this machine" run, without the generic avx2/scalar tiers. Same as
+  scripts/pgo-bolt-build.sh's --native.
+.PARAMETER Quick
+  Skip PGO altogether: one plain build per combination in Cargo.toml's `quick-release`
+  profile (opt-level 3, no LTO, 256 codegen units, incremental), with the same tier, MSVC
+  code generation, packages and features as the PGO build, minus the training examples.
+  Whenever the cut app is built, `pleochroma-cli` is built with it (it links pleochroma-cut,
+  so it costs little more). Nothing is instrumented, trained or profiled, the llvm tools are
+  not needed, and avx512 is built on any host. The builds live in target\quick-builds\
+  (their incremental caches make a rebuild fast) and the executables are named
+  <binary>-win-<cpu>-<gpu>-quick.exe, so they never replace a PGO binary in <OutDir>. They
+  run slower than PGO binaries: for trying changes out, not for measurements or shipping.
+  -SkipTrain is refused; -Parallel runs the combinations as background jobs, one log per
+  combination (target\quick-builds\<target>-<cpu>-<gpu>\build.log), as a PGO build does.
+  Same as scripts/pgo-bolt-build.sh's --quick.
+.PARAMETER DisableSehWorkaround
+  Restore LLVM's default machine tail merging instead of the MSVC SEH workaround.
+  Use only to check a fixed compiler. Its profiles are kept separately, so -SkipTrain
+  never mixes them with profiles collected with the workaround enabled.
+.PARAMETER MaxMissingFunctionWarnings
+  Fallback threshold for the post-build "no profile data available for function" warning
+  count (default 100000; see Test-ProfileWarnings) -- only consulted when
+  Test-ProfileHashApplied could not verify the profile; once the crate-hash check has
+  confirmed it applied, the count is reported and never fatal. pleochroma-cut measured
+  ~66,000 with a fully applied profile on 2026-09-28. This warning is EXPECTED in bulk for
+  `pleochroma-cut`/`pleochroma-worker`'s own GUI/server/CLI code -- `pgo_train` only
+  exercises `pleochroma`'s tracer/solver/brep/tilt(/gpu) paths, never the desktop editor
+  or the coordinator/worker networking code, so most of those two binaries' own functions
+  legitimately have zero profile samples even with a correctly-applied profile. This is
+  therefore a blunt tripwire for a total-parity-collapse (an instrumented/optimised
+  crate-hash mismatch, where effectively EVERY function in a shared dependency crate like
+  `pleochroma`/`wgpu`/`naga` goes missing), not a precision gate -- the default has not
+  been calibrated against a known-good run, so tighten it once a real successful run
+  establishes this host's actual baseline count.
+#>
+[CmdletBinding()]
+param(
+    [ValidateSet('avx512', 'avx2', 'scalar', 'native', 'all')]
+    [string]$Cpu = 'all',
+    [ValidateSet('gpu', 'cpu', 'both')]
+    [string]$Gpu = 'both',
+    [ValidateSet('worker', 'cut', 'all')]
+    [string]$Target = 'all',
+    [string]$OutDir = '',
+    [switch]$SkipTrain,
+    [switch]$Parallel,
+    [switch]$Native,
+    [switch]$Quick,
+    [switch]$DisableSehWorkaround,
+    [int]$MaxMissingFunctionWarnings = 100000
+)
+
+$ErrorActionPreference = 'Stop'
+$root = Split-Path -Parent $PSScriptRoot
+$hostTarget = 'x86_64-pc-windows-msvc'
+if (-not $OutDir) { $OutDir = Join-Path $root 'bin' }
+$profileMode = if ($DisableSehWorkaround) { 'msvc-default' } else { 'msvc-no-tail-merge' }
+$pgoProfileDir = Join-Path (Join-Path $root 'pgo-profile') $profileMode
+# Keep this argument identical in the generate/use builds, including every trainer.
+# BranchFolder's explicit switch also overrides tail merging during block placement.
+# It avoids changing panic semantics or turning off PGO/LTO for the whole application.
+$compatCodegenFlag = if ($DisableSehWorkaround) { '' } else { 'llvm-args=-enable-tail-merge=false' }
+Write-Host "Windows target: $hostTarget; code generation: $profileMode"
+Write-Host "Profiles: $pgoProfileDir"
+& rustc -vV
+if ($LASTEXITCODE -ne 0) { throw 'Could not identify the active Rust/LLVM toolchain.' }
+# Unit separator: how CARGO_ENCODED_RUSTFLAGS joins individual rustc arguments, so a repo
+# path containing a space (unlike this one today) can't split a flag in two the way
+# space-joined RUSTFLAGS would.
+$unitSep = [char]0x1F
+
+# `-Target all` is ONE combined build per combination (see .DESCRIPTION): its own target
+# directory prefix keeps it from sharing rlibs/logs with a `cut`- or `worker`-only run, so
+# the crate-hash check can never pick up another package set's newest rlib.
+$dirPrefix = if ($Target -eq 'all') { 'pgo-all' } else { 'pgo' }
+$includeWorker = $Target -in @('all', 'worker')
+$includeCut = $Target -in @('all', 'cut')
+# `pleochroma` is always in the package set: it owns `pgo_train`, and the instrumented and
+# optimised builds must select IDENTICAL packages so their crate hashes agree (see
+# Get-PgoFeatures below and both build steps).
+$pkgList = @()
+if ($includeCut) { $pkgList += 'pleochroma-cut' }
+if ($includeWorker) { $pkgList += 'pleochroma-worker' }
+$binList = $pkgList
+# The cut target also builds `pleochroma-cut-core` (owner of the `pgo_train_cutcore`
+# example) in the SAME invocation, so its crate hash is identical in the instrumented and
+# optimised builds. The worker does not link cut-core.
+$trainPkgList = @('pleochroma') + $pkgList
+if ($includeCut) { $trainPkgList += 'pleochroma-cut-core' }
+$exampleArgs = @('--example', 'pgo_train')
+if ($includeCut) { $exampleArgs += @('--example', 'pgo_train_cutcore') }
+
+# --- llvm-profdata / llvm-nm from the active toolchain -----------------------------
+$sysroot = (& rustc --print sysroot).Trim()
+$llvmBin = Join-Path $sysroot "lib\rustlib\$hostTarget\bin"
+$profdata = Join-Path $llvmBin 'llvm-profdata.exe'
+$llvmNm = Join-Path $llvmBin 'llvm-nm.exe'
+# A self-compiled toolchain has no rustup components ("toolchain 'x' does not support
+# components"), so rustup is only ever a best-effort convenience here: try it once for
+# a rustup toolchain, then fall back to the tools in PATH, and only fail when neither
+# place has them. (The host target's own std is always present; nothing to check.)
+# -Quick merges and inspects no profile, so it needs neither tool.
+if (-not $Quick -and (-not (Test-Path $profdata) -or -not (Test-Path $llvmNm))) {
+    if (Get-Command rustup -ErrorAction SilentlyContinue) {
+        Write-Host "llvm-tools-preview not in the sysroot; trying 'rustup component add llvm-tools-preview' (harmless if this is not a rustup toolchain)..."
+        try { & rustup component add llvm-tools-preview 2>&1 | Out-Null } catch {}
+    }
+    if (-not (Test-Path $profdata)) {
+        $fromPath = Get-Command llvm-profdata -ErrorAction SilentlyContinue
+        if ($fromPath) { $profdata = $fromPath.Source } else { throw "llvm-profdata not found at $profdata nor in PATH. Install the toolchain's llvm-tools (rustup: 'rustup component add llvm-tools-preview'; self-compiled: build with llvm-tools enabled) or put an LLVM 'llvm-profdata' matching this rustc's LLVM in PATH." }
+    }
+    if (-not (Test-Path $llvmNm)) {
+        $fromPath = Get-Command llvm-nm -ErrorAction SilentlyContinue
+        if ($fromPath) { $llvmNm = $fromPath.Source } else { throw "llvm-nm not found at $llvmNm nor in PATH (same fix as for llvm-profdata)." }
+    }
+}
+
+# --- AVX-512 host support probe ------------------------------------------------------
+# `-Cpu avx512` (x86-64-v4) crashes a training run with 0xC000001D (illegal instruction)
+# on any host whose CPU lacks AVX-512 -- there is no graceful runtime fallback for an
+# instrumented binary built with a target-cpu baseline it can't execute. Probe once,
+# up front, instead of discovering this mid-run.
+function Test-Avx512Supported {
+    $cfg = & rustc --print cfg -C target-cpu=native 2>$null
+    return [bool]($cfg | Select-String -SimpleMatch 'target_feature="avx512f"')
+}
+
+$avx512Supported = $null
+function Get-Avx512Supported {
+    if ($null -eq $script:avx512Supported) { $script:avx512Supported = Test-Avx512Supported }
+    return $script:avx512Supported
+}
+
+# -Quick runs no binary, so it builds avx512 on any host.
+if (-not $Quick -and $Cpu -eq 'avx512' -and -not (Get-Avx512Supported)) {
+    throw "-Cpu avx512 requested, but this host's native CPU has no AVX-512 support " +
+    "(rustc --print cfg -C target-cpu=native has no target_feature=`"avx512f`"). " +
+    "An instrumented avx512 binary would crash immediately with 0xC000001D (illegal " +
+    "instruction) instead of training. Use -Cpu avx2 or -Cpu scalar (the documented " +
+    "default pair), or run this on AVX-512-capable hardware."
+}
+
+$cpuList = if ($Cpu -in @('all', 'both')) { @('avx512', 'avx2', 'scalar') } else { @($Cpu) }
+if (-not $Quick -and -not $Native -and $cpuList -contains 'avx512' -and -not (Get-Avx512Supported)) {
+    Write-Warning ("Dropping avx512 from -Cpu all: this host's native CPU has no AVX-512 " +
+        "support (see Test-Avx512Supported). Building avx2 and scalar only -- the documented " +
+        "default pair. Pass -Cpu avx512 explicitly on AVX-512-capable hardware to opt back in.")
+    $cpuList = @($cpuList | Where-Object { $_ -ne 'avx512' })
+}
+# -Native replaces the tier list (it used to append to it).
+if ($Native) {
+    $cpuList = @('native')
+}
+$gpuList = if ($Gpu -in @('all', 'both')) { @('gpu', 'cpu') } else { @($Gpu) }
+
+# One feature list, used VERBATIM by both the instrumented (profile-generate) and the
+# optimised (profile-use) cargo invocation, so both produce the same crate hashes.
+# `pleochroma/serde` and `pleochroma/hdr` are always included, regardless of -Target:
+# `pleochroma-cut` depends
+# on `pleochroma` with `features = ["hdr"]` unconditionally and always enables
+# `pleochroma-net/render` (-> `pleochroma/serde`); `pleochroma-worker`'s own `worker`
+# feature turns on both the same way (`pleochroma/hdr` explicitly, `pleochroma/serde` via
+# `pleochroma-net/render`). Naming them explicitly here, rather than relying on that
+# propagation, keeps the two build steps' `--features` string trivially comparable
+# instead of depending on Cargo's feature-unification rules to line up identically both
+# times. `pleochroma-net/compression` (the v14 zstd/LZ4/PNG payload codecs) is a DEFAULT
+# feature of `pleochroma-net` that both apps inherit, so it is already on in every
+# variant; it is named here too so a later change to that crate's default set can never
+# silently drop it from a PGO build (the owner wants it active in every PGO variant).
+function Get-PgoFeatures([bool]$IncludeCut, [bool]$IncludeWorker, [string]$GpuName) {
+    $features = @('pleochroma/serde', 'pleochroma/hdr', 'pleochroma-net/compression')
+    if ($IncludeWorker) { $features += 'pleochroma-worker/worker' }
+    if ($GpuName -eq 'gpu') {
+        $features += 'pleochroma/gpu'
+        if ($IncludeCut) { $features += 'pleochroma-cut/gpu' }
+        if ($IncludeWorker) { $features += 'pleochroma-worker/gpu' }
+    }
+    return ($features -join ',')
+}
+
+# --- -Quick: no PGO, no LTO (see -Quick in the help above) ---------------------------
+# One plain `quick-release` build per combination, one after another in this process or, with
+# -Parallel, as background jobs; then the script ends.
+if ($Quick) {
+    if ($SkipTrain) { throw '-Quick never trains, so -SkipTrain has nothing to skip.' }
+    $quickPkgList = $trainPkgList
+    $quickBinList = $binList
+    if ($includeCut) {
+        $quickPkgList += 'pleochroma-cli'
+        $quickBinList += 'pleochroma-cli'
+    }
+
+    # Everything one combination needs, computed here: a background job sees only its
+    # arguments, not this script's functions and variables.
+    $quickCombos = foreach ($c in $cpuList) {
+        $targetCpu = switch ($c) {
+            'avx512' { 'x86-64-v4' }
+            'avx2' { 'x86-64-v3' }
+            'scalar' { 'x86-64-v2' }
+            'native' { 'native' }
+        }
+        foreach ($g in $gpuList) {
+            $name = "$c-$g"
+            $tdir = Join-Path $root "target\quick-builds\$Target-$name"
+            $features = Get-PgoFeatures $includeCut $includeWorker $g
+            if ($includeCut -and $g -eq 'gpu') { $features += ',pleochroma-cli/gpu' }
+            $codegenFlags = @('-C', "target-cpu=$targetCpu")
+            if ($compatCodegenFlag) { $codegenFlags += @('-C', $compatCodegenFlag) }
+            [pscustomobject]@{
+                Name      = $name
+                Tdir      = $tdir
+                Log       = Join-Path $tdir 'build.log'
+                Rustflags = $codegenFlags -join $unitSep
+                Features  = $features
+            }
+        }
+    }
+
+    # One combination: the build, then the executables copied to $OutDir. The same block runs
+    # in this process (sequential) and as a background job (-Parallel); the caller restores
+    # the environment it changes, a job's process simply ends.
+    $quickBuild = {
+        param($root, $hostTarget, $OutDir, $name, $tdir, $logfile, $encodedRustflags, $packages, $features, $bins)
+        $ErrorActionPreference = 'Stop'
+        Push-Location $root
+        try {
+            Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue
+            $env:CARGO_ENCODED_RUSTFLAGS = $encodedRustflags
+            New-Item -ItemType Directory -Force $tdir | Out-Null
+            $null > $logfile
+            $pkgArgs = @($packages | ForEach-Object { '-p', $_ })
+            $description = "[$name] quick-release build, NO PGO, NO LTO (bins: $(@($bins) -join ', '); features: $features)"
+            Write-Host "==> $description" -ForegroundColor Cyan
+            "==> $description" | Out-File -FilePath $logfile -Append -Encoding utf8
+            cargo build --profile quick-release --target $hostTarget --target-dir $tdir @pkgArgs --bins --features $features *>&1 |
+                Tee-Object -FilePath $logfile -Append
+            if ($LASTEXITCODE -ne 0) { throw "$description failed (exit $LASTEXITCODE)" }
+            if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Force $OutDir | Out-Null }
+            $buildDir = Join-Path $tdir "$hostTarget\quick-release"
+            foreach ($bin in $bins) {
+                $src = Join-Path $buildDir "$bin.exe"
+                if (-not (Test-Path $src)) { throw "expected binary missing: $src" }
+                $dst = Join-Path $OutDir "$bin-win-$name-quick.exe"
+                Copy-Item -Force $src $dst
+                $line = "   {0}  ({1:N1} MB)" -f $dst, ((Get-Item $dst).Length / 1MB)
+                Write-Host $line -ForegroundColor Green
+                $line | Out-File -FilePath $logfile -Append -Encoding utf8
+            }
+        }
+        catch {
+            "ERROR: $_" | Out-File -FilePath $logfile -Append -Encoding utf8
+            throw
+        }
+        finally {
+            Pop-Location
+        }
+    }
+
+    if ($Parallel) {
+        Write-Host "`n==> Prefetching crate dependencies to avoid concurrent registry locks..." -ForegroundColor Cyan
+        & cargo fetch --target $hostTarget
+
+        $quickJobs = @()
+        foreach ($combo in $quickCombos) {
+            Write-Host "==> [$($combo.Name)] Dispatched quick build in background (log: $($combo.Log))"
+            $jobArgs = @(
+                $root, $hostTarget, $OutDir, $combo.Name, $combo.Tdir, $combo.Log,
+                $combo.Rustflags, $quickPkgList, $combo.Features, $quickBinList
+            )
+            $job = Start-Job -Name $combo.Name -ScriptBlock $quickBuild -ArgumentList $jobArgs
+            $quickJobs += @{ Job = $job; Name = $combo.Name; Log = $combo.Log }
+        }
+
+        Write-Host "`n==> Waiting for $($quickJobs.Count) background quick builds to complete..." -ForegroundColor Cyan
+        $failed = $false
+        foreach ($j in $quickJobs) {
+            $completed = Wait-Job $j.Job
+            if ($completed.State -eq 'Completed') {
+                Write-Host "  [SUCCESS] $($j.Name)" -ForegroundColor Green
+                if (Test-Path $j.Log) {
+                    Get-Content $j.Log | Where-Object { $_ -like '   *.exe  (*' } | ForEach-Object { Write-Host $_ -ForegroundColor Green }
+                }
+            }
+            else {
+                Write-Host "  [FAILED]  $($j.Name) (see tail of $($j.Log))" -ForegroundColor Red
+                $failed = $true
+                if (Test-Path $j.Log) {
+                    Get-Content $j.Log -Tail 20 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+                }
+            }
+            # The job's output is all in its log (summarised above); drop every stream here.
+            Receive-Job $completed -ErrorAction SilentlyContinue *> $null
+            Remove-Job $completed
+        }
+        if ($failed) { throw 'One or more parallel quick builds failed.' }
+    }
+    else {
+        $savedEncodedRustflags = $env:CARGO_ENCODED_RUSTFLAGS
+        $savedRustflags = $env:RUSTFLAGS
+        try {
+            foreach ($combo in $quickCombos) {
+                & $quickBuild $root $hostTarget $OutDir $combo.Name $combo.Tdir $combo.Log `
+                    $combo.Rustflags $quickPkgList $combo.Features $quickBinList
+            }
+        }
+        finally {
+            if ($null -ne $savedEncodedRustflags) { $env:CARGO_ENCODED_RUSTFLAGS = $savedEncodedRustflags } else { Remove-Item Env:CARGO_ENCODED_RUSTFLAGS -ErrorAction SilentlyContinue }
+            if ($null -ne $savedRustflags) { $env:RUSTFLAGS = $savedRustflags } else { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue }
+        }
+    }
+    Write-Host "`nAll requested quick builds are in $OutDir" -ForegroundColor Green
+    return
+}
+
+# The `PLEOCHROMA_SIMD` values `pgo_train` is run with for one tier build (BLD-1). The shipped
+# binary runs with the variable UNSET and dispatches at run time to the host's best kernels
+# (`simd::simd_level`), so a tier build trained only under its own cap leaves the higher
+# tier's kernels (the AVX-512 slab/feasibility/triple-solve variants in an `avx2` build)
+# with zero counts. When the host's native tier outranks the cap, return `''` (unset =
+# host-native dispatch) AND the cap, so both kernel sets are profiled and the `.profraw`
+# files of both runs merge into the tier's one `.profdata`. The host tier comes from the
+# instrumented training binary itself (`--print-simd-tier`), never from CPUID tools. A native
+# build (`$SimdCap` empty) gets the single unset run.
+function Get-SimdTrainingCaps([string]$Exe, [string]$SimdCap) {
+    if (-not $SimdCap) { return @('') }
+    $rank = @{ scalar = 0; avx2 = 1; avx512 = 2 }
+    $saved = $env:PLEOCHROMA_SIMD
+    Remove-Item Env:PLEOCHROMA_SIMD -ErrorAction SilentlyContinue
+    try { $hostTier = ((& $Exe --print-simd-tier) | Select-Object -First 1).ToString().Trim() }
+    finally { if ($null -ne $saved) { $env:PLEOCHROMA_SIMD = $saved } }
+    if (-not $rank.ContainsKey($hostTier)) { throw "unexpected --print-simd-tier output '$hostTier' from $Exe" }
+    if ($rank[$hostTier] -gt $rank[$SimdCap]) { return @('', $SimdCap) }
+    return @($SimdCap)
+}
+
+# Runs `pleochroma-cut-core`'s own `pgo_train_cutcore` example (cut target only), which
+# the caller's instrumented `cargo build` already built in the same invocation as
+# everything else -- see .DESCRIPTION's step 2b. `$env:CARGO_ENCODED_RUSTFLAGS` need not
+# be touched here; `$env:LLVM_PROFILE_FILE` must already point into the profile
+# directory, and its file name is replaced by `cutcore-%p-%m.profraw`.
+function Invoke-CutCoreTraining([string]$Tdir, [string]$Name, [string]$LogFile) {
+    "==> [$Name] pleochroma-cut-core training run" | Out-File -FilePath $LogFile -Append -Encoding utf8
+    $env:LLVM_PROFILE_FILE = Join-Path (Split-Path -Parent $env:LLVM_PROFILE_FILE) 'cutcore-%p-%m.profraw'
+    $cutCoreExe = Join-Path $Tdir "$hostTarget\release\examples\pgo_train_cutcore.exe"
+    & $cutCoreExe 2>&1 | Out-File -FilePath $LogFile -Append -Encoding utf8
+    if ($LASTEXITCODE -ne 0) { throw "[$Name] pleochroma-cut-core training run failed (exit $LASTEXITCODE)" }
+}
+
+# Builds and runs `pleochroma-net`'s `scene_roundtrip` integration test under the same
+# instrumentation, covering `SceneState`'s postcard wire-protocol encode/decode -- the
+# hot path `pleochroma`'s `pgo_train` cannot reach (a `pleochroma` example cannot
+# depend on `pleochroma-net`). Same arguments as scripts/pgo-bolt-build.sh: built with
+# `cargo test --no-run --message-format=json` so the hash-suffixed test binary's path
+# comes from the JSON `executable` field. `$env:CARGO_ENCODED_RUSTFLAGS` and
+# `$env:LLVM_PROFILE_FILE` must already carry the instrumented build's settings.
+function Invoke-NetTraining([string]$Tdir, [string]$Name, [string]$LogFile) {
+    "==> [$Name] instrumented build (pleochroma-net scene_roundtrip test)" |
+        Out-File -FilePath $LogFile -Append -Encoding utf8
+    $jsonPath = Join-Path $Tdir 'net-test-build.json'
+    cargo test --release --target $hostTarget --target-dir $Tdir `
+        -p pleochroma-net --features render --test scene_roundtrip --no-run `
+        --message-format=json 2>> $LogFile > $jsonPath
+    if ($LASTEXITCODE -ne 0) { throw "[$Name] pleochroma-net instrumented test build failed (exit $LASTEXITCODE)" }
+    $netExe = Get-NetTestExecutable $jsonPath
+    if (-not $netExe) { throw "[$Name] could not locate the instrumented scene_roundtrip test binary in $jsonPath" }
+
+    "==> [$Name] pleochroma-net wire-protocol training run" | Out-File -FilePath $LogFile -Append -Encoding utf8
+    $env:LLVM_PROFILE_FILE = Join-Path (Split-Path -Parent $env:LLVM_PROFILE_FILE) 'net-%p-%m.profraw'
+    & $netExe --test-threads=1 2>&1 | Out-File -FilePath $LogFile -Append -Encoding utf8
+    if ($LASTEXITCODE -ne 0) { throw "[$Name] pleochroma-net training run failed (exit $LASTEXITCODE)" }
+}
+
+# Builds and runs `pleochroma-net`'s `pgo_codecs` example under the same instrumentation:
+# the payload codecs (byte shuffle + zstd + LZ4 encode/decode, 1080p and one 4K frame) that
+# neither `pgo_train` (cannot link `pleochroma-net`) nor `scene_roundtrip` reaches. Built
+# with the same `--features render` as the test build above so the crate set matches.
+# `$env:CARGO_ENCODED_RUSTFLAGS` and `$env:LLVM_PROFILE_FILE` must already carry the
+# instrumented build's settings; the profile file name is replaced by `codecs-%p-%m.profraw`.
+function Invoke-CodecTraining([string]$Tdir, [string]$Name, [string]$LogFile) {
+    "==> [$Name] instrumented build (pleochroma-net pgo_codecs example)" |
+        Out-File -FilePath $LogFile -Append -Encoding utf8
+    cargo build --release --target $hostTarget --target-dir $Tdir `
+        -p pleochroma-net --features render --example pgo_codecs 2>&1 |
+        Out-File -FilePath $LogFile -Append -Encoding utf8
+    if ($LASTEXITCODE -ne 0) { throw "[$Name] pleochroma-net pgo_codecs build failed (exit $LASTEXITCODE)" }
+    "==> [$Name] pleochroma-net payload codec training run" | Out-File -FilePath $LogFile -Append -Encoding utf8
+    $env:LLVM_PROFILE_FILE = Join-Path (Split-Path -Parent $env:LLVM_PROFILE_FILE) 'codecs-%p-%m.profraw'
+    $codecsExe = Join-Path $Tdir "$hostTarget\release\examples\pgo_codecs.exe"
+    & $codecsExe 2>&1 | Out-File -FilePath $LogFile -Append -Encoding utf8
+    if ($LASTEXITCODE -ne 0) { throw "[$Name] pleochroma-net pgo_codecs training run failed (exit $LASTEXITCODE)" }
+}
+
+# The last `"executable"` path in a `cargo --message-format=json` log, JSON-unescaped
+# (Windows paths carry doubled backslashes there); `$null` when none is present or the
+# file does not exist.
+function Get-NetTestExecutable([string]$JsonPath) {
+    if (-not (Test-Path $JsonPath)) { return $null }
+    $m = [regex]::Matches((Get-Content -Raw -LiteralPath $JsonPath), '"executable":"([^"]+)"')
+    if ($m.Count -eq 0) { return $null }
+    $path = $m[$m.Count - 1].Groups[1].Value -replace '\\\\', '\'
+    if (Test-Path $path) { return $path }
+    return $null
+}
+
+# Keyed on the actual -Target value (not just "does this include worker"): an `all`
+# build and a `worker`-only build both "include worker", but they select different
+# package sets (`all` also builds `pleochroma-cut`), so they'd otherwise collide on the
+# same `windows-<cpu>-<gpu>.profdata` path despite having different crate hashes --
+# the same crate-hash mismatch an instrumented/optimised package-set split would cause,
+# just for -Target. Within the selected MSVC codegen-mode directory, `all` uses
+# an un-prefixed filename; `cut`-only and `worker`-only each get their own subdirectory.
+function Get-SharedProfilePath([string]$PgoProfileDir, [string]$TargetKey, [string]$Name) {
+    if ($TargetKey -eq 'all') {
+        return Join-Path $PgoProfileDir "windows-$Name.profdata"
+    }
+    return Join-Path (Join-Path $PgoProfileDir $TargetKey) "windows-$Name.profdata"
+}
+
+# --- Profile-applied verification: the merged profile must cover the crate hash the
+#     optimised build just produced, i.e. the instrumented and optimised builds must
+#     produce the same crate hash or profile-use silently finds nothing to apply.
+#     Best-effort: a parsing miss (this LLVM/rustc version's exact
+#     symbol text not matching the regex below) prints a warning and returns rather than
+#     failing the whole build over a diagnostic script's own regex, but a CONFIRMED
+#     mismatch between the two crate-hash tokens is a hard failure.
+# Returns $true when the crate-hash match was CONFIRMED for EVERY checked crate
+# (`pleochroma`, plus `pleochroma-cut-core` for the cut target; the worker does not link
+# cut-core, so it is not applicable there), $false when any could not be verified (a
+# parsing miss -- a warning is printed); throws on a confirmed mismatch in either.
+function Test-ProfileHashApplied([string]$Profdata, [string]$Tdir, [string]$Name, [bool]$CheckCutCore) {
+    $coreOk = Test-CrateHashToken -Profdata $Profdata -Tdir $Tdir -Name $Name `
+        -FuncName 'trace_spectral_ray_with_finish_soa' -TokenPattern 'Cs[0-9a-zA-Z]+_10pleochroma' `
+        -PackageDir 'pleochroma' -RlibStem 'pleochroma'
+    if (-not $CheckCutCore) { return $coreOk }
+    $cutCoreOk = Test-CrateHashToken -Profdata $Profdata -Tdir $Tdir -Name $Name `
+        -FuncName 'resolve_after_edit' -TokenPattern 'Cs[0-9a-zA-Z]+_19pleochroma_cut_core' `
+        -PackageDir 'pleochroma-cut-core' -RlibStem 'pleochroma_cut_core'
+    return ($coreOk -and $cutCoreOk)
+}
+
+# Compares one crate's hash token between the merged profile and the newest optimised
+# rlib of that crate. `$PackageDir` is the package's directory name under the cargo
+# build-dir layout, `$RlibStem` the rlib's crate-name stem (underscores).
+function Test-CrateHashToken([string]$Profdata, [string]$Tdir, [string]$Name, [string]$FuncName, [string]$TokenPattern, [string]$PackageDir, [string]$RlibStem) {
+    # Every manifest line that names the function, not just the first (BLD-1): a merged
+    # profile can hold the same symbol under more than one crate hash (e.g. the net test
+    # build's differently-featured `pleochroma`), and the order of `show --all-functions`
+    # decides which one comes first. All distinct tokens are collected; the rlib's token
+    # must be among them.
+    $profLines = @(& $profdata show --all-functions $Profdata 2>&1 | Select-String -SimpleMatch $FuncName)
+    if ($profLines.Count -eq 0) {
+        Write-Warning "[$Name] '$FuncName' not found in $Profdata -- cannot verify the $PackageDir crate-hash match (training may not have recorded it; check the training run's own output)."
+        return $false
+    }
+    $profTokens = @($profLines | ForEach-Object { [regex]::Match($_.Line, $TokenPattern).Value } |
+        Where-Object { $_ } | Sort-Object -Unique)
+    $profToken = $profTokens -join ','
+    $profLine = $profLines[0]
+
+    # The compiled library is `lib<stem>-<hash>.rlib` in one of two layouts: the new
+    # cargo build-dir layout (`build\<package>\<hash>\out\`, current nightly) or the
+    # classic one (`deps\`, older/stable cargo). More than one may exist (the
+    # instrumented build's, or a different feature set); take the newest across both --
+    # the optimised build that just finished.
+    $releaseRoot = Join-Path $Tdir "$hostTarget\release"
+    $rlib = @(
+        Get-ChildItem -Path (Join-Path $releaseRoot "build\$PackageDir\*\out\lib$RlibStem-*.rlib") -ErrorAction SilentlyContinue
+        Get-ChildItem -Path (Join-Path $releaseRoot "deps\lib$RlibStem-*.rlib") -ErrorAction SilentlyContinue
+    ) | Sort-Object LastWriteTime | Select-Object -Last 1
+    if (-not $rlib) {
+        Write-Warning "[$Name] no lib$RlibStem-*.rlib found under $releaseRoot\build\$PackageDir\*\out or $releaseRoot\deps -- cannot verify the $PackageDir crate-hash match."
+        return $false
+    }
+    $nmLine = & $llvmNm $rlib.FullName 2>&1 | Select-String -SimpleMatch $FuncName | Select-Object -First 1
+    if (-not $nmLine) {
+        Write-Warning "[$Name] '$FuncName' not found in $($rlib.FullName) -- cannot verify the $PackageDir crate-hash match."
+        return $false
+    }
+    $nmToken = [regex]::Match($nmLine.Line, $TokenPattern).Value
+
+    if (-not $profToken -or -not $nmToken) {
+        Write-Warning "[$Name] could not extract a '$TokenPattern' crate-hash token from one or both symbols -- cannot verify the $PackageDir crate-hash match. profile: '$($profLine.Line)' rlib: '$($nmLine.Line)'"
+        return $false
+    }
+    if ($profTokens -notcontains $nmToken) {
+        throw "[$Name] profile did NOT apply to ${PackageDir}: the merged profile's crate-hash token ($profToken) differs from the optimised build's rlib ($nmToken) for '$FuncName'. The instrumented and optimised builds resolved '$FuncName' to two different compiled crates (their package set, target, target-dir or feature list differ), so profile-use silently found nothing to apply."
+    }
+    Write-Host "  [$Name] crate-hash check OK ($PackageDir): $FuncName -> $profToken"
+    return $true
+}
+
+# Scans an optimised build's log for the two warning classes -pgo-warn-missing-function
+# and profile staleness produce. See -MaxMissingFunctionWarnings' doc comment for why
+# "no profile data available" is thresholded rather than required to be zero, and why
+# "hash mismatch" is not.
+function Test-ProfileWarnings([string]$LogFile, [string]$Name, [int]$MaxMissing, [bool]$HashVerified) {
+    if (-not (Test-Path $LogFile)) { return }
+    $lines = Get-Content -LiteralPath $LogFile
+    $hashMismatch = @($lines | Select-String -SimpleMatch 'hash mismatch')
+    $noProfile = @($lines | Select-String -SimpleMatch 'no profile data available')
+
+    if ($hashMismatch.Count -gt 0) {
+        $sample = ($hashMismatch | Select-Object -First 5 | ForEach-Object { $_.Line }) -join "`n"
+        throw "[$Name] $($hashMismatch.Count) 'hash mismatch' warning(s) in $LogFile. With identical --target/--target-dir/package-set/--features between the instrumented and optimised builds and no source edits between the two steps, this should be zero -- a function's compiled code differs from what was profiled. First few:`n$sample"
+    }
+    if ($HashVerified) {
+        # The crate-hash check already proved the profile applied; the count is only
+        # code the training run never executes (the whole GUI for pleochroma-cut).
+        Write-Host "  [$Name] $($noProfile.Count) function(s) without profile data (untrained code; the crate-hash check confirmed the profile applied)"
+        return
+    }
+    if ($noProfile.Count -gt $MaxMissing) {
+        throw "[$Name] $($noProfile.Count) 'no profile data available' warning(s) in $LogFile, over the configured threshold ($MaxMissing, -MaxMissingFunctionWarnings), and the crate-hash check could not verify the profile. Expected in bulk for pleochroma-cut/pleochroma-worker's own GUI/server code that pgo_train never runs (pleochroma-cut measured ~66,000 with a fully applied profile) -- but without the crate-hash confirmation a count this high may mean the profile silently stopped applying again. Check the crate-hash warning printed just above."
+    }
+    Write-Host "  [$Name] $($noProfile.Count) function(s) without profile data (crate-hash check could not verify; under the $MaxMissing threshold)"
+}
+
+if ($Parallel) {
+    Write-Host "`n==> Prefetching crate dependencies to avoid concurrent registry locks..." -ForegroundColor Cyan
+    & cargo fetch --target $hostTarget
+
+    $jobs = @()
+
+    # NOTE: this scriptblock runs in a separate process (Start-Job), so it has no access
+    # to the outer script's functions/variables beyond what -ArgumentList passes in --
+    # everything it needs (the feature string, package list, shared-profile path) is
+    # therefore computed in the DISPATCH loop below (which does have access to
+    # Get-PgoFeatures/Get-SharedProfilePath) and handed in ready-made. Verification
+    # (Test-ProfileWarnings/Test-ProfileHashApplied) likewise runs after Wait-Job, back
+    # in this process, rather than inside the job.
+    $jobScript = {
+        param($root, $hostTarget, $OutDir, $SkipTrain, $CpuName, $TargetCpu, $SimdCap, $GpuName, $logfile, $profdata, $unitSep, $features, $trainPkgList, $binList, $sharedMerged, $exampleArgs, $dirPrefix, $compatCodegenFlag)
+
+        $ErrorActionPreference = 'Stop'
+        $null > $logfile # Truncate/create log file
+
+        function Invoke-Checked {
+            param([string]$Description, [scriptblock]$Command)
+            "==> $Description" | Out-File -FilePath $logfile -Append -Encoding utf8
+            try {
+                & $Command 2>&1 | Out-File -FilePath $logfile -Append -Encoding utf8
+                if ($LASTEXITCODE -ne 0) { throw "$Description failed (exit $LASTEXITCODE)" }
+            }
+            catch {
+                "ERROR: $_" | Out-File -FilePath $logfile -Append -Encoding utf8
+                throw
+            }
+        }
+
+        $name = "$CpuName-$GpuName"
+        $tdir = Join-Path $root "target\$dirPrefix-$name"
+        $pdir = Join-Path $tdir 'profiles'
+        $localMerged = Join-Path $tdir 'merged.profdata'
+        $codegenFlags = @('-C', "target-cpu=$TargetCpu")
+        if ($compatCodegenFlag) { $codegenFlags += @('-C', $compatCodegenFlag) }
+        $pkgArgs = $trainPkgList | ForEach-Object { '-p', $_ }
+
+        Set-Location $root
+        Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue
+        # sccache OFF for the instrumented and the -Cprofile-use build alike (BLD-1; see
+        # the sequential branch's comment for why). This job is its own process, so the
+        # setting dies with it and needs no restore.
+        $env:RUSTC_WRAPPER = ''
+        $env:CARGO_BUILD_RUSTC_WRAPPER = ''
+
+        if (-not $SkipTrain -or -not (Test-Path $sharedMerged)) {
+            if (Test-Path $pdir) { Remove-Item -Recurse -Force $pdir }
+            New-Item -ItemType Directory -Force $pdir | Out-Null
+
+            # This build must select the IDENTICAL packages/target/target-dir/features as
+            # the profile-use build below (only RUSTFLAGS differs) so both produce the
+            # same crate hashes.
+            $env:CARGO_ENCODED_RUSTFLAGS = (@($codegenFlags) + @('-C', "profile-generate=$pdir")) -join $unitSep
+            Invoke-Checked "[$name] instrumented build (packages: $($trainPkgList -join ', '); features: $features)" {
+                cargo build --release --target $hostTarget --target-dir $tdir @pkgArgs --bins @exampleArgs --features $features
+            }
+
+            $env:LLVM_PROFILE_FILE = Join-Path $pdir 'train-%p-%m.profraw'
+            $exe = Join-Path $tdir "$hostTarget\release\examples\pgo_train.exe"
+            # Two-run tier training (BLD-1). A job cannot call Get-SimdTrainingCaps, so the
+            # same logic is inlined (keep the two in step).
+            Remove-Item Env:PLEOCHROMA_SIMD -ErrorAction SilentlyContinue
+            $runCaps = @($SimdCap)
+            if ($SimdCap) {
+                $rank = @{ scalar = 0; avx2 = 1; avx512 = 2 }
+                $hostTier = ((& $exe --print-simd-tier) | Select-Object -First 1).ToString().Trim()
+                if (-not $rank.ContainsKey($hostTier)) { throw "[$name] unexpected --print-simd-tier output '$hostTier'" }
+                if ($rank[$hostTier] -gt $rank[$SimdCap]) { $runCaps = @('', $SimdCap) }
+            }
+            foreach ($runCap in $runCaps) {
+                if ($runCap) { $env:PLEOCHROMA_SIMD = $runCap } else { Remove-Item Env:PLEOCHROMA_SIMD -ErrorAction SilentlyContinue }
+                Invoke-Checked "[$name] training run (PLEOCHROMA_SIMD='$runCap')" { & $exe }
+            }
+
+            # pleochroma-cut-core's own training binary (cut target only), built by the
+            # instrumented invocation above (see .DESCRIPTION's step 2b). A job cannot
+            # call Invoke-CutCoreTraining, so the run is inlined.
+            if ($exampleArgs -contains 'pgo_train_cutcore') {
+                $env:LLVM_PROFILE_FILE = Join-Path $pdir 'cutcore-%p-%m.profraw'
+                $cutCoreExe = Join-Path $tdir "$hostTarget\release\examples\pgo_train_cutcore.exe"
+                Invoke-Checked "[$name] pleochroma-cut-core training run" { & $cutCoreExe }
+            }
+
+            # pleochroma-net's wire-protocol test, the third training binary (same set
+            # as scripts/pgo-bolt-build.sh; see Invoke-NetTraining, which a job cannot
+            # call). The JSON build log goes to a file so the test binary path survives.
+            $netJson = Join-Path $tdir 'net-test-build.json'
+            Invoke-Checked "[$name] instrumented build (pleochroma-net scene_roundtrip test)" {
+                cargo test --release --target $hostTarget --target-dir $tdir -p pleochroma-net --features render --test scene_roundtrip --no-run --message-format=json > $netJson
+            }
+            $netMatches = [regex]::Matches((Get-Content -Raw -LiteralPath $netJson), '"executable":"([^"]+)"')
+            if ($netMatches.Count -eq 0) { throw "[$name] could not locate the instrumented scene_roundtrip test binary in $netJson" }
+            $netExe = $netMatches[$netMatches.Count - 1].Groups[1].Value -replace '\\\\', '\'
+            $env:LLVM_PROFILE_FILE = Join-Path $pdir 'net-%p-%m.profraw'
+            Invoke-Checked "[$name] pleochroma-net wire-protocol training run" { & $netExe --test-threads=1 }
+
+            # pleochroma-net's payload codecs (shuffle + zstd + LZ4), the fourth training
+            # binary; a job cannot call Invoke-CodecTraining, so it is inlined (keep in step).
+            Invoke-Checked "[$name] instrumented build (pleochroma-net pgo_codecs example)" {
+                cargo build --release --target $hostTarget --target-dir $tdir -p pleochroma-net --features render --example pgo_codecs
+            }
+            $env:LLVM_PROFILE_FILE = Join-Path $pdir 'codecs-%p-%m.profraw'
+            $codecsExe = Join-Path $tdir "$hostTarget\release\examples\pgo_codecs.exe"
+            Invoke-Checked "[$name] pleochroma-net payload codec training run" { & $codecsExe }
+
+            $raw = @(Get-ChildItem -Path $pdir -Filter '*.profraw')
+            if ($raw.Count -eq 0) { throw "no .profraw files were written to $pdir" }
+            Invoke-Checked "[$name] merging $($raw.Count) profile(s)" {
+                & $profdata merge -o $localMerged $pdir
+            }
+
+            $sharedMergedDir = Split-Path -Parent $sharedMerged
+            if (-not (Test-Path $sharedMergedDir)) { New-Item -ItemType Directory -Force $sharedMergedDir | Out-Null }
+            Copy-Item -Force $localMerged $sharedMerged
+            $activeProfile = $sharedMerged
+        }
+        else {
+            "[$name] reusing shared profile $sharedMerged" | Out-File -FilePath $logfile -Append -Encoding utf8
+            $activeProfile = $sharedMerged
+        }
+
+        Remove-Item Env:LLVM_PROFILE_FILE -ErrorAction SilentlyContinue
+        Remove-Item Env:PLEOCHROMA_SIMD -ErrorAction SilentlyContinue
+        # Same package/target/target-dir/features as the instrumented build above,
+        # byte-for-byte, so both builds produce the same crate hashes.
+        # `-pgo-warn-missing-function` surfaces every function profile-use can't find
+        # data for, in $logfile, for Test-ProfileWarnings to scan after this job completes.
+        $env:CARGO_ENCODED_RUSTFLAGS = (@($codegenFlags) + @('-C', "profile-use=$activeProfile", '-C', 'llvm-args=-pgo-warn-missing-function')) -join $unitSep
+
+        Invoke-Checked "[$name] PGO release build (packages: $($trainPkgList -join ', '); features: $features)" {
+            cargo build --release --target $hostTarget --target-dir $tdir @pkgArgs --bins @exampleArgs --features $features
+        }
+
+        if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Force $OutDir | Out-Null }
+        $releaseDir = Join-Path $tdir "$hostTarget\release"
+        foreach ($bin in $binList) {
+            $src = Join-Path $releaseDir "$bin.exe"
+            if (-not (Test-Path $src)) { throw "expected binary missing: $src" }
+            $dst = Join-Path $OutDir "$bin-win-$name.exe"
+            Copy-Item -Force $src $dst
+            $size = ((Get-Item $dst).Length / 1MB).ToString("N1")
+            "   $dst ($size MB)" | Out-File -FilePath $logfile -Append -Encoding utf8
+        }
+    }
+
+    foreach ($c in $cpuList) {
+        $targetCpu = switch ($c) {
+            'avx512' { 'x86-64-v4' }
+            'avx2' { 'x86-64-v3' }
+            'scalar' { 'x86-64-v2' }
+            'native' { 'native' }
+        }
+        $simdCap = switch ($c) {
+            'avx512' { 'avx512' }
+            'avx2' { 'avx2' }
+            'scalar' { 'scalar' }
+            'native' { '' }
+        }
+        foreach ($g in $gpuList) {
+            $name = "$c-$g"
+            $tdir = Join-Path $root "target\$dirPrefix-$name"
+            if (-not (Test-Path $tdir)) { New-Item -ItemType Directory -Force $tdir | Out-Null }
+            $logfile = Join-Path $tdir "build.log"
+            $features = Get-PgoFeatures $includeCut $includeWorker $g
+            $sharedMerged = Get-SharedProfilePath $pgoProfileDir $Target $name
+
+            Write-Host "==> [$name] Dispatched build in background (log: $logfile)"
+
+            $jobArgs = @(
+                $root, $hostTarget, $OutDir, $SkipTrain.IsPresent,
+                $c, $targetCpu, $simdCap, $g, $logfile, $profdata, $unitSep, $features, $trainPkgList, $binList, $sharedMerged, $exampleArgs, $dirPrefix, $compatCodegenFlag
+            )
+            $job = Start-Job -Name $name -ScriptBlock $jobScript -ArgumentList $jobArgs
+            $jobs += @{ Job = $job; Name = $name; Log = $logfile; Tdir = $tdir; Profdata = $sharedMerged }
+        }
+    }
+
+    Write-Host "`n==> Waiting for $($jobs.Count) background builds to complete..." -ForegroundColor Cyan
+
+    $failed = $false
+    foreach ($j in $jobs) {
+        $completed = Wait-Job $j.Job
+        if ($completed.State -eq 'Completed') {
+            Write-Host "  [SUCCESS] $($j.Name)" -ForegroundColor Green
+            try {
+                # Crate-hash check FIRST: it is the real proof the profile applied;
+                # the missing-function count is only fatal when it could not verify.
+                $verified = Test-ProfileHashApplied -Profdata $j.Profdata -Tdir $j.Tdir -Name $j.Name -CheckCutCore $includeCut
+                Test-ProfileWarnings -LogFile $j.Log -Name $j.Name -MaxMissing $MaxMissingFunctionWarnings -HashVerified ([bool]$verified)
+            }
+            catch {
+                Write-Host "  [FAILED]  $($j.Name) profile verification: $_" -ForegroundColor Red
+                $failed = $true
+            }
+        }
+        else {
+            Write-Host "  [FAILED]  $($j.Name) (see tail of $($j.Log))" -ForegroundColor Red
+            $failed = $true
+            if (Test-Path $j.Log) {
+                Get-Content $j.Log -Tail 20 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+            }
+        }
+        Receive-Job $completed | Out-Null
+        Remove-Job $completed
+    }
+
+    if ($failed) { throw "One or more parallel builds failed." }
+
+}
+else {
+    # -------------------------------------------------------------------------
+    # Sequential Execution
+    # -------------------------------------------------------------------------
+    function Build-PgoCombination {
+        param([string]$CpuName, [string]$TargetCpu, [string]$SimdCap, [string]$GpuName)
+
+        $name = "$CpuName-$GpuName"
+        $tdir = Join-Path $root "target\$dirPrefix-$name"
+        $pdir = Join-Path $tdir 'profiles'
+        $localMerged = Join-Path $tdir 'merged.profdata'
+        $sharedMerged = Get-SharedProfilePath $pgoProfileDir $Target $name
+        $codegenFlags = @('-C', "target-cpu=$TargetCpu")
+        if ($compatCodegenFlag) { $codegenFlags += @('-C', $compatCodegenFlag) }
+        $logfile = Join-Path $tdir 'build.log'
+        New-Item -ItemType Directory -Force $tdir | Out-Null
+        $null > $logfile # Truncate/create log file, so Test-ProfileWarnings has something to scan
+
+        # Same feature string, same package set (pleochroma + whichever of
+        # pleochroma-cut/pleochroma-worker -Target selected) for BOTH cargo invocations
+        # below -- see Get-PgoFeatures' doc comment.
+        $features = Get-PgoFeatures $includeCut $includeWorker $GpuName
+        $pkgArgs = $trainPkgList | ForEach-Object { '-p', $_ }
+
+        $savedEncodedRustflags = $env:CARGO_ENCODED_RUSTFLAGS
+        $savedRustflags = $env:RUSTFLAGS
+        $savedSimd = $env:PLEOCHROMA_SIMD
+        $savedProfileFile = $env:LLVM_PROFILE_FILE
+        $savedWrapper = $env:RUSTC_WRAPPER
+        $savedCargoWrapper = $env:CARGO_BUILD_RUSTC_WRAPPER
+
+        function Invoke-Checked {
+            param([string]$Description, [scriptblock]$Command, [string]$LogFile)
+            Write-Host "==> $Description" -ForegroundColor Cyan
+            "==> $Description" | Out-File -FilePath $LogFile -Append -Encoding utf8
+            & $Command *>&1 | Tee-Object -FilePath $LogFile -Append
+            if ($LASTEXITCODE -ne 0) { throw "$Description failed (exit $LASTEXITCODE)" }
+        }
+
+        try {
+            Push-Location $root
+            Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue
+            # sccache OFF for every cargo call of this combination, i.e. the instrumented
+            # build(s) AND the final -Cprofile-use build (BLD-1). `.cargo/config.toml` sets
+            # `[build] rustc-wrapper = "sccache"`; an empty env value overrides it (cargo
+            # treats an empty wrapper as none). With the wrapper on, an instrumented crate
+            # can be served from the cache as an object compiled WITHOUT
+            # `-Cprofile-generate` -> the training run writes empty profiles, and a
+            # profile-use build can be served stale objects keyed on the profdata PATH --
+            # the documented root cause of "profiles never applied" (2026-09-28).
+            # Restored in the `finally` below.
+            $env:RUSTC_WRAPPER = ''
+            $env:CARGO_BUILD_RUSTC_WRAPPER = ''
+
+            if (-not $SkipTrain -or -not (Test-Path $sharedMerged)) {
+                if (Test-Path $pdir) { Remove-Item -Recurse -Force $pdir }
+                New-Item -ItemType Directory -Force $pdir | Out-Null
+
+                $env:CARGO_ENCODED_RUSTFLAGS = (@($codegenFlags) + @('-C', "profile-generate=$pdir")) -join $unitSep
+                Invoke-Checked "[$name] instrumented build (packages: $($trainPkgList -join ', '); features: $features)" {
+                    cargo build --release --target $hostTarget --target-dir $tdir @pkgArgs --bins @exampleArgs --features $features
+                } $logfile
+
+                $env:LLVM_PROFILE_FILE = Join-Path $pdir 'train-%p-%m.profraw'
+                $exe = Join-Path $tdir "$hostTarget\release\examples\pgo_train.exe"
+                # Two-run tier training (BLD-1): see Get-SimdTrainingCaps.
+                foreach ($runCap in (Get-SimdTrainingCaps $exe $SimdCap)) {
+                    if ($runCap) { $env:PLEOCHROMA_SIMD = $runCap } else { Remove-Item Env:PLEOCHROMA_SIMD -ErrorAction SilentlyContinue }
+                    Invoke-Checked "[$name] training run (PLEOCHROMA_SIMD='$runCap')" { & $exe } $logfile
+                }
+
+                # pleochroma-cut-core's own training binary (cut target only), built by
+                # the instrumented invocation above -- see .DESCRIPTION's step 2b.
+                if ($includeCut) { Invoke-CutCoreTraining $tdir $name $logfile }
+
+                # pleochroma-net's wire-protocol test, the third training binary
+                # (same set as scripts/pgo-bolt-build.sh).
+                Invoke-NetTraining $tdir $name $logfile
+
+                # pleochroma-net's payload codecs (shuffle + zstd + LZ4), the fourth
+                # training binary.
+                Invoke-CodecTraining $tdir $name $logfile
+
+                $raw = @(Get-ChildItem -Path $pdir -Filter '*.profraw')
+                if ($raw.Count -eq 0) { throw "no .profraw files were written to $pdir" }
+                Invoke-Checked "[$name] merging $($raw.Count) profile(s)" {
+                    & $profdata merge -o $localMerged $pdir
+                } $logfile
+
+                $sharedMergedDir = Split-Path -Parent $sharedMerged
+                if (-not (Test-Path $sharedMergedDir)) { New-Item -ItemType Directory -Force $sharedMergedDir | Out-Null }
+                Copy-Item -Force $localMerged $sharedMerged
+                $activeProfile = $sharedMerged
+            }
+            else {
+                Write-Host "[$name] reusing shared profile $sharedMerged"
+                $activeProfile = $sharedMerged
+            }
+
+            Remove-Item Env:LLVM_PROFILE_FILE -ErrorAction SilentlyContinue
+            Remove-Item Env:PLEOCHROMA_SIMD -ErrorAction SilentlyContinue
+            # Same package/target/target-dir/features as the instrumented build above,
+            # byte-for-byte, so both builds produce the same crate hashes.
+            # `-pgo-warn-missing-function` surfaces every function profile-use can't find
+            # data for, in $logfile, for Test-ProfileWarnings to scan below.
+            $env:CARGO_ENCODED_RUSTFLAGS = (@($codegenFlags) + @('-C', "profile-use=$activeProfile", '-C', 'llvm-args=-pgo-warn-missing-function')) -join $unitSep
+
+            Invoke-Checked "[$name] PGO release build (packages: $($trainPkgList -join ', '); features: $features)" {
+                cargo build --release --target $hostTarget --target-dir $tdir @pkgArgs --bins @exampleArgs --features $features
+            } $logfile
+
+            # Crate-hash check FIRST -- see the parallel branch's identical note.
+            $verified = Test-ProfileHashApplied -Profdata $activeProfile -Tdir $tdir -Name $name -CheckCutCore $includeCut
+            Test-ProfileWarnings -LogFile $logfile -Name $name -MaxMissing $MaxMissingFunctionWarnings -HashVerified ([bool]$verified)
+
+            if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Force $OutDir | Out-Null }
+            $releaseDir = Join-Path $tdir "$hostTarget\release"
+            foreach ($bin in $binList) {
+                $src = Join-Path $releaseDir "$bin.exe"
+                if (-not (Test-Path $src)) { throw "expected binary missing: $src" }
+                $dst = Join-Path $OutDir "$bin-win-$name.exe"
+                Copy-Item -Force $src $dst
+                Write-Host ("   {0}  ({1:N1} MB)" -f $dst, ((Get-Item $dst).Length / 1MB)) -ForegroundColor Green
+            }
+            Write-Host ""
+        }
+        finally {
+            Pop-Location
+            if ($null -ne $savedEncodedRustflags) { $env:CARGO_ENCODED_RUSTFLAGS = $savedEncodedRustflags } else { Remove-Item Env:CARGO_ENCODED_RUSTFLAGS -ErrorAction SilentlyContinue }
+            if ($null -ne $savedRustflags) { $env:RUSTFLAGS = $savedRustflags } else { Remove-Item Env:RUSTFLAGS -ErrorAction SilentlyContinue }
+            if ($null -ne $savedSimd) { $env:PLEOCHROMA_SIMD = $savedSimd } else { Remove-Item Env:PLEOCHROMA_SIMD -ErrorAction SilentlyContinue }
+            if ($null -ne $savedProfileFile) { $env:LLVM_PROFILE_FILE = $savedProfileFile } else { Remove-Item Env:LLVM_PROFILE_FILE -ErrorAction SilentlyContinue }
+            if ($null -ne $savedWrapper) { $env:RUSTC_WRAPPER = $savedWrapper } else { Remove-Item Env:RUSTC_WRAPPER -ErrorAction SilentlyContinue }
+            if ($null -ne $savedCargoWrapper) { $env:CARGO_BUILD_RUSTC_WRAPPER = $savedCargoWrapper } else { Remove-Item Env:CARGO_BUILD_RUSTC_WRAPPER -ErrorAction SilentlyContinue }
+        }
+    }
+
+    foreach ($c in $cpuList) {
+        $targetCpu = switch ($c) {
+            'avx512' { 'x86-64-v4' }
+            'avx2' { 'x86-64-v3' }
+            'scalar' { 'x86-64-v2' }
+            'native' { 'native' }
+        }
+        $simdCap = switch ($c) {
+            'avx512' { 'avx512' }
+            'avx2' { 'avx2' }
+            'scalar' { 'scalar' }
+            'native' { '' }
+        }
+        foreach ($g in $gpuList) {
+            Build-PgoCombination -CpuName $c -TargetCpu $targetCpu -SimdCap $simdCap -GpuName $g
+        }
+    }
+}
+
+Write-Host "`nAll requested PGO builds are in $OutDir" -ForegroundColor Green
